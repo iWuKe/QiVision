@@ -1,0 +1,100 @@
+# QiVision 代码格式化配置
+# 基于 Google 风格，适度调整
+
+Language: Cpp
+BasedOnStyle: Google
+
+# 缩进
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+NamespaceIndentation: None
+AccessModifierOffset: -4
+
+# 行宽
+ColumnLimit: 100
+
+# 大括号
+BreakBeforeBraces: Attach
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: All
+
+# 对齐
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+
+# 换行
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllArgumentsOnNextLine: true
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+
+# 空格
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# 指针和引用
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# 包含排序
+IncludeBlocks: Regroup
+IncludeCategories:
+  # 项目头文件
+  - Regex: '^<QiVision/'
+    Priority: 1
+  # 第三方库
+  - Regex: '^<(gtest|gmock|stb)/'
+    Priority: 2
+  # 标准库
+  - Regex: '^<[a-z_]+>'
+    Priority: 3
+  # 其他
+  - Regex: '.*'
+    Priority: 4
+SortIncludes: true
+
+# 其他
+FixNamespaceComments: true
+MaxEmptyLinesToKeep: 1
+ReflowComments: true
+SortUsingDeclarations: true
+Standard: c++17
+
+# C++11 列表初始化
+Cpp11BracedListStyle: true
+
+# Lambda
+LambdaBodyIndentation: Signature
+
+# 注释
+CommentPragmas: '^ IWYU pragma:'

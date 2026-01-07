@@ -1,0 +1,43 @@
+{
+  "type": "ellipse",
+  "generator": "FittingTestDataGenerator",
+  "version": "1.0",
+  "timestamp": "2025-12-31T16:33:04.774280",
+  "ground_truth": {
+    "cx": 100.0,
+    "cy": 100.0,
+    "semi_major": 40,
+    "semi_minor": 20,
+    "rotation_deg": 0,
+    "eccentricity": 0.8660254037844386
+  },
+  "noise_sigma": 2,
+  "num_points": 6,
+  "points": [
+    [
+      137.5851821232077,
+      100.0
+    ],
+    [
+      112.06690881765954,
+      117.21286224770206
+    ],
+    [
+      66.8998361105651,
+      112.8302383616952
+    ],
+    [
+      67.2746485707361,
+      87.71439602298591
+    ],
+    [
+      112.02620760043682,
+      83.03766868467652
+    ],
+    [
+      141.18736019235905,
+      100.0
+    ]
+  ],
+  "description": "Ellipse a=40 b=20 (ratio 2.0:1), rot=0deg, minimal (6 pts), noise sigma=2px"
+}

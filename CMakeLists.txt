@@ -17,7 +17,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Build Options
 # =============================================================================
 option(QIVISION_BUILD_TESTS "Build unit tests" ON)
-option(QIVISION_BUILD_EXAMPLES "Build examples" OFF)
+option(QIVISION_BUILD_SAMPLES "Build sample programs" ON)
 option(QIVISION_ENABLE_SIMD "Enable SIMD optimizations" ON)
 option(QIVISION_ENABLE_OPENMP "Enable OpenMP for parallelization" OFF)
 
@@ -64,10 +64,10 @@ if(QIVISION_BUILD_TESTS)
 endif()
 
 # =============================================================================
-# Examples
+# Samples
 # =============================================================================
-if(QIVISION_BUILD_EXAMPLES)
-    add_subdirectory(examples)
+if(QIVISION_BUILD_SAMPLES)
+    add_subdirectory(samples)
 endif()
 
 # =============================================================================
@@ -96,4 +96,5 @@ message(STATUS "  Build type:    ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "  SIMD:          ${QIVISION_ENABLE_SIMD}")
 message(STATUS "  Tests:         ${QIVISION_BUILD_TESTS}")
+message(STATUS "  Samples:       ${QIVISION_BUILD_SAMPLES}")
 message(STATUS "")

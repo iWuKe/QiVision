@@ -2,321 +2,129 @@
 
 [中文版](README_CN.md)
 
-**QiVision** is an industrial machine vision algorithm library implemented from scratch in modern C++17, designed to match Halcon's core functionality and accuracy — without any OpenCV dependency.
+**QiVision** is an industrial machine vision library built from scratch in C++17, without OpenCV dependency. Designed to match Halcon's core functionality and precision.
 
-## Highlights
+## Features
 
-- **Zero OpenCV Dependency** - Built entirely from scratch, only uses stb_image for file I/O
-- **Industrial-Grade Precision** - Sub-pixel accuracy (< 0.02px) for edge detection and measurement
-- **Halcon-Compatible Concepts** - Domain, XLD contours, RLE regions familiar to Halcon users
-- **Modern C++17** - Clean API, RAII, no manual memory management
-- **Cross-Platform** - Windows, Linux, macOS support
-- **SIMD Optimized** - AVX2/SSE acceleration for performance-critical operations
+- **Zero Dependencies** - Only uses stb_image for file I/O
+- **Sub-pixel Precision** - < 0.02px accuracy for edge detection
+- **Halcon Concepts** - Domain, XLD contours, RLE regions
+- **Modern C++17** - Clean API, RAII design
+- **SIMD Optimized** - AVX2/SSE acceleration
 
 ## Status
 
-> **Work in Progress** - Core and Internal layers are functional. Feature layer under development.
-
-| Layer | Progress | Modules |
-|-------|----------|---------|
+| Layer | Progress | Description |
+|-------|----------|-------------|
 | Core | 80% | QImage, QRegion, QContour, QMatrix |
-| Platform | 70% | Memory, SIMD, Thread, Timer, FileIO |
-| Internal | 45% | Gaussian, Gradient, Edge, Fitting, Contour ops |
+| Platform | 70% | Memory, SIMD, Thread, Timer |
+| Internal | 45% | Gaussian, Gradient, Edge, Fitting, Contour |
 | Feature | 0% | ShapeModel, Caliper, Blob, OCR (planned) |
 
 ## Quick Start
 
 ### Requirements
 
-- **C++17** compiler (GCC 9+, Clang 10+, MSVC 2019+)
-- **CMake 3.16+**
-- No external dependencies
+- C++17 compiler (GCC 9+, Clang 10+, MSVC 2019+)
+- CMake 3.16+
 
-### Build from Source
+### Build
 
 ```bash
-# Clone the repository
 git clone https://github.com/userqz1/QiVision.git
 cd QiVision
-
-# Configure and build
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
+```
 
-# Run tests to verify installation
+### Run Tests
+
+```bash
 ./build/bin/unit_test
 ```
 
-### Install to System (Optional)
+### Run Samples
 
 ```bash
-# Install to /usr/local (may need sudo)
-cmake --install build --prefix /usr/local
+./build/bin/samples/01_basic_image
+./build/bin/samples/06_contour_segment
 ```
 
-### Use in Your Project
+## Use in Your Project
 
-**Option 1: CMake FetchContent (Recommended)**
+**CMake FetchContent:**
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(
-    QiVision
+FetchContent_Declare(QiVision
     GIT_REPOSITORY https://github.com/userqz1/QiVision.git
-    GIT_TAG main
-)
+    GIT_TAG main)
 FetchContent_MakeAvailable(QiVision)
-
 target_link_libraries(your_app PRIVATE QiVision)
 ```
 
-**Option 2: Add as Subdirectory**
+**As Subdirectory:**
 
 ```cmake
-add_subdirectory(path/to/QiVision)
+add_subdirectory(QiVision)
 target_link_libraries(your_app PRIVATE QiVision)
 ```
 
-**Option 3: Find Installed Package**
+## Examples
 
-```cmake
-find_package(QiVision REQUIRED)
-target_link_libraries(your_app PRIVATE QiVision::QiVision)
-```
+See the [samples/](samples/) folder for complete examples:
 
-## Usage Examples
+- `01_basic_image.cpp` - Image creation, pixel access, save/load
+- `06_contour_segment.cpp` - Contour segmentation into lines and arcs
 
-### Basic Image Operations
+### Basic Image Example
 
 ```cpp
 #include <QiVision/QiVision.h>
-
 using namespace Qi::Vision;
 
 int main() {
-    // Load an image
-    QImage image = QImage::Load("input.png");
+    // Create image
+    QImage img(640, 480, PixelType::UInt8, ChannelType::Gray);
 
-    // Get image properties
-    int width = image.Width();
-    int height = image.Height();
-    int channels = image.Channels();
-
-    // Access pixel values
-    uint8_t pixel = image.At<uint8_t>(100, 100);
-
-    // Create a grayscale copy
-    QImage gray = image.ToGray();
-
-    // Save result
-    gray.Save("output.png");
-
-    return 0;
-}
-```
-
-### Gaussian Filtering
-
-```cpp
-#include <QiVision/QiVision.h>
-#include <QiVision/Internal/Gaussian.h>
-
-using namespace Qi::Vision;
-using namespace Qi::Vision::Internal;
-
-int main() {
-    QImage image = QImage::Load("noisy.png");
-
-    // Apply Gaussian blur with sigma=1.5
-    GaussianParams params;
-    params.sigmaX = 1.5;
-    params.sigmaY = 1.5;
-
-    QImage smoothed = GaussianFilter(image, params);
-    smoothed.Save("smoothed.png");
-
-    return 0;
-}
-```
-
-### Edge Detection (Canny)
-
-```cpp
-#include <QiVision/QiVision.h>
-#include <QiVision/Internal/Canny.h>
-
-using namespace Qi::Vision;
-using namespace Qi::Vision::Internal;
-
-int main() {
-    QImage image = QImage::Load("input.png").ToGray();
-
-    // Configure Canny edge detector
-    CannyParams params;
-    params.lowThreshold = 50;
-    params.highThreshold = 150;
-    params.sigma = 1.0;
-
-    // Detect edges
-    QImage edges = CannyEdgeDetector(image, params);
-    edges.Save("edges.png");
-
-    return 0;
-}
-```
-
-### Sub-Pixel Edge Detection (Steger)
-
-```cpp
-#include <QiVision/QiVision.h>
-#include <QiVision/Internal/Steger.h>
-
-using namespace Qi::Vision;
-using namespace Qi::Vision::Internal;
-
-int main() {
-    QImage image = QImage::Load("line_image.png").ToGray();
-
-    // Detect sub-pixel edges using Steger's method
-    StegerParams params;
-    params.sigma = 1.5;
-    params.lowThreshold = 5.0;
-    params.highThreshold = 10.0;
-
-    std::vector<StegerPoint> points = StegerLineDetector(image, params);
-
-    // Each point has sub-pixel coordinates
-    for (const auto& pt : points) {
-        printf("Edge at (%.3f, %.3f), direction: %.2f\n",
-               pt.x, pt.y, pt.angle);
+    // Fill pixels
+    for (int32_t y = 0; y < img.Height(); ++y) {
+        uint8_t* row = static_cast<uint8_t*>(img.RowPtr(y));
+        for (int32_t x = 0; x < img.Width(); ++x) {
+            row[x] = static_cast<uint8_t>((x + y) % 256);
+        }
     }
 
-    return 0;
-}
-```
+    // Save
+    img.SaveToFile("output.png");
 
-### Contour Processing
-
-```cpp
-#include <QiVision/QiVision.h>
-#include <QiVision/Internal/ContourProcess.h>
-#include <QiVision/Internal/ContourAnalysis.h>
-
-using namespace Qi::Vision;
-using namespace Qi::Vision::Internal;
-
-int main() {
-    // Create a contour (e.g., from edge detection results)
-    QContour contour;
-    contour.AddPoint(0, 0);
-    contour.AddPoint(100, 0);
-    contour.AddPoint(100, 100);
-    contour.AddPoint(0, 100);
-    contour.SetClosed(true);
-
-    // Compute contour properties
-    double length = ComputeContourLength(contour);
-    double area = ComputeContourArea(contour);
-    Point2d centroid = ComputeContourCentroid(contour);
-
-    printf("Length: %.2f, Area: %.2f\n", length, area);
-    printf("Centroid: (%.2f, %.2f)\n", centroid.x, centroid.y);
-
-    // Smooth the contour
-    GaussianSmoothParams smoothParams;
-    smoothParams.sigma = 2.0;
-    QContour smoothed = SmoothContourGaussian(contour, smoothParams);
-
-    // Simplify contour (Douglas-Peucker)
-    QContour simplified = SimplifyContourDP(contour, 1.0);
+    // Load
+    QImage loaded = QImage::FromFile("input.png");
 
     return 0;
 }
 ```
 
-### Geometric Fitting
-
-```cpp
-#include <QiVision/QiVision.h>
-#include <QiVision/Internal/Fitting.h>
-
-using namespace Qi::Vision;
-using namespace Qi::Vision::Internal;
-
-int main() {
-    // Points for line fitting
-    std::vector<Point2d> linePoints = {
-        {0, 0.1}, {1, 1.0}, {2, 2.1}, {3, 2.9}, {4, 4.0}
-    };
-
-    // Fit a line
-    LineFitResult lineResult = FitLine(linePoints);
-    if (lineResult.success) {
-        printf("Line: y = %.3fx + %.3f (error: %.4f)\n",
-               lineResult.line.Slope(),
-               lineResult.line.YIntercept(),
-               lineResult.residualRMS);
-    }
-
-    // Points for circle fitting
-    std::vector<Point2d> circlePoints;
-    for (int i = 0; i < 36; ++i) {
-        double angle = i * 10.0 * M_PI / 180.0;
-        circlePoints.push_back({
-            50.0 + 30.0 * cos(angle) + (rand() % 100 - 50) * 0.01,
-            50.0 + 30.0 * sin(angle) + (rand() % 100 - 50) * 0.01
-        });
-    }
-
-    // Fit a circle
-    CircleFitResult circleResult = FitCircle(circlePoints);
-    if (circleResult.success) {
-        printf("Circle: center(%.2f, %.2f), radius=%.2f\n",
-               circleResult.circle.center.x,
-               circleResult.circle.center.y,
-               circleResult.circle.radius);
-    }
-
-    return 0;
-}
-```
-
-### Contour Segmentation
+### Contour Segmentation Example
 
 ```cpp
 #include <QiVision/QiVision.h>
 #include <QiVision/Internal/ContourSegment.h>
-
 using namespace Qi::Vision;
 using namespace Qi::Vision::Internal;
 
 int main() {
-    // Create an L-shaped contour
+    // Create L-shaped contour
     QContour contour;
-    // Horizontal part
     for (int i = 0; i <= 50; ++i) contour.AddPoint(i, 0);
-    // Vertical part
     for (int i = 1; i <= 50; ++i) contour.AddPoint(50, i);
 
-    // Segment into geometric primitives
+    // Segment into primitives
     SegmentParams params;
-    params.mode = SegmentMode::LinesAndArcs;
-    params.maxLineError = 1.0;
-
+    params.mode = SegmentMode::LinesOnly;
     SegmentationResult result = SegmentContour(contour, params);
 
-    printf("Found %zu lines, %zu arcs\n",
-           result.LineCount(), result.ArcCount());
-
-    // Get fitted line segments
-    for (const auto& primitive : result.primitives) {
-        if (primitive.type == PrimitiveType::Line) {
-            printf("Line: (%.1f,%.1f) -> (%.1f,%.1f)\n",
-                   primitive.segment.p1.x, primitive.segment.p1.y,
-                   primitive.segment.p2.x, primitive.segment.p2.y);
-        }
-    }
-
+    printf("Found %zu lines\n", result.LineCount());
     return 0;
 }
 ```
@@ -324,111 +132,31 @@ int main() {
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  API Layer                                                       │
-│  QImage (Domain support), QRegion (RLE), QContour (XLD), QMatrix │
-├─────────────────────────────────────────────────────────────────┤
-│  Feature Layer (Planned)                                         │
-│  ShapeModel, Caliper, Blob, OCR, Barcode, Calibration            │
-├─────────────────────────────────────────────────────────────────┤
-│  Internal Layer (Algorithm implementations)                      │
-│  Gaussian, Gradient, Canny, Steger, Hessian, Fitting,            │
-│  ContourProcess, ContourAnalysis, ContourSegment, ...            │
-├─────────────────────────────────────────────────────────────────┤
-│  Platform Layer                                                  │
-│  Memory (aligned alloc), SIMD (AVX2/SSE), Thread, Timer, FileIO  │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────┐
+│ API: QImage, QRegion, QContour, QMatrix           │
+├───────────────────────────────────────────────────┤
+│ Feature: ShapeModel, Caliper, Blob, OCR (planned) │
+├───────────────────────────────────────────────────┤
+│ Internal: Gaussian, Gradient, Canny, Steger,      │
+│           Fitting, ContourProcess, ContourSegment │
+├───────────────────────────────────────────────────┤
+│ Platform: Memory, SIMD, Thread, Timer, FileIO     │
+└───────────────────────────────────────────────────┘
 ```
 
-## Precision Specifications
+## Precision Targets
 
-Under standard conditions (contrast >= 50, noise sigma <= 5):
+| Module | Target |
+|--------|--------|
+| Edge1D | < 0.02 px |
+| CircleFit | < 0.02 px |
+| LineFit | < 0.005° |
 
-| Module | Metric | Target Precision |
-|--------|--------|------------------|
-| Edge1D | Position | < 0.02 px (1sigma) |
-| Caliper | Position/Width | < 0.03 px / < 0.05 px |
-| ShapeModel | Position/Angle | < 0.05 px / < 0.05 deg |
-| CircleFit | Center/Radius | < 0.02 px |
-| LineFit | Angle | < 0.005 deg |
+## Documentation
 
-## API Reference
-
-### Core Classes
-
-| Class | Description |
-|-------|-------------|
-| `QImage` | Image container with Domain support, 64-byte aligned rows |
-| `QRegion` | RLE-encoded region (binary mask) |
-| `QContour` | XLD contour with sub-pixel coordinates |
-| `QContourArray` | Collection of contours with hierarchy |
-| `QMatrix` | 2D matrix for numeric computations |
-
-### Internal Modules (Current)
-
-| Module | Functions |
-|--------|-----------|
-| Gaussian | `GaussianFilter`, `GaussianKernel`, `SeparableGaussian` |
-| Gradient | `SobelGradient`, `ScharrGradient`, `ComputeGradientMagnitude` |
-| Canny | `CannyEdgeDetector` |
-| Steger | `StegerLineDetector`, `StegerEdgeDetector` |
-| Fitting | `FitLine`, `FitCircle`, `FitEllipse`, `FitPolynomial` |
-| ContourProcess | `SmoothContour`, `SimplifyContour`, `ResampleContour` |
-| ContourAnalysis | `ComputeContourLength`, `ComputeContourArea`, `ComputeContourCurvature` |
-| ContourSegment | `SegmentContour`, `DetectCorners`, `FitLineToContour` |
-
-## Running Tests
-
-```bash
-# Run all unit tests
-./build/bin/unit_test
-
-# Run specific test
-./build/bin/unit_test --gtest_filter=*Gaussian*
-
-# Run accuracy tests
-./build/bin/accuracy_test
-```
-
-## Directory Structure
-
-```
-QiVision/
-├── include/QiVision/          # Public headers
-│   ├── Core/                  # Core data structures
-│   ├── Platform/              # Platform abstractions
-│   └── Internal/              # Algorithm headers
-├── src/                       # Implementation files
-│   ├── Core/
-│   ├── Platform/
-│   └── Internal/
-├── tests/                     # Test suites
-│   ├── unit/                  # Unit tests
-│   └── accuracy/              # Precision tests
-├── third_party/               # External dependencies (stb_image)
-├── docs/                      # Documentation
-├── PROGRESS.md                # Development progress
-└── CMakeLists.txt             # Build configuration
-```
-
-## Contributing
-
-Contributions are welcome! Please check [PROGRESS.md](PROGRESS.md) for current development status and planned modules.
-
-### Development Guidelines
-
-- Follow the coding style in [CLAUDE.md](.claude/CLAUDE.md)
-- All new features must include unit tests
-- Precision-critical algorithms need accuracy tests
-- Use `int32_t` for pixel coordinates (support large images)
-- Use `double` for sub-pixel coordinates
+- [PROGRESS.md](PROGRESS.md) - Development progress
+- [samples/](samples/) - Example programs
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-- **Halcon** - Design inspiration for industrial vision concepts
-- **stb_image** - Image file I/O
-- **Google Test** - Testing framework
+MIT License

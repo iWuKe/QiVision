@@ -1,3 +1,6 @@
+# Claude Code config (local dev environment)
+.claude/
+
 # Build directories
 build/
 cmake-build-*/

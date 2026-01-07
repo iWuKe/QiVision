@@ -54,6 +54,7 @@ set(UNIT_TEST_SOURCES
     unit/internal/test_contour_analysis.cpp
     unit/internal/test_contour_select.cpp
     unit/internal/test_contour_convert.cpp
+    unit/internal/test_contour_segment.cpp
 )
 
 add_executable(unit_test ${UNIT_TEST_SOURCES})

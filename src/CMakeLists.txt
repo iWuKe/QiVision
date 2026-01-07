@@ -45,6 +45,7 @@ set(QIVISION_SOURCES
     Internal/ContourAnalysis.cpp
     Internal/ContourSelect.cpp
     Internal/ContourConvert.cpp
+    Internal/ContourSegment.cpp
 )
 
 set(QIVISION_HEADERS
@@ -94,6 +95,7 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ContourAnalysis.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ContourSelect.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ContourConvert.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ContourSegment.h
 )
 
 # Create library

@@ -115,7 +115,7 @@ Tests    █████████████████░░░ 85%
 | ContourAnalysis.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 长度/面积/曲率/矩/形状描述符/凸性 |
 | ContourConvert.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 轮廓↔区域转换 |
 | ContourSelect.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 按属性筛选轮廓 |
-| ContourSegment.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 轮廓分割为线段/圆弧 |
+| ContourSegment.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 轮廓分割为线段/圆弧 |
 
 ---
 
@@ -235,6 +235,37 @@ Tests    █████████████████░░░ 85%
 ---
 
 ## 变更日志
+
+### 2026-01-07 (Internal/ContourSegment 模块完成)
+
+- **Internal/ContourSegment 模块完成** ✅
+  - 头文件: include/QiVision/Internal/ContourSegment.h (~470 行)
+  - 实现文件: src/Internal/ContourSegment.cpp (~800 行)
+  - 单元测试: tests/unit/internal/test_contour_segment.cpp (45 测试全部通过)
+  - **角点检测**:
+    - DetectCorners: 基于曲率的角点检测
+    - DetectDominantPoints: 主导点检测（角点+拐点）
+  - **分割点查找**:
+    - FindLineSplitPoints: Douglas-Peucker 风格的直线分割
+    - FindArcSplitPoints: 圆弧拟合分割
+  - **基元拟合**:
+    - FitLineToContour: 直线拟合（调用 Fitting::FitLine）
+    - FitArcToContour: 圆弧拟合（调用 Fitting::FitCircle）
+    - FitBestPrimitive: 自动选择最佳拟合
+  - **轮廓分割**:
+    - SegmentContour: 完整分割流程（支持三种算法）
+    - SegmentContourToLines/ToArcs: 便捷函数
+    - SplitContourAtIndices, ExtractSubContour
+  - **基元分类**:
+    - ClassifyContourSegment: 线/弧分类
+    - ComputeLinearity, ComputeCircularity: 直线度/圆度度量
+  - **合并与转换**:
+    - MergeCollinearSegments: 合并共线线段
+    - MergeSimilarArcs: 合并相似圆弧
+    - SegmentToContour, ArcToContour, PrimitivesToContours
+  - 分割算法: Curvature（曲率）, ErrorBased（误差）, Hybrid（混合）
+  - 依赖: Internal/Fitting.h, Internal/ContourAnalysis.h, Internal/ContourProcess.h
+  - 全部 1975 个单元测试通过
 
 ### 2026-01-07 (Internal/ContourConvert 模块完成)
 

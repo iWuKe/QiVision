@@ -113,7 +113,7 @@ Tests    █████████████████░░░ 85%
 |------|:----:|:----:|:----:|:--------:|:----:|------|
 | ContourProcess.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 平滑/简化/重采样 |
 | ContourAnalysis.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 长度/面积/曲率/矩/形状描述符/凸性 |
-| ContourConvert.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 轮廓↔区域转换 |
+| ContourConvert.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 轮廓↔区域转换 |
 | ContourSelect.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 按属性筛选轮廓 |
 | ContourSegment.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 轮廓分割为线段/圆弧 |
 
@@ -235,6 +235,33 @@ Tests    █████████████████░░░ 85%
 ---
 
 ## 变更日志
+
+### 2026-01-07 (Internal/ContourConvert 模块完成)
+
+- **Internal/ContourConvert 模块完成** ✅
+  - 头文件: include/QiVision/Internal/ContourConvert.h (271 行)
+  - 实现文件: src/Internal/ContourConvert.cpp (~600 行)
+  - 单元测试: tests/unit/internal/test_contour_convert.cpp (52 测试全部通过)
+  - **轮廓→区域转换**:
+    - ContourToRegion: 扫描线填充算法，支持 Filled/Margin 模式
+    - ContoursToRegion: 多轮廓合并填充
+    - ContourWithHolesToRegion: 带孔洞填充
+    - ContourLineToRegion: Bresenham 线光栅化
+    - ContourToThickLineRegion: 粗线区域
+  - **区域→轮廓转换**:
+    - RegionToContours: Moore-Neighbor 边界追踪（4/8 连通）
+    - RegionToContour: 提取最大边界
+    - RegionToSubpixelContours: 亚像素边界
+  - **多边形简化**:
+    - ContourToPolygon, RegionToPolygon: Douglas-Peucker
+  - **点集转换**:
+    - ContourPointsToRegion, RegionPixelsToContour
+  - **辅助函数**:
+    - IsPointInsideContour: 射线法
+    - ContourWindingNumber: 缠绕数
+    - IsContourCCW: 方向判断
+  - 依赖: Core/QContour.h, Core/QRegion.h, Internal/ContourProcess.h
+  - 全部 1930 个单元测试通过
 
 ### 2026-01-06 (Internal/ContourProcess 模块完成)
 

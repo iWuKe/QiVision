@@ -1,62 +1,62 @@
 # QiVision
 
-[中文版](README_CN.md)
+[English](README.md)
 
-**QiVision** is an industrial machine vision algorithm library implemented from scratch in modern C++17, designed to match Halcon's core functionality and accuracy — without any OpenCV dependency.
+**QiVision** 是一个从零开始用现代 C++17 实现的工业机器视觉算法库，旨在匹配 Halcon 的核心功能和精度——完全不依赖 OpenCV。
 
-## Highlights
+## 特性亮点
 
-- **Zero OpenCV Dependency** - Built entirely from scratch, only uses stb_image for file I/O
-- **Industrial-Grade Precision** - Sub-pixel accuracy (< 0.02px) for edge detection and measurement
-- **Halcon-Compatible Concepts** - Domain, XLD contours, RLE regions familiar to Halcon users
-- **Modern C++17** - Clean API, RAII, no manual memory management
-- **Cross-Platform** - Windows, Linux, macOS support
-- **SIMD Optimized** - AVX2/SSE acceleration for performance-critical operations
+- **零 OpenCV 依赖** - 完全从零实现，仅使用 stb_image 进行文件读写
+- **工业级精度** - 亚像素精度 (< 0.02px) 的边缘检测和测量
+- **Halcon 兼容概念** - Domain、XLD 轮廓、RLE 区域等概念对 Halcon 用户友好
+- **现代 C++17** - 简洁的 API，RAII 设计，无需手动内存管理
+- **跨平台** - 支持 Windows、Linux、macOS
+- **SIMD 优化** - 关键操作使用 AVX2/SSE 加速
 
-## Status
+## 开发状态
 
-> **Work in Progress** - Core and Internal layers are functional. Feature layer under development.
+> **开发中** - Core 和 Internal 层已基本可用，Feature 层正在开发中。
 
-| Layer | Progress | Modules |
-|-------|----------|---------|
-| Core | 80% | QImage, QRegion, QContour, QMatrix |
-| Platform | 70% | Memory, SIMD, Thread, Timer, FileIO |
-| Internal | 45% | Gaussian, Gradient, Edge, Fitting, Contour ops |
-| Feature | 0% | ShapeModel, Caliper, Blob, OCR (planned) |
+| 层级 | 进度 | 模块 |
+|------|------|------|
+| Core 核心层 | 80% | QImage, QRegion, QContour, QMatrix |
+| Platform 平台层 | 70% | Memory, SIMD, Thread, Timer, FileIO |
+| Internal 内部层 | 45% | Gaussian, Gradient, Edge, Fitting, Contour 操作 |
+| Feature 功能层 | 0% | ShapeModel, Caliper, Blob, OCR (计划中) |
 
-## Quick Start
+## 快速开始
 
-### Requirements
+### 环境要求
 
-- **C++17** compiler (GCC 9+, Clang 10+, MSVC 2019+)
+- **C++17** 编译器 (GCC 9+, Clang 10+, MSVC 2019+)
 - **CMake 3.16+**
-- No external dependencies
+- 无外部依赖
 
-### Build from Source
+### 从源码构建
 
 ```bash
-# Clone the repository
+# 克隆仓库
 git clone https://github.com/userqz1/QiVision.git
 cd QiVision
 
-# Configure and build
+# 配置并构建
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 
-# Run tests to verify installation
+# 运行测试验证安装
 ./build/bin/unit_test
 ```
 
-### Install to System (Optional)
+### 安装到系统（可选）
 
 ```bash
-# Install to /usr/local (may need sudo)
+# 安装到 /usr/local（可能需要 sudo）
 cmake --install build --prefix /usr/local
 ```
 
-### Use in Your Project
+### 在你的项目中使用
 
-**Option 1: CMake FetchContent (Recommended)**
+**方式一：CMake FetchContent（推荐）**
 
 ```cmake
 include(FetchContent)
@@ -70,23 +70,23 @@ FetchContent_MakeAvailable(QiVision)
 target_link_libraries(your_app PRIVATE QiVision)
 ```
 
-**Option 2: Add as Subdirectory**
+**方式二：作为子目录添加**
 
 ```cmake
 add_subdirectory(path/to/QiVision)
 target_link_libraries(your_app PRIVATE QiVision)
 ```
 
-**Option 3: Find Installed Package**
+**方式三：查找已安装的包**
 
 ```cmake
 find_package(QiVision REQUIRED)
 target_link_libraries(your_app PRIVATE QiVision::QiVision)
 ```
 
-## Usage Examples
+## 使用示例
 
-### Basic Image Operations
+### 基本图像操作
 
 ```cpp
 #include <QiVision/QiVision.h>
@@ -94,28 +94,28 @@ target_link_libraries(your_app PRIVATE QiVision::QiVision)
 using namespace Qi::Vision;
 
 int main() {
-    // Load an image
+    // 加载图像
     QImage image = QImage::Load("input.png");
 
-    // Get image properties
+    // 获取图像属性
     int width = image.Width();
     int height = image.Height();
     int channels = image.Channels();
 
-    // Access pixel values
+    // 访问像素值
     uint8_t pixel = image.At<uint8_t>(100, 100);
 
-    // Create a grayscale copy
+    // 创建灰度副本
     QImage gray = image.ToGray();
 
-    // Save result
+    // 保存结果
     gray.Save("output.png");
 
     return 0;
 }
 ```
 
-### Gaussian Filtering
+### 高斯滤波
 
 ```cpp
 #include <QiVision/QiVision.h>
@@ -127,7 +127,7 @@ using namespace Qi::Vision::Internal;
 int main() {
     QImage image = QImage::Load("noisy.png");
 
-    // Apply Gaussian blur with sigma=1.5
+    // 应用 sigma=1.5 的高斯模糊
     GaussianParams params;
     params.sigmaX = 1.5;
     params.sigmaY = 1.5;
@@ -139,7 +139,7 @@ int main() {
 }
 ```
 
-### Edge Detection (Canny)
+### 边缘检测（Canny）
 
 ```cpp
 #include <QiVision/QiVision.h>
@@ -151,13 +151,13 @@ using namespace Qi::Vision::Internal;
 int main() {
     QImage image = QImage::Load("input.png").ToGray();
 
-    // Configure Canny edge detector
+    // 配置 Canny 边缘检测器
     CannyParams params;
     params.lowThreshold = 50;
     params.highThreshold = 150;
     params.sigma = 1.0;
 
-    // Detect edges
+    // 检测边缘
     QImage edges = CannyEdgeDetector(image, params);
     edges.Save("edges.png");
 
@@ -165,7 +165,7 @@ int main() {
 }
 ```
 
-### Sub-Pixel Edge Detection (Steger)
+### 亚像素边缘检测（Steger）
 
 ```cpp
 #include <QiVision/QiVision.h>
@@ -177,7 +177,7 @@ using namespace Qi::Vision::Internal;
 int main() {
     QImage image = QImage::Load("line_image.png").ToGray();
 
-    // Detect sub-pixel edges using Steger's method
+    // 使用 Steger 方法检测亚像素边缘
     StegerParams params;
     params.sigma = 1.5;
     params.lowThreshold = 5.0;
@@ -185,9 +185,9 @@ int main() {
 
     std::vector<StegerPoint> points = StegerLineDetector(image, params);
 
-    // Each point has sub-pixel coordinates
+    // 每个点都有亚像素坐标
     for (const auto& pt : points) {
-        printf("Edge at (%.3f, %.3f), direction: %.2f\n",
+        printf("边缘位置 (%.3f, %.3f), 方向: %.2f\n",
                pt.x, pt.y, pt.angle);
     }
 
@@ -195,7 +195,7 @@ int main() {
 }
 ```
 
-### Contour Processing
+### 轮廓处理
 
 ```cpp
 #include <QiVision/QiVision.h>
@@ -206,7 +206,7 @@ using namespace Qi::Vision;
 using namespace Qi::Vision::Internal;
 
 int main() {
-    // Create a contour (e.g., from edge detection results)
+    // 创建轮廓（例如从边缘检测结果）
     QContour contour;
     contour.AddPoint(0, 0);
     contour.AddPoint(100, 0);
@@ -214,27 +214,27 @@ int main() {
     contour.AddPoint(0, 100);
     contour.SetClosed(true);
 
-    // Compute contour properties
+    // 计算轮廓属性
     double length = ComputeContourLength(contour);
     double area = ComputeContourArea(contour);
     Point2d centroid = ComputeContourCentroid(contour);
 
-    printf("Length: %.2f, Area: %.2f\n", length, area);
-    printf("Centroid: (%.2f, %.2f)\n", centroid.x, centroid.y);
+    printf("长度: %.2f, 面积: %.2f\n", length, area);
+    printf("质心: (%.2f, %.2f)\n", centroid.x, centroid.y);
 
-    // Smooth the contour
+    // 平滑轮廓
     GaussianSmoothParams smoothParams;
     smoothParams.sigma = 2.0;
     QContour smoothed = SmoothContourGaussian(contour, smoothParams);
 
-    // Simplify contour (Douglas-Peucker)
+    // 简化轮廓（Douglas-Peucker 算法）
     QContour simplified = SimplifyContourDP(contour, 1.0);
 
     return 0;
 }
 ```
 
-### Geometric Fitting
+### 几何拟合
 
 ```cpp
 #include <QiVision/QiVision.h>
@@ -244,21 +244,21 @@ using namespace Qi::Vision;
 using namespace Qi::Vision::Internal;
 
 int main() {
-    // Points for line fitting
+    // 用于直线拟合的点
     std::vector<Point2d> linePoints = {
         {0, 0.1}, {1, 1.0}, {2, 2.1}, {3, 2.9}, {4, 4.0}
     };
 
-    // Fit a line
+    // 拟合直线
     LineFitResult lineResult = FitLine(linePoints);
     if (lineResult.success) {
-        printf("Line: y = %.3fx + %.3f (error: %.4f)\n",
+        printf("直线: y = %.3fx + %.3f (误差: %.4f)\n",
                lineResult.line.Slope(),
                lineResult.line.YIntercept(),
                lineResult.residualRMS);
     }
 
-    // Points for circle fitting
+    // 用于圆拟合的点
     std::vector<Point2d> circlePoints;
     for (int i = 0; i < 36; ++i) {
         double angle = i * 10.0 * M_PI / 180.0;
@@ -268,10 +268,10 @@ int main() {
         });
     }
 
-    // Fit a circle
+    // 拟合圆
     CircleFitResult circleResult = FitCircle(circlePoints);
     if (circleResult.success) {
-        printf("Circle: center(%.2f, %.2f), radius=%.2f\n",
+        printf("圆: 圆心(%.2f, %.2f), 半径=%.2f\n",
                circleResult.circle.center.x,
                circleResult.circle.center.y,
                circleResult.circle.radius);
@@ -281,7 +281,7 @@ int main() {
 }
 ```
 
-### Contour Segmentation
+### 轮廓分割
 
 ```cpp
 #include <QiVision/QiVision.h>
@@ -291,27 +291,27 @@ using namespace Qi::Vision;
 using namespace Qi::Vision::Internal;
 
 int main() {
-    // Create an L-shaped contour
+    // 创建 L 形轮廓
     QContour contour;
-    // Horizontal part
+    // 水平部分
     for (int i = 0; i <= 50; ++i) contour.AddPoint(i, 0);
-    // Vertical part
+    // 垂直部分
     for (int i = 1; i <= 50; ++i) contour.AddPoint(50, i);
 
-    // Segment into geometric primitives
+    // 分割为几何基元
     SegmentParams params;
     params.mode = SegmentMode::LinesAndArcs;
     params.maxLineError = 1.0;
 
     SegmentationResult result = SegmentContour(contour, params);
 
-    printf("Found %zu lines, %zu arcs\n",
+    printf("找到 %zu 条直线, %zu 个圆弧\n",
            result.LineCount(), result.ArcCount());
 
-    // Get fitted line segments
+    // 获取拟合的线段
     for (const auto& primitive : result.primitives) {
         if (primitive.type == PrimitiveType::Line) {
-            printf("Line: (%.1f,%.1f) -> (%.1f,%.1f)\n",
+            printf("线段: (%.1f,%.1f) -> (%.1f,%.1f)\n",
                    primitive.segment.p1.x, primitive.segment.p1.y,
                    primitive.segment.p2.x, primitive.segment.p2.y);
         }
@@ -321,53 +321,53 @@ int main() {
 }
 ```
 
-## Architecture
+## 架构设计
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  API Layer                                                       │
-│  QImage (Domain support), QRegion (RLE), QContour (XLD), QMatrix │
+│  API 层                                                          │
+│  QImage (支持 Domain), QRegion (RLE), QContour (XLD), QMatrix    │
 ├─────────────────────────────────────────────────────────────────┤
-│  Feature Layer (Planned)                                         │
+│  Feature 功能层 (计划中)                                          │
 │  ShapeModel, Caliper, Blob, OCR, Barcode, Calibration            │
 ├─────────────────────────────────────────────────────────────────┤
-│  Internal Layer (Algorithm implementations)                      │
+│  Internal 内部层 (算法实现)                                       │
 │  Gaussian, Gradient, Canny, Steger, Hessian, Fitting,            │
 │  ContourProcess, ContourAnalysis, ContourSegment, ...            │
 ├─────────────────────────────────────────────────────────────────┤
-│  Platform Layer                                                  │
-│  Memory (aligned alloc), SIMD (AVX2/SSE), Thread, Timer, FileIO  │
+│  Platform 平台层                                                  │
+│  Memory (对齐分配), SIMD (AVX2/SSE), Thread, Timer, FileIO       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Precision Specifications
+## 精度规格
 
-Under standard conditions (contrast >= 50, noise sigma <= 5):
+在标准条件下（对比度 >= 50，噪声 sigma <= 5）：
 
-| Module | Metric | Target Precision |
-|--------|--------|------------------|
-| Edge1D | Position | < 0.02 px (1sigma) |
-| Caliper | Position/Width | < 0.03 px / < 0.05 px |
-| ShapeModel | Position/Angle | < 0.05 px / < 0.05 deg |
-| CircleFit | Center/Radius | < 0.02 px |
-| LineFit | Angle | < 0.005 deg |
+| 模块 | 指标 | 目标精度 |
+|------|------|----------|
+| Edge1D | 位置 | < 0.02 px (1sigma) |
+| Caliper | 位置/宽度 | < 0.03 px / < 0.05 px |
+| ShapeModel | 位置/角度 | < 0.05 px / < 0.05° |
+| CircleFit | 圆心/半径 | < 0.02 px |
+| LineFit | 角度 | < 0.005° |
 
-## API Reference
+## API 参考
 
-### Core Classes
+### 核心类
 
-| Class | Description |
-|-------|-------------|
-| `QImage` | Image container with Domain support, 64-byte aligned rows |
-| `QRegion` | RLE-encoded region (binary mask) |
-| `QContour` | XLD contour with sub-pixel coordinates |
-| `QContourArray` | Collection of contours with hierarchy |
-| `QMatrix` | 2D matrix for numeric computations |
+| 类 | 描述 |
+|----|------|
+| `QImage` | 图像容器，支持 Domain，64 字节行对齐 |
+| `QRegion` | RLE 编码的区域（二值掩码） |
+| `QContour` | XLD 轮廓，亚像素坐标 |
+| `QContourArray` | 轮廓集合，支持层级结构 |
+| `QMatrix` | 2D 矩阵，用于数值计算 |
 
-### Internal Modules (Current)
+### Internal 模块（当前已实现）
 
-| Module | Functions |
-|--------|-----------|
+| 模块 | 函数 |
+|------|------|
 | Gaussian | `GaussianFilter`, `GaussianKernel`, `SeparableGaussian` |
 | Gradient | `SobelGradient`, `ScharrGradient`, `ComputeGradientMagnitude` |
 | Canny | `CannyEdgeDetector` |
@@ -377,58 +377,78 @@ Under standard conditions (contrast >= 50, noise sigma <= 5):
 | ContourAnalysis | `ComputeContourLength`, `ComputeContourArea`, `ComputeContourCurvature` |
 | ContourSegment | `SegmentContour`, `DetectCorners`, `FitLineToContour` |
 
-## Running Tests
+## 运行测试
 
 ```bash
-# Run all unit tests
+# 运行所有单元测试
 ./build/bin/unit_test
 
-# Run specific test
+# 运行特定测试
 ./build/bin/unit_test --gtest_filter=*Gaussian*
 
-# Run accuracy tests
+# 运行精度测试
 ./build/bin/accuracy_test
 ```
 
-## Directory Structure
+## 目录结构
 
 ```
 QiVision/
-├── include/QiVision/          # Public headers
-│   ├── Core/                  # Core data structures
-│   ├── Platform/              # Platform abstractions
-│   └── Internal/              # Algorithm headers
-├── src/                       # Implementation files
+├── include/QiVision/          # 公共头文件
+│   ├── Core/                  # 核心数据结构
+│   ├── Platform/              # 平台抽象
+│   └── Internal/              # 算法头文件
+├── src/                       # 实现文件
 │   ├── Core/
 │   ├── Platform/
 │   └── Internal/
-├── tests/                     # Test suites
-│   ├── unit/                  # Unit tests
-│   └── accuracy/              # Precision tests
-├── third_party/               # External dependencies (stb_image)
-├── docs/                      # Documentation
-├── PROGRESS.md                # Development progress
-└── CMakeLists.txt             # Build configuration
+├── tests/                     # 测试套件
+│   ├── unit/                  # 单元测试
+│   └── accuracy/              # 精度测试
+├── third_party/               # 外部依赖 (stb_image)
+├── docs/                      # 文档
+├── PROGRESS.md                # 开发进度
+└── CMakeLists.txt             # 构建配置
 ```
 
-## Contributing
+## 参与贡献
 
-Contributions are welcome! Please check [PROGRESS.md](PROGRESS.md) for current development status and planned modules.
+欢迎贡献！请查看 [PROGRESS.md](PROGRESS.md) 了解当前开发状态和计划中的模块。
 
-### Development Guidelines
+### 开发指南
 
-- Follow the coding style in [CLAUDE.md](.claude/CLAUDE.md)
-- All new features must include unit tests
-- Precision-critical algorithms need accuracy tests
-- Use `int32_t` for pixel coordinates (support large images)
-- Use `double` for sub-pixel coordinates
+- 遵循 [CLAUDE.md](.claude/CLAUDE.md) 中的编码风格
+- 所有新功能必须包含单元测试
+- 精度关键算法需要精度测试
+- 像素坐标使用 `int32_t`（支持大图像）
+- 亚像素坐标使用 `double`
 
-## License
+## 许可证
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT 许可证 - 详见 [LICENSE](LICENSE)
 
-## Acknowledgments
+## 致谢
 
-- **Halcon** - Design inspiration for industrial vision concepts
-- **stb_image** - Image file I/O
-- **Google Test** - Testing framework
+- **Halcon** - 工业视觉概念设计灵感
+- **stb_image** - 图像文件读写
+- **Google Test** - 测试框架
+
+---
+
+## 常见问题
+
+### Q: 为什么不用 OpenCV？
+
+A: QiVision 的目标是提供工业级精度（类似 Halcon），并且完全掌控算法实现。OpenCV 主要面向通用计算机视觉，而工业视觉有更高的精度要求和特定的概念（如 Domain、XLD）。
+
+### Q: 目前可以用于生产环境吗？
+
+A: 目前 Core 和 Internal 层基本可用，但 Feature 层（如模板匹配、卡尺测量）尚未实现。建议等待功能更完善后再用于生产环境。
+
+### Q: 如何报告问题或贡献代码？
+
+A: 请通过 GitHub Issues 报告问题，或提交 Pull Request 贡献代码。
+
+### Q: 支持 GPU 加速吗？
+
+A: 目前不支持 GPU 加速，但 SIMD（AVX2/SSE）优化已经实现。GPU 支持在未来路线图中。

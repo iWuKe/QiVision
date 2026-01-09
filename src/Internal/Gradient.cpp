@@ -1,12 +1,22 @@
 /**
  * @file Gradient.cpp
  * @brief Image gradient computation implementation
+ *
+ * Optimized with OpenMP parallelization and AVX2 SIMD
  */
 
 #include <QiVision/Internal/Gradient.h>
 
 #include <algorithm>
 #include <cstring>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 
 namespace Qi::Vision::Internal {
 
@@ -58,7 +68,7 @@ std::vector<double> PrewittSmoothingKernel() {
 }
 
 // ============================================================================
-// 1D Convolution Helpers
+// 1D Convolution Helpers (Optimized with OpenMP)
 // ============================================================================
 
 template<typename SrcT, typename DstT>
@@ -68,6 +78,7 @@ void Convolve1DRow(const SrcT* src, DstT* dst,
                    BorderMode borderMode) {
     int32_t halfK = kernelSize / 2;
 
+    #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < height; ++y) {
         for (int32_t x = 0; x < width; ++x) {
             double sum = 0.0;
@@ -91,6 +102,7 @@ void Convolve1DCol(const SrcT* src, DstT* dst,
                    BorderMode borderMode) {
     int32_t halfK = kernelSize / 2;
 
+    #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < height; ++y) {
         for (int32_t x = 0; x < width; ++x) {
             double sum = 0.0;
@@ -108,6 +120,162 @@ void Convolve1DCol(const SrcT* src, DstT* dst,
 }
 
 // ============================================================================
+// Optimized Sobel 3x3 with AVX2
+// ============================================================================
+
+#ifdef __AVX2__
+// Specialized Sobel 3x3 X gradient with AVX2
+template<typename SrcT>
+void SobelX_AVX2(const SrcT* src, float* dst, int32_t width, int32_t height, BorderMode borderMode) {
+    // Sobel X: [-1 0 1] in X, [1 2 1] in Y
+    // Combined as separable: smooth_y first, then deriv_x
+
+    std::vector<float> temp(static_cast<size_t>(width) * height);
+
+    // Step 1: Smooth in Y with [1 2 1]
+    #pragma omp parallel for schedule(static)
+    for (int32_t y = 0; y < height; ++y) {
+        int32_t ym1 = (y > 0) ? y - 1 : HandleBorder(-1, height, borderMode);
+        int32_t yp1 = (y < height - 1) ? y + 1 : HandleBorder(height, height, borderMode);
+
+        for (int32_t x = 0; x < width; ++x) {
+            float v0 = static_cast<float>(src[ym1 * width + x]);
+            float v1 = static_cast<float>(src[y * width + x]);
+            float v2 = static_cast<float>(src[yp1 * width + x]);
+            temp[y * width + x] = v0 + 2.0f * v1 + v2;
+        }
+    }
+
+    // Step 2: Derivative in X with [-1 0 1]
+    #pragma omp parallel for schedule(static)
+    for (int32_t y = 0; y < height; ++y) {
+        const float* row = temp.data() + y * width;
+        float* dstRow = dst + y * width;
+
+        int32_t x = 0;
+
+        // Handle left border
+        {
+            int32_t xm1 = HandleBorder(-1, width, borderMode);
+            dstRow[0] = row[1] - row[xm1];
+        }
+        x = 1;
+
+        // AVX2 main loop
+        for (; x + 8 <= width - 1; x += 8) {
+            __m256 left = _mm256_loadu_ps(row + x - 1);
+            __m256 right = _mm256_loadu_ps(row + x + 1);
+            __m256 result = _mm256_sub_ps(right, left);
+            _mm256_storeu_ps(dstRow + x, result);
+        }
+
+        // Scalar for remaining
+        for (; x < width - 1; ++x) {
+            dstRow[x] = row[x + 1] - row[x - 1];
+        }
+
+        // Handle right border
+        if (width > 1) {
+            int32_t xp1 = HandleBorder(width, width, borderMode);
+            dstRow[width - 1] = row[xp1] - row[width - 2];
+        }
+    }
+}
+
+// Specialized Sobel 3x3 Y gradient with AVX2
+template<typename SrcT>
+void SobelY_AVX2(const SrcT* src, float* dst, int32_t width, int32_t height, BorderMode borderMode) {
+    // Sobel Y: [1 2 1] in X, [-1 0 1] in Y
+
+    std::vector<float> temp(static_cast<size_t>(width) * height);
+
+    // Step 1: Smooth in X with [1 2 1]
+    #pragma omp parallel for schedule(static)
+    for (int32_t y = 0; y < height; ++y) {
+        const SrcT* row = src + y * width;
+        float* tmpRow = temp.data() + y * width;
+
+        // Left border
+        {
+            int32_t xm1 = HandleBorder(-1, width, borderMode);
+            float v0 = static_cast<float>(row[xm1]);
+            float v1 = static_cast<float>(row[0]);
+            float v2 = static_cast<float>(row[1]);
+            tmpRow[0] = v0 + 2.0f * v1 + v2;
+        }
+
+        int32_t x = 1;
+        // AVX2 main loop
+        for (; x + 8 <= width - 1; x += 8) {
+            __m256 left, center, right;
+
+            // Load and convert to float
+            if constexpr (std::is_same_v<SrcT, float>) {
+                left = _mm256_loadu_ps(row + x - 1);
+                center = _mm256_loadu_ps(row + x);
+                right = _mm256_loadu_ps(row + x + 1);
+            } else {
+                // For uint8_t or other types, load and convert
+                float leftArr[8], centerArr[8], rightArr[8];
+                for (int i = 0; i < 8; ++i) {
+                    leftArr[i] = static_cast<float>(row[x - 1 + i]);
+                    centerArr[i] = static_cast<float>(row[x + i]);
+                    rightArr[i] = static_cast<float>(row[x + 1 + i]);
+                }
+                left = _mm256_loadu_ps(leftArr);
+                center = _mm256_loadu_ps(centerArr);
+                right = _mm256_loadu_ps(rightArr);
+            }
+
+            __m256 two = _mm256_set1_ps(2.0f);
+            __m256 result = _mm256_add_ps(left, _mm256_fmadd_ps(two, center, right));
+            _mm256_storeu_ps(tmpRow + x, result);
+        }
+
+        // Scalar for remaining
+        for (; x < width - 1; ++x) {
+            float v0 = static_cast<float>(row[x - 1]);
+            float v1 = static_cast<float>(row[x]);
+            float v2 = static_cast<float>(row[x + 1]);
+            tmpRow[x] = v0 + 2.0f * v1 + v2;
+        }
+
+        // Right border
+        if (width > 1) {
+            int32_t xp1 = HandleBorder(width, width, borderMode);
+            float v0 = static_cast<float>(row[width - 2]);
+            float v1 = static_cast<float>(row[width - 1]);
+            float v2 = static_cast<float>(row[xp1]);
+            tmpRow[width - 1] = v0 + 2.0f * v1 + v2;
+        }
+    }
+
+    // Step 2: Derivative in Y with [-1 0 1]
+    #pragma omp parallel for schedule(static)
+    for (int32_t y = 0; y < height; ++y) {
+        int32_t ym1 = (y > 0) ? y - 1 : HandleBorder(-1, height, borderMode);
+        int32_t yp1 = (y < height - 1) ? y + 1 : HandleBorder(height, height, borderMode);
+
+        const float* rowM1 = temp.data() + ym1 * width;
+        const float* rowP1 = temp.data() + yp1 * width;
+        float* dstRow = dst + y * width;
+
+        int32_t x = 0;
+        for (; x + 8 <= width; x += 8) {
+            __m256 vm1 = _mm256_loadu_ps(rowM1 + x);
+            __m256 vp1 = _mm256_loadu_ps(rowP1 + x);
+            __m256 result = _mm256_sub_ps(vp1, vm1);
+            _mm256_storeu_ps(dstRow + x, result);
+        }
+
+        for (; x < width; ++x) {
+            dstRow[x] = rowP1[x] - rowM1[x];
+        }
+    }
+}
+#endif
+
+// ============================================================================
 // Gradient X Implementation
 // ============================================================================
 
@@ -115,6 +283,14 @@ template<typename SrcT, typename DstT>
 void GradientX(const SrcT* src, DstT* dst,
                int32_t width, int32_t height,
                GradientOperator op, BorderMode borderMode) {
+
+#ifdef __AVX2__
+    // Use optimized AVX2 version for Sobel 3x3 with float output
+    if (op == GradientOperator::Sobel3x3 && std::is_same_v<DstT, float>) {
+        SobelX_AVX2(src, reinterpret_cast<float*>(dst), width, height, borderMode);
+        return;
+    }
+#endif
 
     std::vector<double> smoothKernel, derivKernel;
     int32_t kernelSize;
@@ -147,6 +323,7 @@ void GradientX(const SrcT* src, DstT* dst,
             break;
         case GradientOperator::Central:
             // Simple central difference: (I(x+1) - I(x-1)) / 2
+            #pragma omp parallel for schedule(static)
             for (int32_t y = 0; y < height; ++y) {
                 for (int32_t x = 0; x < width; ++x) {
                     int32_t xm1 = (x > 0) ? x - 1 : HandleBorder(-1, width, borderMode);
@@ -183,6 +360,14 @@ void GradientY(const SrcT* src, DstT* dst,
                int32_t width, int32_t height,
                GradientOperator op, BorderMode borderMode) {
 
+#ifdef __AVX2__
+    // Use optimized AVX2 version for Sobel 3x3 with float output
+    if (op == GradientOperator::Sobel3x3 && std::is_same_v<DstT, float>) {
+        SobelY_AVX2(src, reinterpret_cast<float*>(dst), width, height, borderMode);
+        return;
+    }
+#endif
+
     std::vector<double> smoothKernel, derivKernel;
     int32_t kernelSize;
 
@@ -214,6 +399,7 @@ void GradientY(const SrcT* src, DstT* dst,
             break;
         case GradientOperator::Central:
             // Simple central difference: (I(y+1) - I(y-1)) / 2
+            #pragma omp parallel for schedule(static)
             for (int32_t y = 0; y < height; ++y) {
                 for (int32_t x = 0; x < width; ++x) {
                     int32_t ym1 = (y > 0) ? y - 1 : HandleBorder(-1, height, borderMode);
@@ -242,13 +428,32 @@ void GradientY(const SrcT* src, DstT* dst,
 }
 
 // ============================================================================
-// Combined Gradient
+// Combined Gradient (Optimized)
 // ============================================================================
 
 template<typename SrcT, typename DstT>
 void Gradient(const SrcT* src, DstT* gx, DstT* gy,
               int32_t width, int32_t height,
               GradientOperator op, BorderMode borderMode) {
+
+#ifdef __AVX2__
+    // Use optimized AVX2 version for Sobel 3x3 with float output
+    if (op == GradientOperator::Sobel3x3 && std::is_same_v<DstT, float>) {
+        // Run both in parallel using OpenMP sections
+        #pragma omp parallel sections
+        {
+            #pragma omp section
+            {
+                SobelX_AVX2(src, reinterpret_cast<float*>(gx), width, height, borderMode);
+            }
+            #pragma omp section
+            {
+                SobelY_AVX2(src, reinterpret_cast<float*>(gy), width, height, borderMode);
+            }
+        }
+        return;
+    }
+#endif
 
     std::vector<double> smoothKernel, derivKernel;
     int32_t kernelSize;
@@ -342,6 +547,7 @@ void GradientXX(const SrcT* src, DstT* dst,
                 int32_t width, int32_t height,
                 BorderMode borderMode) {
     // Second derivative in X: d²I/dx² = I(x+1) - 2*I(x) + I(x-1)
+    #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < height; ++y) {
         for (int32_t x = 0; x < width; ++x) {
             int32_t xm1 = (x > 0) ? x - 1 : HandleBorder(-1, width, borderMode);
@@ -360,6 +566,7 @@ void GradientYY(const SrcT* src, DstT* dst,
                 int32_t width, int32_t height,
                 BorderMode borderMode) {
     // Second derivative in Y: d²I/dy² = I(y+1) - 2*I(y) + I(y-1)
+    #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < height; ++y) {
         for (int32_t x = 0; x < width; ++x) {
             int32_t ym1 = (y > 0) ? y - 1 : HandleBorder(-1, height, borderMode);
@@ -389,6 +596,7 @@ void GradientXY(const SrcT* src, DstT* dst,
         return static_cast<double>(src[py * width + px]);
     };
 
+    #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < height; ++y) {
         for (int32_t x = 0; x < width; ++x) {
             double val = (getPixel(x + 1, y + 1) - getPixel(x - 1, y + 1) -

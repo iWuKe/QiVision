@@ -52,7 +52,8 @@ int main() {
     std::cout << "=== QiVision Shape Matching Demo ===" << std::endl;
 
     // Define paths
-    std::string dataDir = "tests/data/matching/";
+    std::string dataDir = "tests/data/matching/image1/";
+    std::string outputDir = "tests/data/matching/";
     std::string modelFile = "shape_model.qism";  // QiVision Shape Model
 
     std::vector<std::string> imageFiles = {
@@ -149,8 +150,9 @@ int main() {
         // Save template visualization with ROI
         QImage templateVis = Draw::PrepareForDrawing(templateGray);
         Draw::Rectangle(templateVis, modelROI, Color::Green(), 2);
-        templateVis.SaveToFile("output_template_roi.jpg");
-        std::cout << "   Saved: output_template_roi.jpg" << std::endl;
+        std::string roiPath = outputDir + "output_template_roi.jpg";
+        templateVis.SaveToFile(roiPath);
+        std::cout << "   Saved: " << roiPath << std::endl;
 
         // Save model edge points visualization
         // Draw extracted edge points on template image
@@ -171,8 +173,9 @@ int main() {
             Draw::Pixel(modelVis, px, py+1, Color::Green());
         }
         Draw::Rectangle(modelVis, modelROI, Color::Red(), 1);
-        modelVis.SaveToFile("output_model_edges.jpg");
-        std::cout << "   Saved: output_model_edges.jpg (extracted edge points)" << std::endl;
+        std::string edgePath = outputDir + "output_model_edges.jpg";
+        modelVis.SaveToFile(edgePath);
+        std::cout << "   Saved: " << edgePath << " (extracted edge points)" << std::endl;
     }
 
     // =========================================================================
@@ -207,9 +210,11 @@ int main() {
         QImage searchGray = ToGray(searchColor);
 
         // Search
+        timer.Reset();
         timer.Start();
         auto results = model.Find(searchGray, searchParams);
         double searchTime = timer.ElapsedMs();
+        timer.Stop();
 
         std::cout << "      Found " << results.size() << " matches in "
                   << searchTime << " ms" << std::endl;
@@ -224,12 +229,38 @@ int main() {
                       << "angle=" << (match.angle * 180.0 / M_PI) << " deg "
                       << "score=" << match.score << std::endl;
 
-            // Draw model contour at match position
+            // Draw model contour at match position (green)
             Draw::MatchResultWithContour(resultImage, match, modelContour, Color::Green(), 2);
+
+            // Draw bounding box (red)
+            auto stats = model.GetStats();
+            double halfW = stats.Width() / 2.0;
+            double halfH = stats.Height() / 2.0;
+            double cosA = std::cos(match.angle);
+            double sinA = std::sin(match.angle);
+
+            // Compute rotated corners
+            double corners[4][2] = {
+                {-halfW, -halfH}, {halfW, -halfH},
+                {halfW, halfH}, {-halfW, halfH}
+            };
+            int32_t px[4], py[4];
+            for (int k = 0; k < 4; ++k) {
+                px[k] = static_cast<int32_t>(match.x + cosA * corners[k][0] - sinA * corners[k][1]);
+                py[k] = static_cast<int32_t>(match.y + sinA * corners[k][0] + cosA * corners[k][1]);
+            }
+            // Draw box edges
+            Draw::Line(resultImage, px[0], py[0], px[1], py[1], Color::Red(), 2);
+            Draw::Line(resultImage, px[1], py[1], px[2], py[2], Color::Red(), 2);
+            Draw::Line(resultImage, px[2], py[2], px[3], py[3], Color::Red(), 2);
+            Draw::Line(resultImage, px[3], py[3], px[0], py[0], Color::Red(), 2);
+
+            // Draw center cross
+            Draw::Cross(resultImage, match.x, match.y, 10, Color::Yellow(), 2);
         }
 
         // Save result
-        std::string outPath = "output_match_" + std::to_string(i + 1) + ".jpg";
+        std::string outPath = outputDir + "output_match_" + std::to_string(i + 1) + ".jpg";
         if (resultImage.SaveToFile(outPath)) {
             std::cout << "      Saved: " << outPath << std::endl;
         }

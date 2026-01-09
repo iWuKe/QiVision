@@ -135,6 +135,43 @@ __m256 vMagSq = _mm256_add_ps(_mm256_mul_ps(vGx, vGx), _mm256_mul_ps(vGy, vGy));
 
 ---
 
+### 方案 7: 标量加载 + SIMD 计算 + 周期性早期终止 ✅
+
+**思路**: 结合方案 6 的 SIMD 计算和原版的早期终止机制
+
+**实现**:
+```cpp
+// ComputeScoreBilinearAVX2:
+// 1. 直接指针访问 (避免 GetGradientAt 函数调用)
+// 2. 标量加载梯度到对齐缓冲区 (处理非连续内存)
+// 3. SIMD 批量计算相似度 (向量化点积和累加)
+// 4. 每 16 点检查一次早期终止 (避免频繁 hadd)
+
+for (size_t i = 0; i < n8; i += 8) {
+    // SIMD 坐标变换
+    // 标量加载 + 双线性插值
+    // SIMD 相似度计算
+
+    // 周期性早期终止 (每 16 点)
+    if (checkEarlyExit && ((i & 8) != 0)) {
+        // 水平求和检查
+        if ((currentScore / currentWeight) * numPoints < threshold * 0.8f) {
+            return 0.0;
+        }
+    }
+}
+```
+
+**结果**: ✅ **性能与基准持平** (68-401ms vs 66-399ms)
+
+**优势**:
+1. 保留早期终止机制 (关键!)
+2. 直接指针访问减少函数调用开销
+3. SIMD 加速相似度计算
+4. 周期性检查 (每 16 点) 平衡了检查开销和退出速度
+
+---
+
 ## 瓶颈分析
 
 通过 profiling 发现:

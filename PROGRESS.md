@@ -240,6 +240,54 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-01-09 (AnglePyramid OpenMP + SIMD 优化)
+
+- **性能瓶颈定位** ✅
+  - 添加 SearchPyramid 计时分析
+  - **发现**: 搜索本身只需 40-50ms，AnglePyramid 构建占 620-850ms (92%)
+  - 大图像 2048×4001: 搜索 ~50ms, 金字塔构建 ~850ms
+
+- **OpenMP 并行化** ✅
+  - AnglePyramid.cpp: 所有循环添加 `#pragma omp parallel for`
+  - Gradient.cpp: Sobel 卷积并行化
+  - EdgePoint 提取使用线程本地 vector + critical section 合并
+
+- **AVX2 SIMD 优化** ✅
+  - `atan2_avx2`: 多项式近似，8 个 float 并行计算
+  - `fast_sqrt_avx2`: rsqrt + Newton-Raphson 迭代
+  - 梯度幅值/方向: AVX2 批量处理
+  - 方向量化: AVX2 + int16 pack
+  - Sobel 3x3: 专用 AVX2 版本 `SobelX_AVX2`, `SobelY_AVX2`
+
+- **CMakeLists.txt 更新** ✅
+  - 启用 OpenMP: `QIVISION_ENABLE_OPENMP=ON`
+  - 添加 FMA 指令: `-mfma` 编译器标志
+
+- **测试结果**:
+  | 图像尺寸 | 优化前 | 优化后 | 提升 |
+  |---------|--------|--------|------|
+  | 2048×4001 | ~900ms | ~674ms | **25%** |
+  | 640×512 | ~50ms | ~70ms | -40% (OpenMP 开销) |
+
+- **新增文件**:
+  - samples/08_shape_match_large.cpp: 大图像测试程序
+
+- **已知问题**:
+  - 小图像因 OpenMP 线程创建开销反而变慢
+  - AnglePyramid 构建仍是主要瓶颈 (92%)
+
+- **待优化方向** (记录):
+  1. Pyramid.cpp 高斯模糊优化
+  2. 小图像禁用 OpenMP 并行（尺寸阈值判断）
+  3. 减少 AnglePyramid 中的内存分配/复制
+  4. GPU 加速（CUDA）- 可能获得 5-10× 提升
+  5. **预构建金字塔 API** - 同一图像多模板搜索场景可用
+
+- **架构限制说明**:
+  - AnglePyramid 是每张搜索图像的梯度金字塔
+  - 不同图像必须重新构建，无法复用
+  - 预构建只在同一图像多模板搜索时有效
+
 ### 2026-01-09 (ShapeModel 性能优化方案评估)
 
 - **测试基准**: 640×512 图像, 450 模型点, 360° 搜索

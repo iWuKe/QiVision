@@ -19,7 +19,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(QIVISION_BUILD_TESTS "Build unit tests" ON)
 option(QIVISION_BUILD_SAMPLES "Build sample programs" ON)
 option(QIVISION_ENABLE_SIMD "Enable SIMD optimizations" ON)
-option(QIVISION_ENABLE_OPENMP "Enable OpenMP for parallelization" OFF)
+option(QIVISION_ENABLE_OPENMP "Enable OpenMP for parallelization" ON)
 
 # =============================================================================
 # Compiler Settings
@@ -36,10 +36,23 @@ else()
         check_cxx_compiler_flag(-mavx2 COMPILER_SUPPORTS_AVX2)
         check_cxx_compiler_flag(-msse4.1 COMPILER_SUPPORTS_SSE4)
         if(COMPILER_SUPPORTS_AVX2)
-            add_compile_options(-mavx2)
+            add_compile_options(-mavx2 -mfma)
         elseif(COMPILER_SUPPORTS_SSE4)
             add_compile_options(-msse4.1)
         endif()
+    endif()
+endif()
+
+# =============================================================================
+# OpenMP Support
+# =============================================================================
+if(QIVISION_ENABLE_OPENMP)
+    find_package(OpenMP)
+    if(OpenMP_CXX_FOUND)
+        message(STATUS "OpenMP found: ${OpenMP_CXX_VERSION}")
+    else()
+        message(WARNING "OpenMP not found, disabling parallel optimization")
+        set(QIVISION_ENABLE_OPENMP OFF)
     endif()
 endif()
 

@@ -122,6 +122,47 @@ double Interpolate(const T* data, int32_t width, int32_t height,
                    double borderValue = 0.0);
 
 // ============================================================================
+// Stride-aware Interpolation (for images with row padding)
+// ============================================================================
+
+/**
+ * @brief Bilinear interpolation with explicit stride (row pitch in elements)
+ */
+template<typename T>
+double InterpolateBilinearStrided(const T* data, int32_t width, int32_t height,
+                                   size_t stride, double x, double y,
+                                   BorderMode borderMode = BorderMode::Reflect101,
+                                   double borderValue = 0.0);
+
+/**
+ * @brief Bicubic interpolation with explicit stride
+ */
+template<typename T>
+double InterpolateBicubicStrided(const T* data, int32_t width, int32_t height,
+                                  size_t stride, double x, double y,
+                                  BorderMode borderMode = BorderMode::Reflect101,
+                                  double borderValue = 0.0);
+
+/**
+ * @brief Nearest neighbor interpolation with explicit stride
+ */
+template<typename T>
+double InterpolateNearestStrided(const T* data, int32_t width, int32_t height,
+                                  size_t stride, double x, double y,
+                                  BorderMode borderMode = BorderMode::Reflect101,
+                                  double borderValue = 0.0);
+
+/**
+ * @brief Interpolate using specified method with explicit stride
+ */
+template<typename T>
+double InterpolateStrided(const T* data, int32_t width, int32_t height,
+                           size_t stride, double x, double y,
+                           InterpolationMethod method = InterpolationMethod::Bilinear,
+                           BorderMode borderMode = BorderMode::Reflect101,
+                           double borderValue = 0.0);
+
+// ============================================================================
 // Gradient Interpolation (for subpixel edge detection)
 // ============================================================================
 
@@ -503,6 +544,116 @@ void InterpolateAlongLine(const T* data, int32_t width, int32_t height,
         double x = x0 + i * dx;
         double y = y0 + i * dy;
         results[i] = Interpolate(data, width, height, x, y, method, borderMode, 0.0);
+    }
+}
+
+// ============================================================================
+// Stride-aware Template Implementations
+// ============================================================================
+
+template<typename T>
+double InterpolateNearestStrided(const T* data, int32_t width, int32_t height,
+                                  size_t stride, double x, double y,
+                                  BorderMode borderMode, double borderValue) {
+    int32_t ix = static_cast<int32_t>(std::round(x));
+    int32_t iy = static_cast<int32_t>(std::round(y));
+
+    if (ix < 0 || ix >= width || iy < 0 || iy >= height) {
+        if (borderMode == BorderMode::Constant) {
+            return borderValue;
+        }
+        ix = HandleBorder(ix, width, borderMode);
+        iy = HandleBorder(iy, height, borderMode);
+    }
+
+    return static_cast<double>(data[iy * stride + ix]);
+}
+
+template<typename T>
+double InterpolateBilinearStrided(const T* data, int32_t width, int32_t height,
+                                   size_t stride, double x, double y,
+                                   BorderMode borderMode, double borderValue) {
+    int32_t x0 = static_cast<int32_t>(std::floor(x));
+    int32_t y0 = static_cast<int32_t>(std::floor(y));
+    double fx = x - x0;
+    double fy = y - y0;
+
+    int32_t x1 = x0 + 1;
+    int32_t y1 = y0 + 1;
+
+    auto getPixel = [&](int32_t px, int32_t py) -> double {
+        if (px < 0 || px >= width || py < 0 || py >= height) {
+            if (borderMode == BorderMode::Constant) {
+                return borderValue;
+            }
+            px = HandleBorder(px, width, borderMode);
+            py = HandleBorder(py, height, borderMode);
+        }
+        return static_cast<double>(data[py * stride + px]);
+    };
+
+    double v00 = getPixel(x0, y0);
+    double v10 = getPixel(x1, y0);
+    double v01 = getPixel(x0, y1);
+    double v11 = getPixel(x1, y1);
+
+    double v0 = v00 + fx * (v10 - v00);
+    double v1 = v01 + fx * (v11 - v01);
+    return v0 + fy * (v1 - v0);
+}
+
+template<typename T>
+double InterpolateBicubicStrided(const T* data, int32_t width, int32_t height,
+                                  size_t stride, double x, double y,
+                                  BorderMode borderMode, double borderValue) {
+    int32_t x0 = static_cast<int32_t>(std::floor(x));
+    int32_t y0 = static_cast<int32_t>(std::floor(y));
+    double fx = x - x0;
+    double fy = y - y0;
+
+    auto getPixel = [&](int32_t px, int32_t py) -> double {
+        if (px < 0 || px >= width || py < 0 || py >= height) {
+            if (borderMode == BorderMode::Constant) {
+                return borderValue;
+            }
+            px = HandleBorder(px, width, borderMode);
+            py = HandleBorder(py, height, borderMode);
+        }
+        return static_cast<double>(data[py * stride + px]);
+    };
+
+    double wx[4], wy[4];
+    for (int i = 0; i < 4; ++i) {
+        wx[i] = CubicWeight(fx - (i - 1));
+        wy[i] = CubicWeight(fy - (i - 1));
+    }
+
+    double result = 0.0;
+    for (int j = 0; j < 4; ++j) {
+        double rowSum = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            rowSum += wx[i] * getPixel(x0 + i - 1, y0 + j - 1);
+        }
+        result += wy[j] * rowSum;
+    }
+
+    return result;
+}
+
+template<typename T>
+double InterpolateStrided(const T* data, int32_t width, int32_t height,
+                           size_t stride, double x, double y,
+                           InterpolationMethod method,
+                           BorderMode borderMode, double borderValue) {
+    switch (method) {
+        case InterpolationMethod::Nearest:
+            return InterpolateNearestStrided(data, width, height, stride, x, y, borderMode, borderValue);
+        case InterpolationMethod::Bilinear:
+            return InterpolateBilinearStrided(data, width, height, stride, x, y, borderMode, borderValue);
+        case InterpolationMethod::Bicubic:
+            return InterpolateBicubicStrided(data, width, height, stride, x, y, borderMode, borderValue);
+        default:
+            return InterpolateBilinearStrided(data, width, height, stride, x, y, borderMode, borderValue);
     }
 }
 

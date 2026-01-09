@@ -269,6 +269,30 @@ QImage QImage::Clone() const {
     return copy;
 }
 
+QImage QImage::SubImage(int32_t x, int32_t y, int32_t width, int32_t height) const {
+    // Validate parameters
+    if (Empty()) return QImage();
+    if (x < 0 || y < 0 || width <= 0 || height <= 0) return QImage();
+    if (x + width > impl_->width_ || y + height > impl_->height_) return QImage();
+
+    // Create new image
+    QImage sub(width, height, impl_->type_, impl_->channelType_);
+
+    // Copy pixel data
+    int32_t bytesPerRow = width * impl_->BytesPerPixel();
+    for (int32_t row = 0; row < height; ++row) {
+        const uint8_t* srcRow = static_cast<const uint8_t*>(RowPtr(y + row));
+        uint8_t* dstRow = static_cast<uint8_t*>(sub.RowPtr(row));
+        std::memcpy(dstRow, srcRow + x * impl_->BytesPerPixel(), bytesPerRow);
+    }
+
+    // Copy metadata
+    sub.impl_->pixelSizeX_ = impl_->pixelSizeX_;
+    sub.impl_->pixelSizeY_ = impl_->pixelSizeY_;
+
+    return sub;
+}
+
 bool QImage::SaveToFile(const std::string& path) const {
     if (Empty()) return false;
 

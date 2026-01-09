@@ -843,13 +843,46 @@ VecX SolveSVD(const MatX& A, const VecX& b, double tolerance) {
 }
 
 VecX SolveHomogeneous(const MatX& A) {
+    int m = A.Rows();
+    int n = A.Cols();
+
+    if (m == 0 || n == 0) {
+        return VecX();
+    }
+
+    // For wide matrices (m < n), the thin SVD doesn't give us the full null space.
+    // We need to handle this specially by computing A^T * A and finding its
+    // smallest eigenvector, or using the full null space computation.
+    if (m < n) {
+        // Compute A^T * A (n x n) and find its smallest eigenvector
+        // This is equivalent to finding the right singular vector for the smallest
+        // singular value in the full SVD.
+        MatX ATA = A.Transpose() * A;
+
+        // Use SVD on ATA to find its eigenvectors
+        // The smallest eigenvalue's eigenvector is the null space of A
+        SVDResult svd = SVD_Decompose(ATA);
+        if (!svd.valid || svd.V.Cols() == 0) {
+            return VecX();
+        }
+
+        // For a symmetric matrix like A^T*A, eigenvectors are in V
+        // The last column corresponds to the smallest eigenvalue
+        int lastCol = svd.V.Cols() - 1;
+        VecX x(n);
+        for (int i = 0; i < n; ++i) {
+            x[i] = svd.V(i, lastCol);
+        }
+        return x;
+    }
+
+    // For tall or square matrices (m >= n), thin SVD gives us enough columns of V
     SVDResult svd = SVD_Decompose(A);
     if (!svd.valid || svd.V.Cols() == 0) {
         return VecX();
     }
 
     // Return last column of V (smallest singular value)
-    int n = svd.V.Rows();
     int lastCol = svd.V.Cols() - 1;
 
     VecX x(n);

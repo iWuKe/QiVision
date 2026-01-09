@@ -26,10 +26,11 @@ protected:
     QImage CreateGradientImage(int32_t width, int32_t height) {
         QImage img(width, height, PixelType::UInt8);
         uint8_t* data = static_cast<uint8_t*>(img.Data());
+        const int32_t stride = img.Stride();
 
         for (int32_t y = 0; y < height; ++y) {
             for (int32_t x = 0; x < width; ++x) {
-                data[y * width + x] = static_cast<uint8_t>((x + y) % 256);
+                data[y * stride + x] = static_cast<uint8_t>((x + y) % 256);
             }
         }
         return img;
@@ -38,7 +39,12 @@ protected:
     // Create a uniform image
     QImage CreateUniformImage(int32_t width, int32_t height, uint8_t value) {
         QImage img(width, height, PixelType::UInt8);
-        std::memset(static_cast<uint8_t*>(img.Data()), value, width * height);
+        uint8_t* data = static_cast<uint8_t*>(img.Data());
+        const int32_t stride = img.Stride();
+        // Handle stride correctly - QImage may have 64-byte row alignment
+        for (int32_t y = 0; y < height; ++y) {
+            std::memset(data + y * stride, value, width);
+        }
         return img;
     }
 
@@ -46,11 +52,12 @@ protected:
     QImage CreateCheckerboardImage(int32_t width, int32_t height, int32_t cellSize) {
         QImage img(width, height, PixelType::UInt8);
         uint8_t* data = static_cast<uint8_t*>(img.Data());
+        const int32_t stride = img.Stride();
 
         for (int32_t y = 0; y < height; ++y) {
             for (int32_t x = 0; x < width; ++x) {
                 bool white = ((x / cellSize) + (y / cellSize)) % 2 == 0;
-                data[y * width + x] = white ? 255 : 0;
+                data[y * stride + x] = white ? 255 : 0;
             }
         }
         return img;
@@ -60,10 +67,11 @@ protected:
     QImage CreateStepEdgeImage(int32_t width, int32_t height, int32_t edgeX) {
         QImage img(width, height, PixelType::UInt8);
         uint8_t* data = static_cast<uint8_t*>(img.Data());
+        const int32_t stride = img.Stride();
 
         for (int32_t y = 0; y < height; ++y) {
             for (int32_t x = 0; x < width; ++x) {
-                data[y * width + x] = (x < edgeX) ? 50 : 200;
+                data[y * stride + x] = (x < edgeX) ? 50 : 200;
             }
         }
         return img;
@@ -360,11 +368,16 @@ TEST_F(PyramidTest, ReconstructFromLaplacian_Accuracy) {
 TEST_F(PyramidTest, ReconstructFromLaplacian_Gradient) {
     auto img = CreateGradientImage(64, 64);
 
-    // Convert to float for comparison
-    std::vector<float> original(64 * 64);
+    // Convert to float for comparison (handle stride correctly)
+    const int32_t width = img.Width();
+    const int32_t height = img.Height();
+    const int32_t stride = img.Stride();
+    std::vector<float> original(width * height);
     const uint8_t* srcData = static_cast<const uint8_t*>(img.Data());
-    for (int32_t i = 0; i < 64 * 64; ++i) {
-        original[i] = static_cast<float>(srcData[i]);
+    for (int32_t y = 0; y < height; ++y) {
+        for (int32_t x = 0; x < width; ++x) {
+            original[y * width + x] = static_cast<float>(srcData[y * stride + x]);
+        }
     }
 
     auto laplacian = BuildLaplacianPyramid(img);
@@ -456,10 +469,11 @@ TEST_F(PyramidTest, PyramidLevelToImage_Normalize) {
     auto img = PyramidLevelToImage(level, true);
 
     const uint8_t* data = static_cast<const uint8_t*>(img.Data());
+    const int32_t stride = img.Stride();
 
-    // First pixel should be 0, last should be 255
+    // First pixel should be 0, last (9,9) should be 255
     EXPECT_EQ(data[0], 0);
-    EXPECT_EQ(data[99], 255);
+    EXPECT_EQ(data[9 * stride + 9], 255);
 }
 
 TEST_F(PyramidTest, ImageToPyramidLevel_Basic) {

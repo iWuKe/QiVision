@@ -6,6 +6,7 @@
 set(SAMPLES
     01_basic_image
     06_contour_segment
+    07_shape_match_draw
 )
 
 foreach(sample ${SAMPLES})

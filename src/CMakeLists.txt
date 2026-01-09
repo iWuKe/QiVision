@@ -10,6 +10,7 @@ set(QIVISION_SOURCES
     Core/QMatrix.cpp
     Core/QContour.cpp
     Core/QContourArray.cpp
+    Core/Draw.cpp
     # Platform
     Platform/Memory.cpp
     Platform/SIMD.cpp
@@ -46,6 +47,26 @@ set(QIVISION_SOURCES
     Internal/ContourSelect.cpp
     Internal/ContourConvert.cpp
     Internal/ContourSegment.cpp
+    Internal/RLEOps.cpp
+    Internal/StructElement.cpp
+    Internal/MorphBinary.cpp
+    Internal/MorphGray.cpp
+    Internal/ConnectedComponent.cpp
+    Internal/DistanceTransform.cpp
+    Internal/RegionFeatures.cpp
+    Internal/AffineTransform.cpp
+    Internal/Homography.cpp
+    Internal/Eigen.cpp
+    Internal/Hough.cpp
+    Internal/AnglePyramid.cpp
+    Internal/ResponseMap.cpp
+    Internal/IntegralImage.cpp
+    # Matching (Feature Layer)
+    Matching/ShapeModel.cpp
+    # Measure (Feature Layer)
+    Measure/MeasureHandle.cpp
+    Measure/Caliper.cpp
+    Measure/CaliperArray.cpp
 )
 
 set(QIVISION_HEADERS
@@ -60,6 +81,7 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/QMatrix.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/QContour.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/QContourArray.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Core/Draw.h
     # Platform
     ${CMAKE_SOURCE_DIR}/include/QiVision/Platform/Memory.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Platform/SIMD.h
@@ -96,6 +118,28 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ContourSelect.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ContourConvert.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ContourSegment.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/RLEOps.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/StructElement.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/MorphBinary.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/MorphGray.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ConnectedComponent.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/DistanceTransform.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/RegionFeatures.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/AffineTransform.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Homography.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Eigen.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Hough.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/AnglePyramid.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ResponseMap.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/IntegralImage.h
+    # Matching (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/MatchTypes.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/ShapeModel.h
+    # Measure (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/MeasureTypes.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/MeasureHandle.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/Caliper.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/CaliperArray.h
 )
 
 # Create library

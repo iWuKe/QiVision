@@ -26,22 +26,32 @@ Profile1D ExtractLineProfile(const QImage& image,
         return Profile1D();
     }
 
-    // Handle different pixel types
+    // Get stride in elements (not bytes)
+    size_t bytesPerPixel = 1;
+    switch (image.Type()) {
+        case PixelType::UInt8: bytesPerPixel = 1; break;
+        case PixelType::UInt16: bytesPerPixel = 2; break;
+        case PixelType::Float32: bytesPerPixel = 4; break;
+        default: return Profile1D();
+    }
+    size_t strideElements = image.Stride() / bytesPerPixel;
+
+    // Handle different pixel types using strided interpolation
     switch (image.Type()) {
         case PixelType::UInt8: {
             const uint8_t* data = static_cast<const uint8_t*>(image.Data());
-            return ExtractLineProfile(data, image.Width(), image.Height(),
-                                       x0, y0, x1, y1, numSamples, method);
+            return ExtractLineProfileStrided(data, image.Width(), image.Height(),
+                                              strideElements, x0, y0, x1, y1, numSamples, method);
         }
         case PixelType::UInt16: {
             const uint16_t* data = static_cast<const uint16_t*>(image.Data());
-            return ExtractLineProfile(data, image.Width(), image.Height(),
-                                       x0, y0, x1, y1, numSamples, method);
+            return ExtractLineProfileStrided(data, image.Width(), image.Height(),
+                                              strideElements, x0, y0, x1, y1, numSamples, method);
         }
         case PixelType::Float32: {
             const float* data = static_cast<const float*>(image.Data());
-            return ExtractLineProfile(data, image.Width(), image.Height(),
-                                       x0, y0, x1, y1, numSamples, method);
+            return ExtractLineProfileStrided(data, image.Width(), image.Height(),
+                                              strideElements, x0, y0, x1, y1, numSamples, method);
         }
         default:
             return Profile1D();
@@ -104,45 +114,276 @@ Profile1D ExtractRectProfile(const QImage& image, const RectProfileParams& param
         return Profile1D();
     }
 
-    switch (image.Type()) {
-        case PixelType::UInt8: {
-            const uint8_t* data = static_cast<const uint8_t*>(image.Data());
-            return ExtractRectProfile(data, image.Width(), image.Height(), params);
-        }
-        case PixelType::UInt16: {
-            const uint16_t* data = static_cast<const uint16_t*>(image.Data());
-            return ExtractRectProfile(data, image.Width(), image.Height(), params);
-        }
-        case PixelType::Float32: {
-            const float* data = static_cast<const float*>(image.Data());
-            return ExtractRectProfile(data, image.Width(), image.Height(), params);
-        }
-        default:
-            return Profile1D();
+    // Compute start and end points of center line
+    double halfLen = params.length / 2.0;
+    double cosA = std::cos(params.angle);
+    double sinA = std::sin(params.angle);
+
+    double x0 = params.centerX - halfLen * cosA;
+    double y0 = params.centerY - halfLen * sinA;
+    double x1 = params.centerX + halfLen * cosA;
+    double y1 = params.centerY + halfLen * sinA;
+
+    // Determine number of samples
+    size_t numSamples = static_cast<size_t>(
+        std::ceil(params.length * params.samplesPerPixel)) + 1;
+    if (numSamples < MIN_PROFILE_LENGTH) numSamples = MIN_PROFILE_LENGTH;
+
+    // Single line case - use the stride-aware line profile
+    if (params.numLines <= 1 || params.width <= 0) {
+        return ExtractLineProfile(image, x0, y0, x1, y1, numSamples, params.interp);
     }
+
+    // Multiple lines - extract parallel profiles and combine
+    int32_t nLines = std::min(params.numLines, MAX_AVERAGING_LINES);
+    double halfWidth = params.width / 2.0;
+    double lineSpacing = (nLines > 1) ? params.width / (nLines - 1) : 0.0;
+
+    std::vector<Profile1D> profiles;
+    profiles.reserve(nLines);
+
+    for (int32_t i = 0; i < nLines; ++i) {
+        double offset = (nLines > 1) ? (-halfWidth + i * lineSpacing) : 0.0;
+
+        double ox0, oy0, ox1, oy1;
+        ComputePerpendicularPoint(x0, y0, params.angle, offset, ox0, oy0);
+        ComputePerpendicularPoint(x1, y1, params.angle, offset, ox1, oy1);
+
+        profiles.push_back(ExtractLineProfile(image, ox0, oy0, ox1, oy1,
+                                               numSamples, params.interp));
+    }
+
+    // Combine profiles
+    Profile1D result = CombineProfiles(profiles, params.method);
+    result.startX = x0;
+    result.startY = y0;
+    result.endX = x1;
+    result.endY = y1;
+    result.angle = params.angle;
+
+    return result;
 }
 
 // ============================================================================
 // Arc Profile Extraction
 // ============================================================================
 
+namespace {
+    // Helper to get stride in elements and interpolation function
+    template<typename Func>
+    Profile1D ExtractArcProfileImpl(const QImage& image, const ArcProfileParams& params,
+                                     Func interpolate) {
+        Profile1D profile;
+
+        double arcLength = params.ArcLength();
+        size_t numSamples = static_cast<size_t>(
+            std::ceil(arcLength * params.samplesPerPixel)) + 1;
+        if (numSamples < MIN_PROFILE_LENGTH) numSamples = MIN_PROFILE_LENGTH;
+
+        profile.data.resize(numSamples);
+        profile.stepSize = arcLength / (numSamples - 1);
+
+        double startX = params.centerX + params.radius * std::cos(params.startAngle);
+        double startY = params.centerY + params.radius * std::sin(params.startAngle);
+        double endX = params.centerX + params.radius * std::cos(params.endAngle);
+        double endY = params.centerY + params.radius * std::sin(params.endAngle);
+
+        profile.startX = startX;
+        profile.startY = startY;
+        profile.endX = endX;
+        profile.endY = endY;
+        profile.angle = params.startAngle;
+
+        if (params.numLines <= 1 || params.width <= 0) {
+            double angleStep = params.SweepAngle() / (numSamples - 1);
+            for (size_t i = 0; i < numSamples; ++i) {
+                double angle = params.startAngle + i * angleStep;
+                double x = params.centerX + params.radius * std::cos(angle);
+                double y = params.centerY + params.radius * std::sin(angle);
+                profile.data[i] = interpolate(x, y);
+            }
+            return profile;
+        }
+
+        int32_t nLines = std::min(params.numLines, MAX_AVERAGING_LINES);
+        double halfWidth = params.width / 2.0;
+        double radiusStep = (nLines > 1) ? params.width / (nLines - 1) : 0.0;
+        double angleStep = params.SweepAngle() / (numSamples - 1);
+
+        for (size_t i = 0; i < numSamples; ++i) {
+            double angle = params.startAngle + i * angleStep;
+            double cosAngle = std::cos(angle);
+            double sinAngle = std::sin(angle);
+
+            std::vector<double> values;
+            values.reserve(nLines);
+
+            for (int32_t j = 0; j < nLines; ++j) {
+                double r = params.radius + (-halfWidth + j * radiusStep);
+                double x = params.centerX + r * cosAngle;
+                double y = params.centerY + r * sinAngle;
+                values.push_back(interpolate(x, y));
+            }
+
+            switch (params.method) {
+                case ProfileMethod::Average: {
+                    double sum = 0;
+                    for (double v : values) sum += v;
+                    profile.data[i] = sum / values.size();
+                    break;
+                }
+                case ProfileMethod::Maximum: {
+                    double maxVal = values[0];
+                    for (double v : values) if (v > maxVal) maxVal = v;
+                    profile.data[i] = maxVal;
+                    break;
+                }
+                case ProfileMethod::Minimum: {
+                    double minVal = values[0];
+                    for (double v : values) if (v < minVal) minVal = v;
+                    profile.data[i] = minVal;
+                    break;
+                }
+                case ProfileMethod::Median: {
+                    std::sort(values.begin(), values.end());
+                    size_t mid = values.size() / 2;
+                    profile.data[i] = (values.size() % 2 == 0)
+                        ? (values[mid - 1] + values[mid]) / 2.0
+                        : values[mid];
+                    break;
+                }
+                default:
+                    profile.data[i] = values[0];
+                    break;
+            }
+        }
+        return profile;
+    }
+
+    template<typename Func>
+    Profile1D ExtractAnnularProfileImpl(const QImage& image, const AnnularProfileParams& params,
+                                         Func interpolate) {
+        Profile1D profile;
+
+        double radialExtent = params.RadialExtent();
+        if (radialExtent <= 0) return profile;
+
+        size_t numSamples = static_cast<size_t>(
+            std::ceil(radialExtent * params.samplesPerPixel)) + 1;
+        if (numSamples < MIN_PROFILE_LENGTH) numSamples = MIN_PROFILE_LENGTH;
+
+        profile.data.resize(numSamples);
+        profile.stepSize = radialExtent / (numSamples - 1);
+
+        double cosA = std::cos(params.angle);
+        double sinA = std::sin(params.angle);
+
+        profile.startX = params.centerX + params.innerRadius * cosA;
+        profile.startY = params.centerY + params.innerRadius * sinA;
+        profile.endX = params.centerX + params.outerRadius * cosA;
+        profile.endY = params.centerY + params.outerRadius * sinA;
+        profile.angle = params.angle;
+
+        if (params.numLines <= 1 || params.angularWidth <= 0) {
+            double radiusStep = radialExtent / (numSamples - 1);
+            for (size_t i = 0; i < numSamples; ++i) {
+                double r = params.innerRadius + i * radiusStep;
+                double x = params.centerX + r * cosA;
+                double y = params.centerY + r * sinA;
+                profile.data[i] = interpolate(x, y);
+            }
+            return profile;
+        }
+
+        int32_t nLines = std::min(params.numLines, MAX_AVERAGING_LINES);
+        double halfAngWidth = params.angularWidth / 2.0;
+        double angleStep = (nLines > 1) ? params.angularWidth / (nLines - 1) : 0.0;
+        double radiusStep = radialExtent / (numSamples - 1);
+
+        for (size_t i = 0; i < numSamples; ++i) {
+            double r = params.innerRadius + i * radiusStep;
+
+            std::vector<double> values;
+            values.reserve(nLines);
+
+            for (int32_t j = 0; j < nLines; ++j) {
+                double angle = params.angle + (-halfAngWidth + j * angleStep);
+                double x = params.centerX + r * std::cos(angle);
+                double y = params.centerY + r * std::sin(angle);
+                values.push_back(interpolate(x, y));
+            }
+
+            switch (params.method) {
+                case ProfileMethod::Average: {
+                    double sum = 0;
+                    for (double v : values) sum += v;
+                    profile.data[i] = sum / values.size();
+                    break;
+                }
+                case ProfileMethod::Maximum: {
+                    double maxVal = values[0];
+                    for (double v : values) if (v > maxVal) maxVal = v;
+                    profile.data[i] = maxVal;
+                    break;
+                }
+                case ProfileMethod::Minimum: {
+                    double minVal = values[0];
+                    for (double v : values) if (v < minVal) minVal = v;
+                    profile.data[i] = minVal;
+                    break;
+                }
+                case ProfileMethod::Median: {
+                    std::sort(values.begin(), values.end());
+                    size_t mid = values.size() / 2;
+                    profile.data[i] = (values.size() % 2 == 0)
+                        ? (values[mid - 1] + values[mid]) / 2.0
+                        : values[mid];
+                    break;
+                }
+                default:
+                    profile.data[i] = values[0];
+                    break;
+            }
+        }
+        return profile;
+    }
+}
+
 Profile1D ExtractArcProfile(const QImage& image, const ArcProfileParams& params) {
     if (image.Empty()) {
         return Profile1D();
     }
 
+    size_t bytesPerPixel = 1;
+    switch (image.Type()) {
+        case PixelType::UInt8: bytesPerPixel = 1; break;
+        case PixelType::UInt16: bytesPerPixel = 2; break;
+        case PixelType::Float32: bytesPerPixel = 4; break;
+        default: return Profile1D();
+    }
+    size_t strideElements = image.Stride() / bytesPerPixel;
+
     switch (image.Type()) {
         case PixelType::UInt8: {
             const uint8_t* data = static_cast<const uint8_t*>(image.Data());
-            return ExtractArcProfile(data, image.Width(), image.Height(), params);
+            return ExtractArcProfileImpl(image, params, [&](double x, double y) {
+                return InterpolateStrided(data, image.Width(), image.Height(),
+                                           strideElements, x, y, params.interp);
+            });
         }
         case PixelType::UInt16: {
             const uint16_t* data = static_cast<const uint16_t*>(image.Data());
-            return ExtractArcProfile(data, image.Width(), image.Height(), params);
+            return ExtractArcProfileImpl(image, params, [&](double x, double y) {
+                return InterpolateStrided(data, image.Width(), image.Height(),
+                                           strideElements, x, y, params.interp);
+            });
         }
         case PixelType::Float32: {
             const float* data = static_cast<const float*>(image.Data());
-            return ExtractArcProfile(data, image.Width(), image.Height(), params);
+            return ExtractArcProfileImpl(image, params, [&](double x, double y) {
+                return InterpolateStrided(data, image.Width(), image.Height(),
+                                           strideElements, x, y, params.interp);
+            });
         }
         default:
             return Profile1D();
@@ -158,18 +399,36 @@ Profile1D ExtractAnnularProfile(const QImage& image, const AnnularProfileParams&
         return Profile1D();
     }
 
+    size_t bytesPerPixel = 1;
+    switch (image.Type()) {
+        case PixelType::UInt8: bytesPerPixel = 1; break;
+        case PixelType::UInt16: bytesPerPixel = 2; break;
+        case PixelType::Float32: bytesPerPixel = 4; break;
+        default: return Profile1D();
+    }
+    size_t strideElements = image.Stride() / bytesPerPixel;
+
     switch (image.Type()) {
         case PixelType::UInt8: {
             const uint8_t* data = static_cast<const uint8_t*>(image.Data());
-            return ExtractAnnularProfile(data, image.Width(), image.Height(), params);
+            return ExtractAnnularProfileImpl(image, params, [&](double x, double y) {
+                return InterpolateStrided(data, image.Width(), image.Height(),
+                                           strideElements, x, y, params.interp);
+            });
         }
         case PixelType::UInt16: {
             const uint16_t* data = static_cast<const uint16_t*>(image.Data());
-            return ExtractAnnularProfile(data, image.Width(), image.Height(), params);
+            return ExtractAnnularProfileImpl(image, params, [&](double x, double y) {
+                return InterpolateStrided(data, image.Width(), image.Height(),
+                                           strideElements, x, y, params.interp);
+            });
         }
         case PixelType::Float32: {
             const float* data = static_cast<const float*>(image.Data());
-            return ExtractAnnularProfile(data, image.Width(), image.Height(), params);
+            return ExtractAnnularProfileImpl(image, params, [&](double x, double y) {
+                return InterpolateStrided(data, image.Width(), image.Height(),
+                                           strideElements, x, y, params.interp);
+            });
         }
         default:
             return Profile1D();

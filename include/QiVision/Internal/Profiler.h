@@ -587,6 +587,50 @@ Profile1D ExtractLineProfile(const T* data, int32_t width, int32_t height,
     return profile;
 }
 
+// Stride-aware version for images with row padding
+template<typename T>
+Profile1D ExtractLineProfileStrided(const T* data, int32_t width, int32_t height,
+                                     size_t stride, double x0, double y0,
+                                     double x1, double y1, size_t numSamples,
+                                     InterpolationMethod method) {
+    Profile1D profile;
+    profile.startX = x0;
+    profile.startY = y0;
+    profile.endX = x1;
+    profile.endY = y1;
+
+    double dx = x1 - x0;
+    double dy = y1 - y0;
+    double length = std::sqrt(dx * dx + dy * dy);
+    profile.angle = std::atan2(dy, dx);
+
+    if (numSamples == 0) {
+        numSamples = static_cast<size_t>(std::ceil(length)) + 1;
+    }
+    if (numSamples < MIN_PROFILE_LENGTH) {
+        numSamples = MIN_PROFILE_LENGTH;
+    }
+
+    profile.data.resize(numSamples);
+    profile.stepSize = (numSamples > 1) ? length / (numSamples - 1) : 0.0;
+
+    if (numSamples == 1) {
+        profile.data[0] = InterpolateStrided(data, width, height, stride, x0, y0, method);
+        return profile;
+    }
+
+    double stepX = dx / (numSamples - 1);
+    double stepY = dy / (numSamples - 1);
+
+    for (size_t i = 0; i < numSamples; ++i) {
+        double x = x0 + i * stepX;
+        double y = y0 + i * stepY;
+        profile.data[i] = InterpolateStrided(data, width, height, stride, x, y, method);
+    }
+
+    return profile;
+}
+
 template<typename T>
 Profile1D ExtractRectProfile(const T* data, int32_t width, int32_t height,
                               const RectProfileParams& params) {

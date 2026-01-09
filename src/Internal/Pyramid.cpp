@@ -293,13 +293,16 @@ ImagePyramid BuildGaussianPyramid(const QImage& image,
 
     const int32_t width = image.Width();
     const int32_t height = image.Height();
+    const int32_t stride = image.Stride();  // May differ from width due to alignment
 
-    // Convert image to float
+    // Convert image to float, handling stride correctly
     std::vector<float> floatData(width * height);
     const uint8_t* srcData = static_cast<const uint8_t*>(image.Data());
 
-    for (int32_t i = 0; i < width * height; ++i) {
-        floatData[i] = static_cast<float>(srcData[i]);
+    for (int32_t y = 0; y < height; ++y) {
+        for (int32_t x = 0; x < width; ++x) {
+            floatData[y * width + x] = static_cast<float>(srcData[y * stride + x]);
+        }
     }
 
     return BuildGaussianPyramid(floatData.data(), width, height, params);
@@ -577,6 +580,7 @@ QImage PyramidLevelToImage(const PyramidLevel& level, bool normalize) {
 
     QImage result(level.width, level.height, PixelType::UInt8);
     uint8_t* dst = static_cast<uint8_t*>(result.Data());
+    const int32_t stride = result.Stride();
 
     if (normalize) {
         // Find min/max
@@ -592,13 +596,20 @@ QImage PyramidLevelToImage(const PyramidLevel& level, bool normalize) {
             range = 1.0f;
         }
 
-        for (size_t i = 0; i < level.data.size(); ++i) {
-            float normalized = (level.data[i] - minVal) / range * 255.0f;
-            dst[i] = static_cast<uint8_t>(std::clamp(normalized, 0.0f, 255.0f));
+        // Handle stride correctly - QImage may have 64-byte row alignment
+        for (int32_t y = 0; y < level.height; ++y) {
+            for (int32_t x = 0; x < level.width; ++x) {
+                float normalized = (level.data[y * level.width + x] - minVal) / range * 255.0f;
+                dst[y * stride + x] = static_cast<uint8_t>(std::clamp(normalized, 0.0f, 255.0f));
+            }
         }
     } else {
-        for (size_t i = 0; i < level.data.size(); ++i) {
-            dst[i] = static_cast<uint8_t>(std::clamp(level.data[i], 0.0f, 255.0f));
+        // Handle stride correctly - QImage may have 64-byte row alignment
+        for (int32_t y = 0; y < level.height; ++y) {
+            for (int32_t x = 0; x < level.width; ++x) {
+                dst[y * stride + x] = static_cast<uint8_t>(
+                    std::clamp(level.data[y * level.width + x], 0.0f, 255.0f));
+            }
         }
     }
 
@@ -620,8 +631,13 @@ PyramidLevel ImageToPyramidLevel(const QImage& image, int32_t levelIndex,
     level.data.resize(level.width * level.height);
 
     const uint8_t* src = static_cast<const uint8_t*>(image.Data());
-    for (int32_t i = 0; i < level.width * level.height; ++i) {
-        level.data[i] = static_cast<float>(src[i]);
+    const int32_t stride = image.Stride();
+
+    // Handle stride correctly - QImage may have 64-byte row alignment
+    for (int32_t y = 0; y < level.height; ++y) {
+        for (int32_t x = 0; x < level.width; ++x) {
+            level.data[y * level.width + x] = static_cast<float>(src[y * stride + x]);
+        }
     }
 
     return level;

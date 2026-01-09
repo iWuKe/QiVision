@@ -1,7 +1,7 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-07 (ContourSelect 实现完成)
-> 
+> 最后更新: 2026-01-08 (Phase 8 Matching 模块实现: ShapeModel, AnglePyramid, IntegralImage)
+>
 > 状态图例:
 > - ⬜ 未开始
 > - 🟡 进行中
@@ -16,9 +16,9 @@
 ```
 Platform █████████████████░░░ 86%
 Core     ████████████████████ 100%
-Internal ██████████████████░░ 60%
-Feature  ░░░░░░░░░░░░░░░░░░░░ 0%
-Tests    █████████████████░░░ 85%
+Internal ████████████████████ 100%
+Feature  ██░░░░░░░░░░░░░░░░░░ 10%
+Tests    █████████████████░░░ 87%
 ```
 
 ---
@@ -59,7 +59,7 @@ Tests    █████████████████░░░ 85%
 | Gaussian.h | ✅ | ✅ | ✅ | ⬜ | - | ⬜ | 高斯核、导数核 |
 | Matrix.h | ✅ | ✅ | ✅ | ⬜ | - | ✅ | 小矩阵运算 (Vec/Mat固定+动态) |
 | Solver.h | ✅ | ✅ | ✅ | ⬜ | - | ⬜ | 线性方程组 LU/QR/SVD/Cholesky |
-| Eigen.h | ⬜ | ⬜ | ⬜ | ⬜ | - | ⬜ | 特征值分解 |
+| Eigen.h | ✅ | ✅ | ✅ | ⬜ | - | ⬜ | 特征值分解 (Jacobi/QR/Power/2x2/3x3) |
 
 ---
 
@@ -97,13 +97,13 @@ Tests    █████████████████░░░ 85%
 | Geometry2d.h | ✅ | ✅ | ✅ | - | ✅ | 几何基元操作 (规范化/变换/属性/采样/构造) |
 | Distance.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 距离计算 (Point-Line/Circle/Ellipse/Arc/Segment/Contour) |
 | Intersection.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 交点计算 (Line-Line/Segment/Circle/Ellipse/Arc/RotatedRect) |
-| GeomRelation.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 几何关系 (平行/垂直/共线) |
+| GeomRelation.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 几何关系 (包含/相交/平行/垂直/共线) |
 | GeomConstruct.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 几何构造 (垂线/切线/外接圆/内切圆/凸包/最小包围圆) |
 | SubPixel.h | ✅ | ✅ | ✅ | ✅ | ✅ | 亚像素精化 (1D/2D/Edge/Match/Angle) - 精度待优化 |
 | Fitting.h | ✅ | ✅ | ✅ | ✅ | ✅ | 直线/圆/椭圆/RANSAC (已知问题: 旋转椭圆拟合) |
-| AffineTransform.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 仿射变换 |
-| Homography.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 单应性变换 |
-| Hough.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 霍夫变换（直线/圆） |
+| AffineTransform.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 仿射变换 |
+| Homography.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 单应性变换 (DLT+RANSAC, WarpPerspective, LM精化) |
+| Hough.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 霍夫变换（直线/圆） |
 
 ---
 
@@ -123,13 +123,13 @@ Tests    █████████████████░░░ 85%
 
 | 模块 | 设计 | 实现 | 单测 | 精度测试 | 审查 | 备注 |
 |------|:----:|:----:|:----:|:--------:|:----:|------|
-| RLEOps.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | RLE 编解码、集合运算 |
-| StructElement.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 结构元素 (矩形/椭圆/十字/自定义) |
-| MorphBinary.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 二值形态学 (膨胀/腐蚀/开/闭) |
-| MorphGray.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 灰度形态学 (TopHat/BlackHat/梯度) |
-| ConnectedComponent.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 连通域标记 |
-| DistanceTransform.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 距离变换 L1/L2 |
-| RegionFeatures.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 区域特征 (面积/周长/圆度等) |
+| RLEOps.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | RLE 编解码、集合运算、阈值、边界、填充、连通域 |
+| StructElement.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 结构元素 (矩形/椭圆/十字/菱形/线/八边形/自定义) |
+| MorphBinary.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 二值形态学 (膨胀/腐蚀/开/闭/梯度/TopHat/Hit-or-Miss/Thin/Skeleton/Geodesic) |
+| MorphGray.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 灰度形态学 (膨胀/腐蚀/开/闭/梯度/TopHat/BlackHat/重构/背景校正) |
+| ConnectedComponent.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 连通域标记 (图像+RLE两种实现, 统计/过滤/合并/孔洞检测) |
+| DistanceTransform.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 距离变换 (L1/L2/LInf/Chamfer, 区域签名距离, Voronoi, 骨架) |
+| RegionFeatures.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 区域特征 (面积/周长/圆度/矩/椭圆/凸包/最小包围圆) |
 
 ---
 
@@ -137,22 +137,26 @@ Tests    █████████████████░░░ 85%
 
 | 模块 | 设计 | 实现 | 单测 | 精度测试 | 审查 | 备注 |
 |------|:----:|:----:|:----:|:--------:|:----:|------|
-| MeasureTypes.h | ⬜ | ⬜ | - | - | ⬜ | 参数和结果结构体 |
-| MeasureHandle.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 矩形/弧形/同心圆句柄 |
-| Caliper.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 卡尺测量 |
-| CaliperArray.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 多卡尺阵列 |
+| MeasureTypes.h | ✅ | ✅ | - | - | ✅ | 参数和结果结构体 |
+| MeasureHandle.h | ✅ | ✅ | ✅ | - | ✅ | 矩形/弧形/同心圆句柄 |
+| Caliper.h | ✅ | ✅ | ✅ | ✅ | ✅ | 卡尺测量 |
+| CaliperArray.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 多卡尺阵列 (沿线/弧/圆/轮廓) |
 
 ---
 
 ## Phase 8: Feature 层 - Matching
 
+> 详细设计见: docs/design/Matching_Module_Design.md
+
 | 模块 | 设计 | 实现 | 单测 | 精度测试 | 审查 | 备注 |
 |------|:----:|:----:|:----:|:--------:|:----:|------|
-| MatchTypes.h | ⬜ | ⬜ | - | - | ⬜ | 参数和结果结构体 |
-| ShapeModel.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 形状匹配（角度预计算） |
-| AnglePyramid.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 角度模型缓存 |
-| MultiShapeModel.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 多模型匹配 |
+| MatchTypes.h | ✅ | ✅ | - | - | ⬜ | 参数和结果结构体 |
+| ShapeModel.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 形状匹配（P0，梯度方向特征） |
+| NCCModel.h | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | NCC 匹配（P1，归一化互相关） |
+| ComponentModel.h | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | 组件匹配（P1，多部件关系约束） |
 | DeformableModel.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 变形匹配（P2） |
+| Internal/AnglePyramid.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 角度预计算模型（新增依赖） |
+| Internal/IntegralImage.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 积分图（NCCModel依赖） |
 
 ---
 
@@ -235,6 +239,422 @@ Tests    █████████████████░░░ 85%
 ---
 
 ## 变更日志
+
+### 2026-01-09 (ShapeModel 性能优化 & 真实图片测试)
+
+- **ShapeModel 性能优化** ✅
+  - 用 GetGradientAt 替代 GetAngleAt（消除 9N 三角函数调用）
+  - 预计算模型点的 cos/sin（内循环无三角函数）
+  - OpenMP 并行化角度搜索
+  - 粗层模型点数量优化（Level 0: 2000, Level 1: 400, Level 2+: 150）
+  - **性能提升**: 80.56ms → ~40ms (合成图片 ±30° 搜索, 2x 提升)
+
+- **真实图片测试集成** ✅
+  - 新增 RealImagePerformance 测试用例
+  - 支持 tests/data/matching/ 目录下的真实图片测试
+  - 真实图片 640x512 性能: 固定角度 ~42ms, ±30° ~52ms
+
+- **尝试但未成功的优化**
+  - AVX2 向量化（瓶颈在 bilinear 插值的随机内存访问）
+  - Response Map 单次搜索（build 开销导致更慢）
+
+- **待优化项**
+  - 位置精度: 当前 0.38px, 目标 < 0.05px
+  - 角度精度: 当前 0.09°, 目标 < 0.05°
+
+### 2026-01-08 (ShapeModel 精度测试 & Stride 修复)
+
+- **Pyramid stride 问题修复** ✅
+  - 修复 `PyramidLevelToImage` 中的 stride 处理
+  - 修复 `ImageToPyramidLevel` 中的 stride 处理
+  - 修复 Laplacian 重建测试中的 stride 处理
+  - 所有 43 个金字塔测试通过
+
+- **ShapeModel 复杂形状测试** ✅
+  - 新增圆形模板测试: 100% 检测率, 位置精度 0.14 px (1σ)
+  - 新增十字形模板测试: 92% 检测率, 位置精度 0.14 px, 角度精度 0.09°
+  - 新增纹理背景测试: 100% 检测率, 位置精度 0.13 px
+  - 新增大图像 (1024x1024) 测试: 100% 检测率, 位置精度 0.13 px
+  - 精度测试: 11/12 通过 (多实例检测需要 NMS 改进)
+
+- **CLAUDE.md 更新** ✅
+  - 添加 algorithm-expert 强制辅导规则
+  - 适用模块: ShapeModel, Caliper, Calib, SubPixelEdge
+
+### 2026-01-08 (Matching 模块核心实现)
+
+- **Internal/AnglePyramid 模块完成** ✅
+  - 头文件: include/QiVision/Internal/AnglePyramid.h (~320 行)
+  - 实现文件: src/Internal/AnglePyramid.cpp (~630 行)
+  - 功能: 多尺度梯度方向金字塔，边缘点提取，角度量化
+
+- **Internal/IntegralImage 模块完成** ✅
+  - 头文件: include/QiVision/Internal/IntegralImage.h (~200 行)
+  - 实现文件: src/Internal/IntegralImage.cpp (~330 行)
+  - 功能: 积分图计算(sum/squared)，O(1)矩形区域查询，方差计算
+  - 设计决策: 内部使用 vector<double> 而非 QImage (因 QImage 不支持 Float64)
+
+- **Matching/MatchTypes.h 完成** ✅
+  - 头文件: include/QiVision/Matching/MatchTypes.h (~300 行)
+  - 功能: MatchResult, SearchParams, ModelParams, ModelPoint 等通用类型
+
+- **Matching/ShapeModel 模块完成** ✅
+  - 头文件: include/QiVision/Matching/ShapeModel.h (~250 行)
+  - 实现文件: src/Matching/ShapeModel.cpp (~560 行)
+  - 功能: 形状模板匹配，金字塔搜索，亚像素精化
+  - 算法: 梯度方向余弦相似度 + 多尺度搜索
+
+### 2026-01-08 (Matching 模块架构设计)
+
+- **Matching 模块架构设计完成** ✅
+  - 设计文档: docs/design/Matching_Module_Design.md (~900 行)
+  - **计划支持的匹配方式**:
+    - ShapeModel (P0): 形状匹配，基于梯度方向特征
+    - NCCModel (P1): 归一化互相关匹配
+    - ComponentModel (P1): 组件匹配，多部件关系约束
+    - DeformableModel (P2): 变形匹配
+  - **依赖分析**:
+    - 已有依赖: Gradient, Pyramid, SubPixel, Interpolate, NMS (✅完成)
+    - 新增依赖: AnglePyramid (待实现), IntegralImage (待实现)
+  - **精度规格**:
+    - 位置精度: < 0.05 px (1 sigma)
+    - 角度精度: < 0.05 deg (1 sigma)
+    - 尺度精度: < 0.2%
+  - **实现计划**:
+    - Phase 1 (ShapeModel): ~8 工作日
+    - Phase 2 (NCCModel): ~5 工作日
+    - Phase 3 (ComponentModel): ~4 工作日
+
+### 2026-01-08 (Internal/Hough 完成)
+
+- **Internal/Hough 模块完成** ✅
+  - 头文件: include/QiVision/Internal/Hough.h (~500 行)
+  - 实现文件: src/Internal/Hough.cpp (~1180 行)
+  - 单元测试: tests/unit/internal/test_hough.cpp (63 个测试)
+  - **标准霍夫变换**:
+    - HoughLines: 累加器投票、峰值检测、直线返回
+    - GetHoughAccumulator: 获取累加器用于可视化/调试
+    - FindAccumulatorPeaks: 峰值检测与非极大值抑制
+  - **概率霍夫变换**:
+    - HoughLinesP: 返回线段而非无限直线、更快速
+  - **霍夫圆检测**:
+    - HoughCircles: 基于梯度方向的两阶段检测
+    - HoughCirclesStandard: 标准3D累加器方法
+  - **精化函数**:
+    - RefineHoughLine/RefineHoughCircle: 使用最小二乘拟合精化参数
+  - **工具函数**:
+    - CartesianToHoughLine/HoughLineToCartesian: 坐标转换
+    - MergeHoughLines/MergeHoughCircles: 合并相似检测
+    - ClipHoughLineToImage: 裁剪直线到图像边界
+    - AreHoughLinesParallel/Perpendicular: 关系判断
+    - HoughLinesIntersection: 交点计算
+  - 所有 2537 个单元测试通过
+
+### 2026-01-07 (Internal/Eigen & GeomRelation 完成)
+
+- **Internal/GeomRelation 模块完成** ✅
+  - 头文件: include/QiVision/Internal/GeomRelation.h (~330 行)
+  - 实现文件: src/Internal/GeomRelation.cpp (~585 行)
+  - 单元测试: tests/unit/internal/test_geom_relation.cpp (综合测试)
+  - **点包含测试**:
+    - PointInCircle/Ellipse/Rect/Polygon/Contour
+  - **几何关系判断**:
+    - CircleRelation/SegmentRelation/RectRelation/PolygonRelation
+    - IsParallel/IsPerpendicular/IsCollinear
+    - AreAnglesEqual/ArePointsCollinear
+  - **相交检测**:
+    - 支持 SAT 算法的凸多边形相交
+
+- **Internal/Eigen 模块完成** ✅
+  - 头文件: include/QiVision/Internal/Eigen.h (~300 行)
+  - 实现文件: src/Internal/Eigen.cpp (~1560 行)
+  - 单元测试: tests/unit/internal/test_eigen.cpp (43 测试全部通过)
+  - **对称矩阵特征值分解**:
+    - EigenSymmetric: Jacobi 方法 (最稳定)
+    - EigenSymmetricQR: QR 迭代
+    - EigenvaluesSymmetric: 仅计算特征值
+  - **一般矩阵特征值分解**:
+    - EigenGeneral: QR 迭代 + Hessenberg 约化
+    - EigenvaluesGeneral: 支持复特征值
+  - **幂迭代方法**:
+    - PowerIteration: 主特征值
+    - InversePowerIteration: 最小特征值
+    - ShiftedInversePowerIteration: 指定位移
+    - RayleighQuotientIteration: 快速收敛
+  - **2x2/3x3 解析解**:
+    - EigenSymmetric2x2/3x3: 闭式解 (无迭代开销)
+    - EigenGeneral2x2/3x3: 支持复根
+    - Eigenvalues2x2/3x3: 仅计算特征值
+  - **实用函数**:
+    - IsPositiveDefinite/SemiDefinite: PD/PSD 判断
+    - MatrixSquareRoot: 矩阵平方根
+    - MatrixExponential/Logarithm: 矩阵函数
+    - Tridiagonalize/HessenbergReduce: 预处理
+    - GeneralizedEigen: 广义特征值问题
+
+### 2026-01-07 (Internal/Homography 完成)
+
+- **Internal/Homography 模块完成** ✅
+  - 头文件: include/QiVision/Internal/Homography.h (~387 行)
+  - 实现文件: src/Internal/Homography.cpp (~1062 行)
+  - 单元测试: tests/unit/internal/test_homography.cpp (67 测试全部通过)
+  - **Homography 类**:
+    - 3x3 齐次矩阵存储
+    - Identity/FromAffine/From4Points 静态构造
+    - Transform: 点变换 (支持无穷远点)
+    - Inverse/Determinant/Normalized 矩阵运算
+    - IsAffine/ToAffine 仿射判断与转换
+    - 矩阵乘法组合
+  - **单应性估计**:
+    - EstimateHomography: DLT 算法 (带点归一化)
+    - EstimateHomographyRANSAC: RANSAC 鲁棒估计
+    - RefineHomographyLM: Gauss-Newton/LM 精化
+  - **图像/轮廓变换**:
+    - WarpPerspective: 透视变换 (Nearest/Bilinear/Bicubic)
+    - PerspectiveTransformContour: 轮廓透视变换
+    - ComputePerspectiveOutputSize: 计算输出尺寸
+  - **工具函数**:
+    - RectifyQuadrilateral: 四边形矫正
+    - RectangleToQuadrilateral: 矩形到四边形映射
+    - TransformBoundingBoxPerspective: 边界框透视变换
+    - IsValidHomography: 单应性有效性检查
+    - SampsonError/ComputeHomographyError: 误差计算
+  - **关键 Bug 修复**:
+    - SolveHomogeneous: 修复宽矩阵 (m<n) 时的零空间计算
+    - EstimateHomography: 修复 TdstInv 矩阵未初始化问题
+
+### 2026-01-07 (Internal/AffineTransform 完成)
+
+- **Internal/AffineTransform 模块完成** ✅
+  - 头文件: include/QiVision/Internal/AffineTransform.h (~417 行)
+  - 实现文件: src/Internal/AffineTransform.cpp (~1150 行)
+  - 单元测试: tests/unit/internal/test_affine_transform.cpp (83 测试全部通过)
+  - **图像变换**:
+    - WarpAffine: 通用仿射变换
+    - RotateImage: 图像旋转 (中心/指定点)
+    - ScaleImage/ScaleImageFactor: 图像缩放
+    - CropRotatedRect: 旋转矩形裁剪
+    - ComputeAffineOutputSize: 计算输出尺寸
+  - **变换估计**:
+    - EstimateAffine: 从点对估计仿射变换 (最小二乘)
+    - EstimateRigid: 刚体变换 (Procrustes)
+    - EstimateSimilarity: 相似变换
+    - *RANSAC 变体: 支持离群点鲁棒估计
+  - **区域/轮廓变换**:
+    - AffineTransformRegion: 区域仿射变换
+    - AffineTransformContour: 轮廓仿射变换
+  - **变换分析**:
+    - DecomposeAffine: 分解为平移/旋转/缩放/剪切
+    - IsRigidTransform: 判断刚体变换
+    - IsSimilarityTransform: 判断相似变换
+    - InterpolateTransform: 变换插值
+  - **工具函数**:
+    - RectToRectTransform: 矩形映射
+    - RotatedRectToAxisAligned: 旋转矩形对齐
+    - TransformBoundingBox: 边界框变换
+
+### 2026-01-07 (Phase 6 完成 - RegionFeatures)
+
+- **Internal/RegionFeatures 模块完成** ✅
+  - 头文件: include/QiVision/Internal/RegionFeatures.h (~430 行)
+  - 实现文件: src/Internal/RegionFeatures.cpp (~760 行)
+  - 单元测试: tests/unit/internal/test_region_features.cpp (59 测试全部通过)
+  - **基础特征**:
+    - ComputeArea: 区域面积
+    - ComputeRegionCentroid: 区域质心
+    - ComputeBoundingBox: 轴对齐边界框
+    - ComputeBasicFeatures: 综合基础特征
+  - **形状特征**:
+    - ComputeElongation: 伸长比
+    - ComputeConvexity: 凸性
+    - ComputeSolidity: 实度
+    - ComputeShapeFeatures: 综合形状特征
+    - 注: circularity/compactness/rectangularity 使用 RLEOps.h 已有实现
+  - **矩特征**:
+    - ComputeRawMoment: 原始矩 m_pq
+    - ComputeCentralMoment: 中心矩 μ_pq
+    - ComputeHuMoments: Hu 不变矩 (7个)
+    - ComputeMoments: 完整矩结构
+  - **椭圆/方向特征**:
+    - ComputeOrientation: 主轴方向
+    - ComputePrincipalAxes: 主轴长度
+    - ComputeEllipseFeatures: 等效椭圆
+  - **包围形状**:
+    - ComputeConvexHull: 凸包 (Andrew 单调链算法)
+    - ComputeConvexHullArea/Perimeter: 凸包面积/周长
+    - ComputeMinAreaRect: 最小面积包围矩形 (旋转卡尺)
+    - ComputeMinEnclosingCircle: 最小包围圆
+  - **按特征选择**:
+    - SelectByCircularity/Compactness/Elongation/Orientation
+- **Phase 6 区域处理模块全部完成** 🎉
+  - RLEOps (RLE 编解码/集合运算)
+  - StructElement (结构元素)
+  - MorphBinary (二值形态学)
+  - MorphGray (灰度形态学)
+  - ConnectedComponent (连通域标记)
+  - DistanceTransform (距离变换)
+  - RegionFeatures (区域特征)
+
+### 2026-01-07 (Internal/DistanceTransform 模块完成)
+
+- **Internal/DistanceTransform 模块完成** ✅
+  - 头文件: include/QiVision/Internal/DistanceTransform.h (~210 行)
+  - 实现文件: src/Internal/DistanceTransform.cpp (~980 行)
+  - 单元测试: tests/unit/internal/test_distance_transform.cpp (30 测试全部通过)
+  - **距离度量**:
+    - L1 (Manhattan): 两遍扫描算法
+    - L2 (Euclidean): Meijster 精确算法
+    - LInf (Chessboard): 两遍扫描算法
+    - Chamfer 3-4/5-7-11: 近似欧几里得
+  - **图像距离变换**:
+    - DistanceTransform: 通用距离变换
+    - DistanceTransformNormalized: 归一化到 [0,1]
+    - DistanceTransformL1/L2/LInf: 特定度量
+    - DistanceTransformChamfer: Chamfer 近似
+  - **区域距离变换**:
+    - DistanceTransformRegion: 区域到边界距离
+    - SignedDistanceTransform: 带符号距离场
+  - **点/边缘距离**:
+    - DistanceToPoints: 到种子点距离
+    - DistanceToEdges: 到边缘距离
+  - **Voronoi 图**:
+    - VoronoiDiagram: 从种子点生成
+    - VoronoiFromLabels: 从标签图扩展
+  - **骨架提取**:
+    - SkeletonFromDistance: 从距离变换提取骨架
+    - MedialAxisTransform: 中轴变换
+  - **实用工具**:
+    - GetMaxDistance: 获取最大距离
+    - ThresholdDistance: 距离阈值化
+    - FindPixelsAtDistance: 找特定距离的像素
+    - FindDistanceMaxima: 找局部最大值
+- 总测试数: 2219 (全部通过)
+
+### 2026-01-07 (Internal/ConnectedComponent 模块完成)
+
+- **Internal/ConnectedComponent 模块完成** ✅
+  - 头文件: include/QiVision/Internal/ConnectedComponent.h (~210 行)
+  - 实现文件: src/Internal/ConnectedComponent.cpp (~540 行)
+  - 单元测试: tests/unit/internal/test_connected_component.cpp (50 测试全部通过)
+  - **图像标记 (Two-Pass with Union-Find)**:
+    - LabelConnectedComponents: 连通域标记 (4/8连通)
+    - GetComponentStats: 获取组件统计信息 (面积/质心/边界框)
+    - ExtractComponent: 提取单个组件
+    - ExtractAllComponents: 提取所有组件
+  - **区域标记 (RLE)**:
+    - GetLargestComponent: 获取最大连通域
+    - GetLargestComponents: 获取最大 N 个连通域
+  - **组件过滤**:
+    - FilterByArea: 按面积过滤
+    - FilterBySize: 按边界框尺寸过滤
+    - FilterByAspectRatio: 按宽高比过滤
+    - FilterByPredicate: 自定义谓词过滤
+    - SelectBorderComponents: 选择边界组件
+    - RemoveBorderComponents: 移除边界组件
+  - **组件合并**:
+    - MergeComponents: 合并组件列表
+    - MergeNearbyComponents: 合并邻近组件
+  - **孔洞检测**:
+    - FindHoles: 查找区域孔洞
+    - HasHoles: 检查是否有孔洞
+    - CountHoles: 计数孔洞数量
+- 总测试数: 2189 (全部通过)
+
+### 2026-01-07 (Internal/MorphBinary 模块完成)
+
+- **Internal/MorphBinary 模块完成** ✅
+  - 头文件: include/QiVision/Internal/MorphBinary.h (~370 行)
+  - 实现文件: src/Internal/MorphBinary.cpp (~560 行)
+  - 单元测试: tests/unit/internal/test_morph_binary.cpp (44 测试全部通过)
+  - **基本形态学**:
+    - Dilate, Erode: 膨胀/腐蚀 (通用 SE)
+    - DilateRect, ErodeRect: 矩形 SE 优化
+    - DilateCircle, ErodeCircle: 圆形 SE
+  - **复合操作**:
+    - Opening, Closing: 开/闭运算
+    - OpeningRect, ClosingRect: 矩形优化
+    - OpeningCircle, ClosingCircle: 圆形
+  - **导出操作**:
+    - MorphGradient: 形态学梯度
+    - InternalGradient, ExternalGradient: 内/外梯度
+    - TopHat, BlackHat: 顶帽/黑帽变换
+  - **Hit-or-Miss**:
+    - HitOrMiss: 击中-击不中变换
+    - ThinOnce, Thin: 细化
+    - ThickenOnce: 加粗
+    - Skeleton: 骨架化
+    - PruneSkeleton: 骨架修剪
+  - **迭代操作**:
+    - DilateN, ErodeN, OpeningN, ClosingN: N 次迭代
+  - **测地线操作**:
+    - GeodesicDilate, GeodesicErode: 测地线膨胀/腐蚀
+    - ReconstructByDilation, ReconstructByErosion: 形态学重构
+    - FillHolesByReconstruction: 填充孔洞
+    - ClearBorder: 清除边界连通区域
+
+### 2026-01-07 (Internal/StructElement 模块完成)
+
+- **Internal/StructElement 模块完成** ✅
+  - 头文件: include/QiVision/Internal/StructElement.h (~310 行)
+  - 实现文件: src/Internal/StructElement.cpp (~530 行)
+  - 单元测试: tests/unit/internal/test_struct_element.cpp (37 测试全部通过)
+  - **预定义形状**:
+    - Rectangle, Square: 矩形/正方形
+    - Ellipse, Circle: 椭圆/圆形
+    - Cross: 十字形
+    - Diamond: 菱形
+    - Line: 线段形
+    - Octagon: 八边形
+  - **自定义创建**:
+    - FromMask: 从二值图像创建
+    - FromRegion: 从区域创建
+    - FromCoordinates: 从坐标列表创建
+  - **变换操作**:
+    - Reflect: 中心反射 (用于膨胀)
+    - Transpose: 转置
+    - Rotate: 旋转
+    - Scale: 缩放
+  - **分解优化**:
+    - CanDecompose, Decompose: 可分离检测与分解
+    - DecomposeToSequence: 序列分解
+  - **便捷函数**:
+    - SE_Cross3, SE_Square3, SE_Disk5: 常用结构元素
+    - CreateHitMissSE: Hit-or-miss 结构元素对
+
+### 2026-01-07 (Internal/RLEOps 模块完成)
+
+- **Internal/RLEOps 模块完成** ✅
+  - 头文件: include/QiVision/Internal/RLEOps.h (~440 行)
+  - 实现文件: src/Internal/RLEOps.cpp (~820 行)
+  - 单元测试: tests/unit/internal/test_rle_ops.cpp (43 测试全部通过)
+  - **图像→区域转换**:
+    - ThresholdToRegion: 多模式阈值 (Binary/BinaryInv/Range/RangeInv)
+    - DynamicThreshold: 动态阈值（积分图加速）
+    - AutoThreshold: 自动阈值 (Otsu)
+    - NonZeroToRegion: 非零像素提取
+  - **区域→图像转换**:
+    - PaintRegion: 区域绘制
+    - RegionToMask: 二值掩膜
+    - RegionsToLabels: 多区域标签图
+  - **RLE 集合运算**:
+    - UnionRuns, IntersectRuns, DifferenceRuns: 并/交/差
+    - ComplementRuns, SymmetricDifferenceRuns: 补/对称差
+  - **边界操作**:
+    - ExtractBoundary: 边界提取 (4/8连通)
+    - InnerBoundary, OuterBoundary: 内/外边界
+  - **填充操作**:
+    - FillHorizontalGaps, FillVerticalGaps: 间隙填充
+    - FillHoles: 孔洞填充 (BFS)
+    - FillConvex: 凸包填充 (Graham Scan)
+  - **连通域操作**:
+    - SplitConnectedComponents: 连通域分割 (BFS)
+    - IsConnected, CountConnectedComponents: 连通性检测
+  - **分析操作**:
+    - ComputeArea, ComputeBoundingBox, ComputeCentroid: 基本属性
+    - ComputePerimeter, ComputeCircularity, ComputeCompactness: 形状特征
+  - **RLE 工具**:
+    - SortRuns, MergeRuns, NormalizeRuns, ValidateRuns
+    - TranslateRuns, ClipRuns, GetRunsForRow, GetRowRange
 
 ### 2026-01-07 (Internal/ContourSegment 模块完成)
 
@@ -1521,3 +1941,56 @@ Tests    █████████████████░░░ 85%
     - 凸包使用 Andrew's monotone chain 算法 O(n log n)
   - **依赖**: Fitting.h, GeomConstruct.h, ContourProcess.h
   - **参考 Halcon**: area_center_xld, moments_xld, circularity_xld, convexity_xld, smallest_circle_xld
+
+### 2026-01-08 (Measure/CaliperArray 实现完成)
+
+- **Measure/CaliperArray 模块实现完成**
+  - **新增文件**:
+    - include/QiVision/Measure/CaliperArray.h: 多卡尺阵列 API (~300 行)
+    - src/Measure/CaliperArray.cpp: 多卡尺阵列实现 (~670 行)
+    - tests/unit/measure/test_caliper_array.cpp: 单元测试 (~770 行)
+  - **功能**:
+    - 沿线/弧/圆/轮廓创建卡尺阵列
+    - 批量 MeasurePos/MeasurePairs/FuzzyMeasure
+    - CaliperArrayResult 聚合结果，支持直接用于拟合
+    - 工厂函数和便捷测量+拟合函数
+  - **Bug 修复**: phi 角度计算 - MeasureRectangle2 phi 是垂直于 profile 方向，修正 GenerateLineHandles/ArcHandles/ContourHandles
+  - **测试结果**: 48/48 单元测试通过
+  - **依赖**: Caliper.h, MeasureHandle.h, QContour.h, Fitting.h
+
+### 2026-01-08 (Measure/Caliper 实现完成)
+
+- **Measure/Caliper 模块实现完成**
+  - **新增文件**:
+    - include/QiVision/Measure/MeasureTypes.h: 参数和结果结构体
+    - include/QiVision/Measure/MeasureHandle.h: 测量句柄类
+    - include/QiVision/Measure/Caliper.h: 卡尺测量 API
+    - src/Measure/MeasureHandle.cpp: 句柄实现 (~300 行)
+    - src/Measure/Caliper.cpp: 核心测量实现 (~800 行)
+    - tests/unit/measure/test_caliper.cpp: 单元测试 (~600 行)
+  - **修改文件**:
+    - include/QiVision/Internal/Interpolate.h: 添加 stride-aware 插值函数
+    - include/QiVision/Internal/Profiler.h: 添加 stride-aware 模板
+    - src/Internal/Profiler.cpp: 修复 QImage stride 处理
+  - **Bug 修复**: QImage stride 问题 - 64字节对齐导致 width != stride，修复 Profiler 中的像素访问
+  - **测试结果**: 32/32 单元测试通过
+  - **代码审查**: 通过
+  - **精度测试**: 通过
+    - Position StdDev = 0.003 px < 0.03 px 要求 ✅
+    - Width StdDev = 0.000 px < 0.05 px 要求 ✅
+    - 新增: tests/accuracy/CaliperAccuracyTest.cpp (~1100 行)
+
+### 2026-01-08 (Measure/Caliper 设计完成)
+
+- **Measure/Caliper 模块设计完成** 
+  - 设计文档: docs/design/Caliper_Design.md (~800 行)
+  - **文件结构设计**:
+    - MeasureTypes.h: 参数结构体 (MeasureParams, PairParams, FuzzyParams) + 结果结构体 (EdgeResult, PairResult)
+    - MeasureHandle.h: 测量句柄 (MeasureRectangle2, MeasureArc, MeasureConcentricCircles)
+    - Caliper.h: 核心测量函数 (MeasurePos, MeasurePairs, FuzzyMeasure*)
+  - **设计规则验证**:
+    - 坐标类型: int32_t (像素), double (亚像素) - 符合规则
+    - 层级依赖: Feature -> Internal (Edge1D, Profiler, SubPixel, Fitting, Interpolate) - 正确
+    - 精度规格: 位置 <0.03px, 宽度 <0.05px (1 sigma)
+  - **任务分解**: 12 个子任务，预估 34 小时
+  - **待实现**: MeasureTypes.h, MeasureHandle.h/cpp, Caliper.h/cpp, 测试

@@ -55,6 +55,22 @@ set(UNIT_TEST_SOURCES
     unit/internal/test_contour_select.cpp
     unit/internal/test_contour_convert.cpp
     unit/internal/test_contour_segment.cpp
+    unit/internal/test_rle_ops.cpp
+    unit/internal/test_struct_element.cpp
+    unit/internal/test_morph_binary.cpp
+    unit/internal/test_morph_gray.cpp
+    unit/internal/test_connected_component.cpp
+    unit/internal/test_distance_transform.cpp
+    unit/internal/test_region_features.cpp
+    unit/internal/test_affine_transform.cpp
+    unit/internal/test_homography.cpp
+    unit/internal/test_eigen.cpp
+    unit/internal/test_hough.cpp
+    # Matching (Feature Layer)
+    unit/matching/test_shape_model.cpp
+    # Measure (Feature Layer)
+    unit/measure/test_caliper.cpp
+    unit/measure/test_caliper_array.cpp
 )
 
 add_executable(unit_test ${UNIT_TEST_SOURCES})
@@ -81,6 +97,8 @@ gtest_discover_tests(unit_test)
 set(ACCURACY_TEST_SOURCES
     accuracy/FittingAccuracyTest.cpp
     accuracy/SubPixelAccuracyTest.cpp
+    accuracy/CaliperAccuracyTest.cpp
+    accuracy/ShapeModelAccuracyTest.cpp
 )
 
 add_executable(accuracy_test ${ACCURACY_TEST_SOURCES})

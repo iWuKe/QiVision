@@ -14,7 +14,9 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <queue>
 #include <stdexcept>
+#include <unordered_map>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -259,46 +261,118 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
     if (needAutoContrast) {
         const auto& edgePoints = pyramid.GetEdgePoints(0);
         if (!edgePoints.empty()) {
-            // Collect magnitudes and sort (descending)
+            // Collect magnitudes and sort (ascending for Otsu)
             std::vector<double> magnitudes;
             magnitudes.reserve(edgePoints.size());
             for (const auto& ep : edgePoints) {
                 magnitudes.push_back(ep.magnitude);
             }
-            std::sort(magnitudes.begin(), magnitudes.end(), std::greater<double>());
+            std::sort(magnitudes.begin(), magnitudes.end());
+
+            double minMag = magnitudes.front();
+            double maxMag = magnitudes.back();
+
+            // Estimate target point count based on template area
+            int32_t templateArea = templateSize_.width * templateSize_.height;
+            int32_t targetPoints;
+            if (templateArea < 2500) {           // < 50x50
+                targetPoints = std::min(300, static_cast<int32_t>(magnitudes.size() / 4));
+            } else if (templateArea < 10000) {   // < 100x100
+                targetPoints = std::min(800, static_cast<int32_t>(magnitudes.size() / 4));
+            } else if (templateArea < 40000) {   // < 200x200
+                targetPoints = std::min(1500, static_cast<int32_t>(magnitudes.size() / 5));
+            } else {
+                targetPoints = std::min(2500, static_cast<int32_t>(magnitudes.size() / 6));
+            }
+
+            // Helper: Compute Otsu threshold
+            auto computeOtsu = [&]() -> double {
+                const int32_t numBins = 256;
+                double range = maxMag - minMag;
+                if (range < 1e-6) return minMag;
+
+                // Build histogram
+                std::vector<int32_t> hist(numBins, 0);
+                for (double val : magnitudes) {
+                    int32_t bin = static_cast<int32_t>((val - minMag) / range * (numBins - 1));
+                    bin = std::clamp(bin, 0, numBins - 1);
+                    hist[bin]++;
+                }
+
+                // Otsu algorithm
+                int32_t total = static_cast<int32_t>(magnitudes.size());
+                double sumAll = 0.0;
+                for (int32_t i = 0; i < numBins; ++i) {
+                    sumAll += i * hist[i];
+                }
+
+                double sumBg = 0.0;
+                int32_t weightBg = 0;
+                double maxVariance = 0.0;
+                int32_t bestThreshold = 0;
+
+                for (int32_t t = 0; t < numBins; ++t) {
+                    weightBg += hist[t];
+                    if (weightBg == 0) continue;
+
+                    int32_t weightFg = total - weightBg;
+                    if (weightFg == 0) break;
+
+                    sumBg += t * hist[t];
+                    double meanBg = sumBg / weightBg;
+                    double meanFg = (sumAll - sumBg) / weightFg;
+
+                    double variance = static_cast<double>(weightBg) * weightFg *
+                                      (meanBg - meanFg) * (meanBg - meanFg);
+
+                    if (variance > maxVariance) {
+                        maxVariance = variance;
+                        bestThreshold = t;
+                    }
+                }
+
+                return minMag + (bestThreshold + 0.5) * range / numBins;
+            };
 
             if (params_.contrastMode == ContrastMode::Auto) {
-                // Single threshold: Halcon uses histogram-based approach
-                // We use Otsu-like method: find threshold that maximizes inter-class variance
-                // Simplified: use 75th percentile of all gradients
-                size_t idx75 = magnitudes.size() * 3 / 4;  // 75th percentile (lower threshold)
-                double threshold = (idx75 < magnitudes.size()) ? magnitudes[idx75] : magnitudes.back();
+                // Method A: Percentile based on target points
+                size_t targetIdx = (magnitudes.size() > static_cast<size_t>(targetPoints))
+                    ? magnitudes.size() - targetPoints : 0;
+                double percentileThreshold = magnitudes[targetIdx];
 
-                // Clamp to reasonable range
-                params_.contrastHigh = std::max(5.0, std::min(threshold, 100.0));
-                params_.contrastLow = 0.0;  // No hysteresis
+                // Method B: Otsu threshold
+                double otsuThreshold = computeOtsu();
+
+                // Combine: use weighted average favoring the more conservative threshold
+                params_.contrastHigh = std::max(percentileThreshold, otsuThreshold) * 0.6 +
+                                       std::min(percentileThreshold, otsuThreshold) * 0.4;
+
+                // Boundary protection
+                params_.contrastHigh = std::clamp(params_.contrastHigh, 5.0, maxMag * 0.9);
+                params_.contrastLow = 0.0;  // No hysteresis for Auto mode
             }
             else if (params_.contrastMode == ContrastMode::AutoHysteresis) {
-                // Hysteresis thresholds: high = top 25%, low = high * 0.4
-                // Similar to Canny edge detection approach
-                size_t idx25 = magnitudes.size() / 4;  // Top 25%
-                double highThreshold = (idx25 < magnitudes.size()) ? magnitudes[idx25] : magnitudes.front();
+                // High threshold: based on Otsu or top percentile
+                double otsuThreshold = computeOtsu();
+                size_t highIdx = magnitudes.size() * 3 / 4;  // 75th percentile
+                double percentileHigh = magnitudes[highIdx];
 
-                params_.contrastHigh = std::max(10.0, std::min(highThreshold, 200.0));
-                params_.contrastLow = params_.contrastHigh * 0.4;  // Low = 40% of high
+                params_.contrastHigh = std::max(otsuThreshold, percentileHigh);
+                params_.contrastHigh = std::clamp(params_.contrastHigh, 8.0, maxMag * 0.85);
 
-                // Ensure minimum low threshold
-                if (params_.contrastLow < 3.0) {
-                    params_.contrastLow = 3.0;
-                }
+                // Low threshold: 30-50% of high, based on gradient distribution
+                size_t lowIdx = magnitudes.size() / 2;  // 50th percentile (median)
+                double medianMag = magnitudes[lowIdx];
+
+                // Low = max(median * 0.6, high * 0.35)
+                params_.contrastLow = std::max(medianMag * 0.6, params_.contrastHigh * 0.35);
+                params_.contrastLow = std::clamp(params_.contrastLow, 3.0, params_.contrastHigh * 0.7);
             }
             else if (params_.contrastMode == ContrastMode::AutoMinSize) {
-                // Similar to Auto but also considers component size
-                size_t idx50 = magnitudes.size() / 2;  // Median
-                double threshold = (idx50 < magnitudes.size()) ? magnitudes[idx50] : magnitudes.back();
-                params_.contrastHigh = std::max(5.0, std::min(threshold, 100.0));
+                // Use Otsu with adjustment for small components
+                double otsuThreshold = computeOtsu();
+                params_.contrastHigh = std::clamp(otsuThreshold * 0.8, 5.0, maxMag * 0.9);
                 params_.contrastLow = 0.0;
-                // Note: minComponentSize filtering is applied in ExtractModelPoints
             }
         } else {
             params_.contrastHigh = 10.0;  // Default fallback
@@ -379,59 +453,99 @@ void ShapeModelImpl::ExtractModelPoints(const AnglePyramid& pyramid) {
         allPoints.reserve(edgePoints.size());
 
         if (useHysteresis) {
-            // Hysteresis thresholding (like Canny):
-            // 1. First pass: collect all points above low threshold
-            // 2. Filter: keep points above high threshold, or connected to high points
-            // Simplified: use two-pass approach
+            // Hysteresis thresholding with BFS propagation (like Canny):
+            // 1. Classify points into strong/weak/discard
+            // 2. BFS from strong points to connect adjacent weak points
+            // 3. Connected weak points are kept, isolated weak points are discarded
 
-            // First, collect all points above low threshold
-            std::vector<std::pair<ModelPoint, bool>> candidates;  // point, isStrong
-            candidates.reserve(edgePoints.size());
+            const double gridSize = 1.5;  // Connectivity radius
+            const double gridSizeSq = gridSize * gridSize;
 
-            for (const auto& ep : edgePoints) {
-                if (ep.magnitude >= levelContrastLow && ep.magnitude <= levelContrastMax) {
-                    double relX = ep.x - levelOriginX;
-                    double relY = ep.y - levelOriginY;
-                    bool isStrong = (ep.magnitude >= levelContrastHigh);
-                    candidates.emplace_back(
-                        ModelPoint(relX, relY, ep.angle, ep.magnitude, ep.angleBin, 1.0),
-                        isStrong);
+            // Classify edge points
+            std::vector<int32_t> strongIndices;
+            std::vector<int32_t> weakIndices;
+            std::vector<ModelPoint> allCandidates;
+
+            for (size_t i = 0; i < edgePoints.size(); ++i) {
+                const auto& ep = edgePoints[i];
+                if (ep.magnitude > levelContrastMax) continue;
+
+                double relX = ep.x - levelOriginX;
+                double relY = ep.y - levelOriginY;
+
+                if (ep.magnitude >= levelContrastHigh) {
+                    strongIndices.push_back(static_cast<int32_t>(allCandidates.size()));
+                    allCandidates.emplace_back(relX, relY, ep.angle, ep.magnitude, ep.angleBin, 1.0);
+                } else if (ep.magnitude >= levelContrastLow) {
+                    weakIndices.push_back(static_cast<int32_t>(allCandidates.size()));
+                    allCandidates.emplace_back(relX, relY, ep.angle, ep.magnitude, ep.angleBin, 1.0);
                 }
+                // magnitude < levelContrastLow: discard
             }
 
-            // Simple connectivity: keep weak points that are adjacent to strong points
-            // For efficiency, we use a grid-based approach
-            const double gridSize = 2.0;  // Adjacency radius
-            std::vector<bool> keepPoint(candidates.size(), false);
+            // Keep flag: 0=unvisited, 1=keep
+            std::vector<int8_t> keepFlag(allCandidates.size(), 0);
 
-            // First mark all strong points
-            for (size_t i = 0; i < candidates.size(); ++i) {
-                if (candidates[i].second) {
-                    keepPoint[i] = true;
-                }
+            // All strong points are kept
+            for (int32_t idx : strongIndices) {
+                keepFlag[idx] = 1;
             }
 
-            // Then check weak points for adjacency to strong points
-            for (size_t i = 0; i < candidates.size(); ++i) {
-                if (!candidates[i].second && !keepPoint[i]) {
-                    // Check if adjacent to any strong point
-                    for (size_t j = 0; j < candidates.size(); ++j) {
-                        if (candidates[j].second) {
-                            double dx = candidates[i].first.x - candidates[j].first.x;
-                            double dy = candidates[i].first.y - candidates[j].first.y;
-                            if (dx * dx + dy * dy <= gridSize * gridSize) {
-                                keepPoint[i] = true;
-                                break;
+            // Build spatial hash grid for weak points (accelerate neighbor search)
+            std::unordered_map<int64_t, std::vector<int32_t>> weakGrid;
+            auto toGridKey = [gridSize](double x, double y) -> int64_t {
+                int32_t gx = static_cast<int32_t>(std::floor(x / gridSize));
+                int32_t gy = static_cast<int32_t>(std::floor(y / gridSize));
+                return (static_cast<int64_t>(gx) << 32) | static_cast<uint32_t>(gy);
+            };
+
+            for (int32_t idx : weakIndices) {
+                int64_t key = toGridKey(allCandidates[idx].x, allCandidates[idx].y);
+                weakGrid[key].push_back(idx);
+            }
+
+            // BFS propagation from strong points
+            std::queue<int32_t> bfsQueue;
+            for (int32_t idx : strongIndices) {
+                bfsQueue.push(idx);
+            }
+
+            while (!bfsQueue.empty()) {
+                int32_t currentIdx = bfsQueue.front();
+                bfsQueue.pop();
+
+                const auto& currentPt = allCandidates[currentIdx];
+                int32_t gx = static_cast<int32_t>(std::floor(currentPt.x / gridSize));
+                int32_t gy = static_cast<int32_t>(std::floor(currentPt.y / gridSize));
+
+                // Check 3x3 neighboring grid cells
+                for (int32_t dy = -1; dy <= 1; ++dy) {
+                    for (int32_t dx = -1; dx <= 1; ++dx) {
+                        int64_t neighborKey = (static_cast<int64_t>(gx + dx) << 32) |
+                                               static_cast<uint32_t>(gy + dy);
+
+                        auto it = weakGrid.find(neighborKey);
+                        if (it == weakGrid.end()) continue;
+
+                        for (int32_t weakIdx : it->second) {
+                            if (keepFlag[weakIdx] != 0) continue;  // Already processed
+
+                            // Check distance
+                            double ddx = allCandidates[weakIdx].x - currentPt.x;
+                            double ddy = allCandidates[weakIdx].y - currentPt.y;
+                            if (ddx * ddx + ddy * ddy <= gridSizeSq) {
+                                keepFlag[weakIdx] = 1;  // Keep this weak point
+                                bfsQueue.push(weakIdx);  // Continue propagation
                             }
                         }
                     }
                 }
             }
 
-            // Collect kept points
-            for (size_t i = 0; i < candidates.size(); ++i) {
-                if (keepPoint[i]) {
-                    allPoints.push_back(candidates[i].first);
+            // Collect all kept points
+            for (size_t i = 0; i < allCandidates.size(); ++i) {
+                if (keepFlag[i] == 1) {
+                    allPoints.push_back(allCandidates[i]);
                 }
             }
         } else {

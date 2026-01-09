@@ -113,9 +113,10 @@ int main() {
         std::cout << "   ROI: (" << modelROI.x << "," << modelROI.y << ") "
                   << modelROI.width << "x" << modelROI.height << std::endl;
 
-        // Create model with auto contrast detection
+        // Create model with auto hysteresis contrast detection
+        // Uses Otsu + percentile + BFS propagation for better weak edge extraction
         ModelParams modelParams;
-        modelParams.SetContrastAuto();  // Auto-detect contrast threshold
+        modelParams.SetContrastAutoHysteresis();  // Auto-detect with hysteresis thresholds
         modelParams.SetNumLevels(4);
 
         timer.Start();

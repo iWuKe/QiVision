@@ -21,6 +21,7 @@
 #include <cmath>
 #include <limits>
 #include <queue>
+#include <set>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -55,38 +56,99 @@ namespace Internal {
 
 /**
  * @brief Model data for a single pyramid level
+ *
+ * Halcon-style dual block storage:
+ * - Block 1 (points/soaX,Y...): Subpixel edge points for high-precision matching
+ * - Block 2 (gridPoints/gridSoaX,Y...): Integer grid samples for fast coarse search
+ *
+ * Usage strategy:
+ * - Coarse search (top pyramid levels): Use gridPoints (faster, integer positions)
+ * - Fine refinement (level 0): Use points (subpixel accuracy)
  */
 struct LevelModel {
+    // Block 1: Subpixel edge points (from edge detection, irregular positions)
     std::vector<ModelPoint> points;
+
+    // Block 2: Integer grid sample points (regular positions, faster for coarse search)
+    std::vector<ModelPoint> gridPoints;
+
     int32_t width = 0;
     int32_t height = 0;
     double scale = 1.0;
 
-    // Structure of Arrays (SoA) for SIMD optimization
-    // Aligned to 32 bytes for AVX2
-    std::vector<float> soaX;        // x coordinates
-    std::vector<float> soaY;        // y coordinates
-    std::vector<float> soaCosAngle; // precomputed cos(angle)
-    std::vector<float> soaSinAngle; // precomputed sin(angle)
-    std::vector<float> soaWeight;   // weights
+    // SoA for Block 1 (subpixel points)
+    std::vector<float> soaX;
+    std::vector<float> soaY;
+    std::vector<float> soaCosAngle;
+    std::vector<float> soaSinAngle;
+    std::vector<float> soaWeight;
+
+    // SoA for Block 2 (grid points)
+    std::vector<float> gridSoaX;
+    std::vector<float> gridSoaY;
+    std::vector<float> gridSoaCosAngle;
+    std::vector<float> gridSoaSinAngle;
+    std::vector<float> gridSoaWeight;
 
     void BuildSoA() {
-        const size_t n = points.size();
-        // Pad to multiple of 8 for AVX2
-        const size_t paddedN = (n + 7) & ~7;
+        // Regenerate gridPoints from points if empty (e.g., after loading from file)
+        if (gridPoints.empty() && !points.empty()) {
+            RegenerateGridPoints();
+        }
 
-        soaX.resize(paddedN, 0.0f);
-        soaY.resize(paddedN, 0.0f);
-        soaCosAngle.resize(paddedN, 1.0f);
-        soaSinAngle.resize(paddedN, 0.0f);
-        soaWeight.resize(paddedN, 0.0f);
+        // Build SoA for Block 1 (subpixel points)
+        BuildSoAForPoints(points, soaX, soaY, soaCosAngle, soaSinAngle, soaWeight);
+
+        // Build SoA for Block 2 (grid points)
+        BuildSoAForPoints(gridPoints, gridSoaX, gridSoaY, gridSoaCosAngle, gridSoaSinAngle, gridSoaWeight);
+    }
+
+    void RegenerateGridPoints() {
+        std::set<std::pair<int32_t, int32_t>> uniqueGridCoords;
+        gridPoints.clear();
+        gridPoints.reserve(points.size());
+
+        for (const auto& pt : points) {
+            int32_t gx = static_cast<int32_t>(std::round(pt.x));
+            int32_t gy = static_cast<int32_t>(std::round(pt.y));
+
+            auto key = std::make_pair(gx, gy);
+            if (uniqueGridCoords.find(key) == uniqueGridCoords.end()) {
+                uniqueGridCoords.insert(key);
+                gridPoints.emplace_back(static_cast<double>(gx), static_cast<double>(gy),
+                                       pt.angle, pt.magnitude, pt.angleBin, pt.weight);
+            }
+        }
+
+        // Sort by Y then X
+        std::sort(gridPoints.begin(), gridPoints.end(),
+            [](const ModelPoint& a, const ModelPoint& b) {
+                if (static_cast<int32_t>(a.y) != static_cast<int32_t>(b.y))
+                    return a.y < b.y;
+                return a.x < b.x;
+            });
+    }
+
+private:
+    static void BuildSoAForPoints(const std::vector<ModelPoint>& pts,
+                                   std::vector<float>& x, std::vector<float>& y,
+                                   std::vector<float>& cosA, std::vector<float>& sinA,
+                                   std::vector<float>& w) {
+        const size_t n = pts.size();
+        const size_t paddedN = (n + 7) & ~7;  // Pad to multiple of 8 for AVX2
+
+        x.resize(paddedN, 0.0f);
+        y.resize(paddedN, 0.0f);
+        cosA.resize(paddedN, 1.0f);
+        sinA.resize(paddedN, 0.0f);
+        w.resize(paddedN, 0.0f);
 
         for (size_t i = 0; i < n; ++i) {
-            soaX[i] = static_cast<float>(points[i].x);
-            soaY[i] = static_cast<float>(points[i].y);
-            soaCosAngle[i] = static_cast<float>(points[i].cosAngle);
-            soaSinAngle[i] = static_cast<float>(points[i].sinAngle);
-            soaWeight[i] = static_cast<float>(points[i].weight);
+            x[i] = static_cast<float>(pts[i].x);
+            y[i] = static_cast<float>(pts[i].y);
+            cosA[i] = static_cast<float>(pts[i].cosAngle);
+            sinA[i] = static_cast<float>(pts[i].sinAngle);
+            w[i] = static_cast<float>(pts[i].weight);
         }
     }
 };
@@ -201,9 +263,13 @@ public:
                                           const std::vector<MatchResult>& candidates,
                                           const SearchParams& params) const;
 
+    // Score computation with optional grid points selection
+    // useGridPoints: true = use Block 2 (gridPoints) for fast coarse search
+    //                false = use Block 1 (points) for precise matching
     double ComputeScoreAtPosition(const AnglePyramid& pyramid, int32_t level,
                                    double x, double y, double angle, double scale,
-                                   double greediness, double* outCoverage = nullptr) const;
+                                   double greediness, double* outCoverage = nullptr,
+                                   bool useGridPoints = false) const;
 
     // Fast scoring for coarse levels - uses direct array access, no bilinear interpolation
     double ComputeScoreAtPositionFast(const AnglePyramid& pyramid, int32_t level,
@@ -213,12 +279,14 @@ public:
     // Optimized bilinear with direct pointer access + periodic early termination
     double ComputeScoreBilinearScalar(const AnglePyramid& pyramid, int32_t level,
                                        double x, double y, double angle, double scale,
-                                       double greediness, double* outCoverage = nullptr) const;
+                                       double greediness, double* outCoverage = nullptr,
+                                       bool useGridPoints = false) const;
 
     // SSE optimized scalar: keeps finest-grained greediness, uses SSE for math (rsqrt)
     double ComputeScoreBilinearSSE(const AnglePyramid& pyramid, int32_t level,
                                     double x, double y, double angle, double scale,
-                                    double greediness, double* outCoverage = nullptr) const;
+                                    double greediness, double* outCoverage = nullptr,
+                                    bool useGridPoints = false) const;
 
     void RefinePosition(const AnglePyramid& pyramid, MatchResult& match,
                         SubpixelMethod method) const;
@@ -651,7 +719,41 @@ void ShapeModelImpl::ExtractModelPoints(const AnglePyramid& pyramid) {
             allPoints.resize(maxPoints);
         }
 
-        levelModel.points = std::move(allPoints);
+        // Block 1: Subpixel edge points (original positions)
+        levelModel.points = allPoints;
+
+        // Block 2: Integer grid sample points (Halcon-style)
+        // Generate points at integer grid positions for fast coarse search
+        // This is done by rounding subpixel positions to nearest integer and deduplicating
+        {
+            std::set<std::pair<int32_t, int32_t>> uniqueGridCoords;
+            std::vector<ModelPoint> gridPts;
+            gridPts.reserve(allPoints.size() * 2);
+
+            for (const auto& pt : allPoints) {
+                // Round to nearest integer grid position
+                int32_t gx = static_cast<int32_t>(std::round(pt.x));
+                int32_t gy = static_cast<int32_t>(std::round(pt.y));
+
+                auto key = std::make_pair(gx, gy);
+                if (uniqueGridCoords.find(key) == uniqueGridCoords.end()) {
+                    uniqueGridCoords.insert(key);
+                    // Create grid point with integer coordinates but same gradient direction
+                    gridPts.emplace_back(static_cast<double>(gx), static_cast<double>(gy),
+                                        pt.angle, pt.magnitude, pt.angleBin, pt.weight);
+                }
+            }
+
+            // Sort grid points by Y then X (Halcon-style ordering)
+            std::sort(gridPts.begin(), gridPts.end(),
+                [](const ModelPoint& a, const ModelPoint& b) {
+                    if (static_cast<int32_t>(a.y) != static_cast<int32_t>(b.y))
+                        return a.y < b.y;
+                    return a.x < b.x;
+                });
+
+            levelModel.gridPoints = std::move(gridPts);
+        }
     }
 }
 
@@ -892,9 +994,11 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
             for (int32_t y = searchYMin; y <= searchYMax; y += stepSize) {
                 for (int32_t x = searchXMin; x <= searchXMax; x += stepSize) {
                     double coverage = 0.0;
-                    // Use SSE-optimized scoring with early termination
+                    // Use subpixel points (Block 1) for coarse search
+                    // Note: gridPoints (Block 2) available but subpixel points provide better accuracy
                     double score = ComputeScoreAtPosition(targetPyramid, startLevel,
-                                                           x, y, angle, 1.0, params.greediness, &coverage);
+                                                           x, y, angle, 1.0, params.greediness, &coverage,
+                                                           false);
 
                     // Require good coverage (at least 70% of model points visible)
                     // Use 0.7 * minScore as coarse threshold (was 0.5, too many false candidates)
@@ -998,12 +1102,11 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
         findTiming_.nmsMs = std::chrono::duration<double, std::milli>(t4 - t3).count();
     }
 
-    // Print timing breakdown (keep for backward compatibility, will be suppressed if timing struct is used)
-    auto ms = [](auto start, auto end) {
-        return std::chrono::duration<double, std::milli>(end - start).count();
-    };
-    if (!timingParams_.enableTiming) {
-        // Only print to stderr if struct-based timing is not enabled
+    // Print timing breakdown when explicitly requested
+    if (timingParams_.printTiming) {
+        auto ms = [](auto start, auto end) {
+            return std::chrono::duration<double, std::milli>(end - start).count();
+        };
         fprintf(stderr, "[Timing] Coarse: %.1fms (%zu candidates), Refine: %.1fms, SubPix: %.1fms, NMS: %.1fms | Total: %.1fms\n",
                 ms(t0, t1), coarseCandidates, ms(t1, t2), ms(t2, t3), ms(t3, t4), ms(t0, t4));
     }
@@ -1281,9 +1384,11 @@ std::vector<MatchResult> ShapeModelImpl::SearchLevel(
                     double angle = baseAngle + dAngle;
 
                     double coverage = 0.0;
-                    // ComputeScoreAtPosition now dispatches to SSE optimized scalar
+                    // Halcon-style: use subpixel points (Block 1) for pyramid refinement
+                    // gridPoints (Block 2) is only for initial coarse search at top level
                     double score = ComputeScoreAtPosition(targetPyramid, level,
-                                                           x, y, angle, 1.0, params.greediness, &coverage);
+                                                           x, y, angle, 1.0, params.greediness, &coverage,
+                                                           false);  // useGridPoints = false for refinement
 
                     // Require good coverage
                     if (coverage >= 0.7 && score > bestMatch.score) {
@@ -1307,14 +1412,14 @@ std::vector<MatchResult> ShapeModelImpl::SearchLevel(
 double ShapeModelImpl::ComputeScoreAtPosition(
     const AnglePyramid& pyramid, int32_t level,
     double x, double y, double angle, double scale,
-    double greediness, double* outCoverage) const
+    double greediness, double* outCoverage, bool useGridPoints) const
 {
     // Fast path: use SSE optimized scalar version for common cases
     // SSE scalar maintains finest-grained greediness (critical for performance!)
     // while using SSE for fast math (rsqrt instead of sqrt)
     if (params_.metric == MetricMode::IgnoreLocalPolarity ||
         params_.metric == MetricMode::IgnoreColorPolarity) {
-        return ComputeScoreBilinearSSE(pyramid, level, x, y, angle, scale, greediness, outCoverage);
+        return ComputeScoreBilinearSSE(pyramid, level, x, y, angle, scale, greediness, outCoverage, useGridPoints);
     }
 
     // Slow path: handle UsePolarity and IgnoreGlobalPolarity with original logic
@@ -1324,7 +1429,12 @@ double ShapeModelImpl::ComputeScoreAtPosition(
     }
 
     const auto& levelModel = levels_[level];
-    if (levelModel.points.empty()) {
+
+    // Select point set based on useGridPoints flag
+    // Block 1 (points): Subpixel edge points for precise matching
+    // Block 2 (gridPoints): Integer grid points for fast coarse search
+    const auto& pts = useGridPoints ? levelModel.gridPoints : levelModel.points;
+    if (pts.empty()) {
         if (outCoverage) *outCoverage = 0.0;
         return 0.0;
     }
@@ -1344,16 +1454,17 @@ double ShapeModelImpl::ComputeScoreAtPosition(
     const float xf = static_cast<float>(x);
     const float yf = static_cast<float>(y);
 
-    const float* soaX = levelModel.soaX.data();
-    const float* soaY = levelModel.soaY.data();
-    const float* soaCos = levelModel.soaCosAngle.data();
-    const float* soaSin = levelModel.soaSinAngle.data();
-    const float* soaWeight = levelModel.soaWeight.data();
+    // Select SoA data based on useGridPoints flag
+    const float* soaX = useGridPoints ? levelModel.gridSoaX.data() : levelModel.soaX.data();
+    const float* soaY = useGridPoints ? levelModel.gridSoaY.data() : levelModel.soaY.data();
+    const float* soaCos = useGridPoints ? levelModel.gridSoaCosAngle.data() : levelModel.soaCosAngle.data();
+    const float* soaSin = useGridPoints ? levelModel.gridSoaSinAngle.data() : levelModel.soaSinAngle.data();
+    const float* soaWeight = useGridPoints ? levelModel.gridSoaWeight.data() : levelModel.soaWeight.data();
 
     float totalScore = 0.0f;
     float totalWeight = 0.0f;
     int32_t matchedCount = 0;
-    const size_t numPoints = levelModel.points.size();
+    const size_t numPoints = pts.size();
 
     // For IgnoreGlobalPolarity
     float totalScoreInverted = 0.0f;
@@ -1459,10 +1570,15 @@ double ShapeModelImpl::ComputeScoreAtPosition(
 double ShapeModelImpl::ComputeScoreBilinearSSE(
     const AnglePyramid& pyramid, int32_t level,
     double x, double y, double angle, double scale,
-    double greediness, double* outCoverage) const
+    double greediness, double* outCoverage, bool useGridPoints) const
 {
     const auto& levelModel = levels_[level];
-    const size_t numPoints = levelModel.points.size();
+
+    // Select point set based on useGridPoints flag
+    // Block 1 (points): Subpixel edge points for precise matching
+    // Block 2 (gridPoints): Integer grid points for fast coarse search
+    const auto& pts = useGridPoints ? levelModel.gridPoints : levelModel.points;
+    const size_t numPoints = pts.size();
     if (numPoints == 0) {
         if (outCoverage) *outCoverage = 0.0;
         return 0.0;
@@ -1495,12 +1611,12 @@ double ShapeModelImpl::ComputeScoreBilinearSSE(
     const float earlyTermThreshold = static_cast<float>(greediness * numPoints);
     const int32_t checkInterval = 8; // Check more frequently than AVX2 version
 
-    // SoA data pointers
-    const float* soaX = levelModel.soaX.data();
-    const float* soaY = levelModel.soaY.data();
-    const float* soaCos = levelModel.soaCosAngle.data();
-    const float* soaSin = levelModel.soaSinAngle.data();
-    const float* soaWeight = levelModel.soaWeight.data();
+    // Select SoA data based on useGridPoints flag
+    const float* soaX = useGridPoints ? levelModel.gridSoaX.data() : levelModel.soaX.data();
+    const float* soaY = useGridPoints ? levelModel.gridSoaY.data() : levelModel.soaY.data();
+    const float* soaCos = useGridPoints ? levelModel.gridSoaCosAngle.data() : levelModel.soaCosAngle.data();
+    const float* soaSin = useGridPoints ? levelModel.gridSoaSinAngle.data() : levelModel.soaSinAngle.data();
+    const float* soaWeight = useGridPoints ? levelModel.gridSoaWeight.data() : levelModel.soaWeight.data();
 
     const int32_t maxX = width - 2;
     const int32_t maxY = height - 2;
@@ -2196,18 +2312,23 @@ int32_t EstimateOptimalLevels(int32_t imageWidth, int32_t imageHeight,
 }
 
 double EstimateAngleStep(int32_t modelSize) {
-    // Angle step should be small enough that rotating by one step
-    // doesn't move any model point by more than ~1 pixel
-    // For a point at distance r from center: displacement = r * angleStep
-    // Want displacement <= 1, so angleStep <= 1/r
+    // Halcon formula: angle_step = 2 * asin(1 / (2 * max_radius))
+    // This ensures the outermost edge point moves < 0.5 pixel per angle step
+    //
+    // Derivation: For a point at distance r from center, rotating by angle θ
+    // causes arc displacement = r * θ ≈ r * sin(θ) for small θ
+    // To ensure displacement < 0.5: r * sin(θ/2) * 2 < 0.5
+    // => sin(θ/2) < 0.25/r => θ/2 < asin(0.25/r) => θ < 2*asin(1/(4r))
+    // Halcon uses 2*asin(1/(2r)) which gives ~1px displacement (more conservative)
 
     double maxRadius = modelSize / 2.0;
     if (maxRadius < 1.0) maxRadius = 1.0;
 
-    double step = 1.0 / maxRadius;
+    // Halcon's exact formula for <0.5px displacement at outermost edge
+    double step = 2.0 * std::asin(1.0 / (2.0 * maxRadius));
 
-    // Clamp to reasonable range
-    return std::clamp(step, 0.01, 0.2);  // ~0.6 to ~11 degrees
+    // Clamp to reasonable range [0.5°, 10°]
+    return std::clamp(step, 0.0087, 0.175);
 }
 
 } // namespace Qi::Vision::Matching

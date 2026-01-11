@@ -334,6 +334,51 @@ bool QImage::SaveToFile(const std::string& path) const {
 }
 
 // =============================================================================
+// Color Conversion
+// =============================================================================
+
+QImage QImage::ToGray() const {
+    if (Empty()) return QImage();
+
+    // Already grayscale - return copy
+    if (impl_->channelType_ == ChannelType::Gray) {
+        return Clone();
+    }
+
+    // Only support UInt8 RGB/RGBA
+    if (impl_->type_ != PixelType::UInt8) {
+        return QImage();
+    }
+
+    int srcChannels = Channels();
+    if (srcChannels < 3) {
+        return QImage();
+    }
+
+    // Create grayscale output
+    QImage result(impl_->width_, impl_->height_, PixelType::UInt8, ChannelType::Gray);
+
+    // RGB to Gray: Y = 0.299*R + 0.587*G + 0.114*B (ITU-R BT.601)
+    const int32_t rWeight = 77;   // 0.299 * 256
+    const int32_t gWeight = 150;  // 0.587 * 256
+    const int32_t bWeight = 29;   // 0.114 * 256
+
+    for (int32_t y = 0; y < impl_->height_; ++y) {
+        const uint8_t* src = static_cast<const uint8_t*>(RowPtr(y));
+        uint8_t* dst = static_cast<uint8_t*>(result.RowPtr(y));
+
+        for (int32_t x = 0; x < impl_->width_; ++x) {
+            int r = src[x * srcChannels + 0];
+            int g = src[x * srcChannels + 1];
+            int b = src[x * srcChannels + 2];
+            dst[x] = static_cast<uint8_t>((r * rWeight + g * gWeight + b * bWeight) >> 8);
+        }
+    }
+
+    return result;
+}
+
+// =============================================================================
 // Metadata
 // =============================================================================
 

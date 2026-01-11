@@ -150,6 +150,12 @@ void TestImageSet(const std::string& name, const std::string& dataDir,
     std::cout << "   Image size: " << templateGray.Width() << " x " << templateGray.Height() << std::endl;
     std::cout << "   ROI: (" << roi.x << ", " << roi.y << ", " << roi.width << ", " << roi.height << ")" << std::endl;
 
+    // Enable timing for detailed breakdown
+    ShapeModelTimingParams timingParams;
+    timingParams.enableTiming = true;
+    timingParams.printTiming = false;
+    model.SetTimingParams(timingParams);
+
     timer.Start();
     if (!model.Create(templateGray, roi, modelParams)) {
         std::cerr << "   Failed to create model!" << std::endl;
@@ -184,19 +190,30 @@ void TestImageSet(const std::string& name, const std::string& dataDir,
         double searchTime = timer.ElapsedMs();
         totalTime += searchTime;
 
+        // Get detailed timing
+        auto timing = model.GetFindTiming();
+
         bool success = !matches.empty();
         if (success) successCount++;
 
         std::cout << "   [" << (i+1) << "/" << imageFiles.size() << "] "
-                  << imageFiles[i] << " - ";
+                  << imageFiles[i] << std::endl;
         if (success) {
-            std::cout << "Match: (" << std::fixed << std::setprecision(1)
+            std::cout << "      Match: (" << std::fixed << std::setprecision(1)
                       << matches[0].x << "," << matches[0].y << ") "
                       << "Score=" << std::setprecision(3) << matches[0].score
-                      << " Time=" << std::setprecision(1) << searchTime << "ms" << std::endl;
+                      << " Angle=" << std::setprecision(1) << (matches[0].angle * 180 / M_PI) << "deg" << std::endl;
         } else {
-            std::cout << "NO MATCH (Time=" << searchTime << "ms)" << std::endl;
+            std::cout << "      NO MATCH" << std::endl;
         }
+        std::cout << "      Time: " << std::setprecision(1) << searchTime << "ms total"
+                  << " (Pyramid:" << timing.pyramidBuildMs
+                  << " Coarse:" << timing.coarseSearchMs
+                  << " Refine:" << timing.pyramidRefineMs
+                  << " SubPix:" << timing.subpixelRefineMs
+                  << " NMS:" << timing.nmsMs << ")" << std::endl;
+        std::cout << "      Candidates: " << timing.numCoarseCandidates << " coarse -> "
+                  << timing.numFinalMatches << " final" << std::endl;
 
         // Save result image
         QImage colorImg = ToRGB(searchGray);

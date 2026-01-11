@@ -73,8 +73,6 @@ static inline __m256 atan2_avx2(__m256 y, __m256 x) {
     const __m256 pi = _mm256_set1_ps(static_cast<float>(PI));
     const __m256 pi_2 = _mm256_set1_ps(static_cast<float>(PI / 2.0));
     const __m256 zero = _mm256_setzero_ps();
-    const __m256 one = _mm256_set1_ps(1.0f);
-    const __m256 neg_one = _mm256_set1_ps(-1.0f);
 
     // Polynomial coefficients for atan approximation
     const __m256 c1 = _mm256_set1_ps(0.9998660f);
@@ -387,7 +385,6 @@ void AnglePyramid::Impl::FusedSobelMagDirBin(
     // For center pixels (y=1..height-2, x=1..width-2)
 
 #ifdef __AVX2__
-    const __m256 vTwoPi = _mm256_set1_ps(twoPi);
     const __m256 vBinScale = _mm256_set1_ps(binScale);
     const __m256i vMaxBin = _mm256_set1_epi32(numBins - 1);
     const __m256i vZero = _mm256_setzero_si256();
@@ -758,17 +755,37 @@ void AnglePyramid::Impl::ExtractEdgePointsForLevel(int32_t level) {
             localPoints.reserve(1000);
 
             #pragma omp for schedule(static) nowait
-            for (int32_t y = 1; y < levelData.height - 1; ++y) {
-                for (int32_t x = 1; x < levelData.width - 1; ++x) {
+            for (int32_t y = 2; y < levelData.height - 2; ++y) {
+                for (int32_t x = 2; x < levelData.width - 2; ++x) {
                     float mag = magData[y * magStride + x];
 
                     if (mag >= minContrast) {
+                        // Parabolic subpixel refinement in X direction
+                        float magXm1 = magData[y * magStride + (x - 1)];
+                        float magXp1 = magData[y * magStride + (x + 1)];
+                        double dx = 0.0;
+                        double denomX = 2.0 * (magXm1 - 2.0 * mag + magXp1);
+                        if (std::abs(denomX) > 1e-6) {
+                            dx = (magXm1 - magXp1) / denomX;
+                            dx = std::clamp(dx, -0.5, 0.5);
+                        }
+
+                        // Parabolic subpixel refinement in Y direction
+                        float magYm1 = magData[(y - 1) * magStride + x];
+                        float magYp1 = magData[(y + 1) * magStride + x];
+                        double dy = 0.0;
+                        double denomY = 2.0 * (magYm1 - 2.0 * mag + magYp1);
+                        if (std::abs(denomY) > 1e-6) {
+                            dy = (magYm1 - magYp1) / denomY;
+                            dy = std::clamp(dy, -0.5, 0.5);
+                        }
+
                         float dir = dirData[y * dirStride + x];
                         int16_t bin = binData[y * binStride + x];
 
                         localPoints.emplace_back(
-                            static_cast<double>(x),
-                            static_cast<double>(y),
+                            static_cast<double>(x) + dx,  // Subpixel X
+                            static_cast<double>(y) + dy,  // Subpixel Y
                             static_cast<double>(dir),
                             static_cast<double>(mag),
                             static_cast<int32_t>(bin)
@@ -790,17 +807,37 @@ void AnglePyramid::Impl::ExtractEdgePointsForLevel(int32_t level) {
         (void)useParallel;
         levelData.edgePoints.reserve(1000);
 
-        for (int32_t y = 1; y < levelData.height - 1; ++y) {
-            for (int32_t x = 1; x < levelData.width - 1; ++x) {
+        for (int32_t y = 2; y < levelData.height - 2; ++y) {
+            for (int32_t x = 2; x < levelData.width - 2; ++x) {
                 float mag = magData[y * magStride + x];
 
                 if (mag >= minContrast) {
+                    // Parabolic subpixel refinement in X direction
+                    float magXm1 = magData[y * magStride + (x - 1)];
+                    float magXp1 = magData[y * magStride + (x + 1)];
+                    double dx = 0.0;
+                    double denomX = 2.0 * (magXm1 - 2.0 * mag + magXp1);
+                    if (std::abs(denomX) > 1e-6) {
+                        dx = (magXm1 - magXp1) / denomX;
+                        dx = std::clamp(dx, -0.5, 0.5);
+                    }
+
+                    // Parabolic subpixel refinement in Y direction
+                    float magYm1 = magData[(y - 1) * magStride + x];
+                    float magYp1 = magData[(y + 1) * magStride + x];
+                    double dy = 0.0;
+                    double denomY = 2.0 * (magYm1 - 2.0 * mag + magYp1);
+                    if (std::abs(denomY) > 1e-6) {
+                        dy = (magYm1 - magYp1) / denomY;
+                        dy = std::clamp(dy, -0.5, 0.5);
+                    }
+
                     float dir = dirData[y * dirStride + x];
                     int16_t bin = binData[y * binStride + x];
 
                     levelData.edgePoints.emplace_back(
-                        static_cast<double>(x),
-                        static_cast<double>(y),
+                        static_cast<double>(x) + dx,  // Subpixel X
+                        static_cast<double>(y) + dy,  // Subpixel Y
                         static_cast<double>(dir),
                         static_cast<double>(mag),
                         static_cast<int32_t>(bin)

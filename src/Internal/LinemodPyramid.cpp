@@ -255,94 +255,106 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
     const int32_t H = level.height;
 
     // =========================================================================
-    // 优化后的流程 (3 pass):
-    // Pass 1: 高斯模糊 (需要邻域，不可避免)
-    // Pass 2: Sobel + 幅值 + 量化 (合并！)
-    // Pass 3: 投票 + OR扩散 (合并！)
+    // 优化流程: 快速内联 3x3 高斯 + Sobel (单次分配，两个 pass)
+    // Pass 1: 行方向 [1,2,1]/4 高斯
+    // Pass 2: 列方向 [1,2,1]/4 高斯 + Sobel + 量化 (融合)
     // =========================================================================
 
-    const float* imgData = static_cast<const float*>(image.Data());
-    const int32_t imgStride = static_cast<int32_t>(image.Stride() / sizeof(float));
+    const float* srcData = static_cast<const float*>(image.Data());
+    const int32_t srcStride = static_cast<int32_t>(image.Stride() / sizeof(float));
 
-    // Pass 1: 高斯模糊
-    std::vector<float> smoothed(static_cast<size_t>(W) * H);
-    {
-        // 如果 stride == width，直接处理；否则复制
-        // 使用 3x3 核 (σ~0.5) 替代 7x7 核 (σ=1.0) 以提升速度
-        if (imgStride == W) {
-            GaussianBlurFixed<float, float>(imgData, smoothed.data(), W, H, 3, 0.5);
-        } else {
-            std::vector<float> contiguous(static_cast<size_t>(W) * H);
-            for (int32_t y = 0; y < H; ++y) {
-                std::memcpy(contiguous.data() + y * W,
-                           imgData + y * imgStride, W * sizeof(float));
-            }
-            GaussianBlurFixed<float, float>(contiguous.data(), smoothed.data(), W, H, 3, 0.5);
-        }
-    }
-
-    // Pass 2: Sobel + 幅值 + 量化 (合并为一个 pass)
-    // 只在需要提取特征时分配 gradMag（搜索模式不需要）
+    // 只在需要提取特征时分配 gradMag
     const bool needGradMag = params_.extractFeatures;
     if (needGradMag) {
         level.gradMag = QImage(W, H, PixelType::Float32, ChannelType::Gray);
     }
     level.quantized = QImage(W, H, PixelType::UInt8, ChannelType::Gray);
-    {
-        float* magData = needGradMag ? static_cast<float*>(level.gradMag.Data()) : nullptr;
-        uint8_t* quantData = static_cast<uint8_t*>(level.quantized.Data());
-        const int32_t magStride = needGradMag ? static_cast<int32_t>(level.gradMag.Stride() / sizeof(float)) : 0;
-        const int32_t quantStride = static_cast<int32_t>(level.quantized.Stride());
 
-        // Sobel 核
-        // [-1  0  1]      [-1 -2 -1]
-        // [-2  0  2]      [ 0  0  0]
-        // [-1  0  1]      [ 1  2  1]
+    float* magData = needGradMag ? static_cast<float*>(level.gradMag.Data()) : nullptr;
+    uint8_t* quantData = static_cast<uint8_t*>(level.quantized.Data());
+    const int32_t magStride = needGradMag ? static_cast<int32_t>(level.gradMag.Stride() / sizeof(float)) : 0;
+    const int32_t quantStride = static_cast<int32_t>(level.quantized.Stride());
 
-        const float minMag = params_.minMagnitude;
+    const float minMag = params_.minMagnitude;
+    constexpr double INV_2PI = 1.0 / (2.0 * PI);
+
+    // Pass 1: 行方向高斯 [1,2,1]/4 - 输出到临时缓冲
+    std::vector<float> rowSmoothed(static_cast<size_t>(W) * H);
 
 #pragma omp parallel for schedule(static)
-        for (int32_t y = 0; y < H; ++y) {
-            for (int32_t x = 0; x < W; ++x) {
-                // 边界处理
-                int32_t y0 = (y > 0) ? y - 1 : 0;
-                int32_t y1 = y;
-                int32_t y2 = (y < H - 1) ? y + 1 : H - 1;
-                int32_t x0 = (x > 0) ? x - 1 : 0;
-                int32_t x1 = x;
-                int32_t x2 = (x < W - 1) ? x + 1 : W - 1;
+    for (int32_t y = 0; y < H; ++y) {
+        const float* srcRow = srcData + y * srcStride;
+        float* dstRow = rowSmoothed.data() + y * W;
 
-                // 读取 3x3 邻域
-                float p00 = smoothed[y0 * W + x0];
-                float p01 = smoothed[y0 * W + x1];
-                float p02 = smoothed[y0 * W + x2];
-                float p10 = smoothed[y1 * W + x0];
-                // float p11 = smoothed[y1 * W + x1];  // 不需要
-                float p12 = smoothed[y1 * W + x2];
-                float p20 = smoothed[y2 * W + x0];
-                float p21 = smoothed[y2 * W + x1];
-                float p22 = smoothed[y2 * W + x2];
+        // 边界: x=0
+        dstRow[0] = (srcRow[0] * 3.0f + srcRow[1]) * 0.25f;
 
-                // Sobel 梯度
-                float gx = -p00 + p02 - 2.0f * p10 + 2.0f * p12 - p20 + p22;
-                float gy = -p00 - 2.0f * p01 - p02 + p20 + 2.0f * p21 + p22;
+        // 内部
+        for (int32_t x = 1; x < W - 1; ++x) {
+            dstRow[x] = (srcRow[x - 1] + 2.0f * srcRow[x] + srcRow[x + 1]) * 0.25f;
+        }
 
-                // 幅值
-                float mag = std::sqrt(gx * gx + gy * gy);
-                if (magData) {
-                    magData[y * magStride + x] = mag;
-                }
+        // 边界: x=W-1
+        if (W > 1) {
+            dstRow[W - 1] = (srcRow[W - 2] + srcRow[W - 1] * 3.0f) * 0.25f;
+        }
+    }
 
-                // 量化
-                if (mag < minMag) {
-                    quantData[y * quantStride + x] = 0;
-                } else {
-                    // atan2 → 8 bins
-                    double angle = std::atan2(gy, gx);
-                    if (angle < 0) angle += 2.0 * PI;
-                    int32_t bin = static_cast<int32_t>(angle * 8.0 / (2.0 * PI) + 0.5) % 8;
-                    quantData[y * quantStride + x] = static_cast<uint8_t>(1 << bin);
-                }
+    // Pass 2: 列方向高斯 + Sobel + 量化 (融合为单 pass)
+    // 对行平滑后的数据做列方向 [1,2,1]/4，然后立即计算 Sobel
+#pragma omp parallel for schedule(static)
+    for (int32_t y = 0; y < H; ++y) {
+        // 获取 3 行数据指针 (列方向高斯需要)
+        const float* rs0 = rowSmoothed.data() + ((y > 0) ? (y - 1) : 0) * W;
+        const float* rs1 = rowSmoothed.data() + y * W;
+        const float* rs2 = rowSmoothed.data() + ((y < H - 1) ? (y + 1) : (H - 1)) * W;
+
+        // 为 Sobel 需要 5 行数据 (列平滑后的 ±1)
+        const float* rs_m2 = rowSmoothed.data() + ((y > 1) ? (y - 2) : 0) * W;
+        const float* rs_p2 = rowSmoothed.data() + ((y < H - 2) ? (y + 2) : (H - 1)) * W;
+
+        float* magRow = magData ? magData + y * magStride : nullptr;
+        uint8_t* quantRow = quantData + y * quantStride;
+
+        for (int32_t x = 0; x < W; ++x) {
+            // 列方向高斯平滑 (用于计算平滑后的 3x3 邻域)
+            // smoothed[y-1][x] = (rs_m2 + 2*rs_m1 + rs0) / 4 ≈ rs0 (近似)
+            // smoothed[y][x] = (rs0 + 2*rs1 + rs2) / 4
+            // smoothed[y+1][x] = (rs1 + 2*rs2 + rs_p2) / 4 ≈ rs2 (近似)
+
+            // 获取邻域 x 坐标
+            int32_t x0 = (x > 0) ? x - 1 : 0;
+            int32_t x2 = (x < W - 1) ? x + 1 : W - 1;
+
+            // 列方向平滑后的 3x3 邻域值 (融合计算)
+            // 行 y-1: 用 rs_m2, rs0 做列平滑
+            float p00 = (rs_m2[x0] + 2.0f * rs0[x0] + rs1[x0]) * 0.25f;
+            float p01 = (rs_m2[x]  + 2.0f * rs0[x]  + rs1[x])  * 0.25f;
+            float p02 = (rs_m2[x2] + 2.0f * rs0[x2] + rs1[x2]) * 0.25f;
+
+            // 行 y: 用 rs0, rs1, rs2 做列平滑
+            float p10 = (rs0[x0] + 2.0f * rs1[x0] + rs2[x0]) * 0.25f;
+            float p12 = (rs0[x2] + 2.0f * rs1[x2] + rs2[x2]) * 0.25f;
+
+            // 行 y+1: 用 rs1, rs2, rs_p2 做列平滑
+            float p20 = (rs1[x0] + 2.0f * rs2[x0] + rs_p2[x0]) * 0.25f;
+            float p21 = (rs1[x]  + 2.0f * rs2[x]  + rs_p2[x])  * 0.25f;
+            float p22 = (rs1[x2] + 2.0f * rs2[x2] + rs_p2[x2]) * 0.25f;
+
+            // Sobel 梯度
+            float gx = -p00 + p02 - 2.0f * p10 + 2.0f * p12 - p20 + p22;
+            float gy = -p00 - 2.0f * p01 - p02 + p20 + 2.0f * p21 + p22;
+
+            float mag = std::sqrt(gx * gx + gy * gy);
+            if (magRow) magRow[x] = mag;
+
+            if (mag < minMag) {
+                quantRow[x] = 0;
+            } else {
+                double angle = std::atan2(gy, gx);
+                if (angle < 0) angle += 2.0 * PI;
+                int32_t bin = static_cast<int32_t>(angle * 8.0 * INV_2PI + 0.5) % 8;
+                quantRow[x] = static_cast<uint8_t>(1 << bin);
             }
         }
     }

@@ -278,7 +278,7 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
     const float minMag = params_.minMagnitude;
     constexpr double INV_2PI = 1.0 / (2.0 * PI);
 
-    // Pass 1: 行方向高斯 [1,2,1]/4 - 输出到临时缓冲
+    // Pass 1: 行方向高斯 [1,2,1]/4 - 输出到临时缓冲 (SIMD 优化)
     std::vector<float> rowSmoothed(static_cast<size_t>(W) * H);
 
 #pragma omp parallel for schedule(static)
@@ -289,8 +289,51 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
         // 边界: x=0
         dstRow[0] = (srcRow[0] * 3.0f + srcRow[1]) * 0.25f;
 
-        // 内部
-        for (int32_t x = 1; x < W - 1; ++x) {
+        int32_t x = 1;
+
+#ifdef __AVX__
+        // AVX: 一次处理 8 个 float
+        // dst[x] = (src[x-1] + 2*src[x] + src[x+1]) * 0.25
+        const __m256 vTwo = _mm256_set1_ps(2.0f);
+        const __m256 vQuarter = _mm256_set1_ps(0.25f);
+
+        // 处理到 W-9 确保 src[x+1] 不越界 (需要读取 x+8)
+        for (; x + 8 <= W - 1; x += 8) {
+            __m256 left   = _mm256_loadu_ps(srcRow + x - 1);
+            __m256 center = _mm256_loadu_ps(srcRow + x);
+            __m256 right  = _mm256_loadu_ps(srcRow + x + 1);
+
+            // (left + 2*center + right) * 0.25
+            __m256 result = _mm256_mul_ps(center, vTwo);
+            result = _mm256_add_ps(result, left);
+            result = _mm256_add_ps(result, right);
+            result = _mm256_mul_ps(result, vQuarter);
+
+            _mm256_storeu_ps(dstRow + x, result);
+        }
+#endif
+
+#ifdef __SSE2__
+        // SSE2 fallback: 一次处理 4 个 float
+        const __m128 vTwo4 = _mm_set1_ps(2.0f);
+        const __m128 vQuarter4 = _mm_set1_ps(0.25f);
+
+        for (; x + 4 <= W - 1; x += 4) {
+            __m128 left   = _mm_loadu_ps(srcRow + x - 1);
+            __m128 center = _mm_loadu_ps(srcRow + x);
+            __m128 right  = _mm_loadu_ps(srcRow + x + 1);
+
+            __m128 result = _mm_mul_ps(center, vTwo4);
+            result = _mm_add_ps(result, left);
+            result = _mm_add_ps(result, right);
+            result = _mm_mul_ps(result, vQuarter4);
+
+            _mm_storeu_ps(dstRow + x, result);
+        }
+#endif
+
+        // 标量处理剩余部分
+        for (; x < W - 1; ++x) {
             dstRow[x] = (srcRow[x - 1] + 2.0f * srcRow[x] + srcRow[x + 1]) * 0.25f;
         }
 
@@ -300,62 +343,147 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
         }
     }
 
-    // Pass 2: 列方向高斯 + Sobel + 量化 (融合为单 pass)
-    // 对行平滑后的数据做列方向 [1,2,1]/4，然后立即计算 Sobel
+    // Pass 2: 列方向高斯 [1,2,1]/4 (SIMD 优化)
+    // 复用 rowSmoothed 做 in-place 或使用新缓冲
+    std::vector<float> smoothed(static_cast<size_t>(W) * H);
+
 #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < H; ++y) {
-        // 获取 3 行数据指针 (列方向高斯需要)
-        const float* rs0 = rowSmoothed.data() + ((y > 0) ? (y - 1) : 0) * W;
-        const float* rs1 = rowSmoothed.data() + y * W;
-        const float* rs2 = rowSmoothed.data() + ((y < H - 1) ? (y + 1) : (H - 1)) * W;
+        const float* row0 = rowSmoothed.data() + ((y > 0) ? (y - 1) : 0) * W;
+        const float* row1 = rowSmoothed.data() + y * W;
+        const float* row2 = rowSmoothed.data() + ((y < H - 1) ? (y + 1) : (H - 1)) * W;
+        float* dstRow = smoothed.data() + y * W;
 
-        // 为 Sobel 需要 5 行数据 (列平滑后的 ±1)
-        const float* rs_m2 = rowSmoothed.data() + ((y > 1) ? (y - 2) : 0) * W;
-        const float* rs_p2 = rowSmoothed.data() + ((y < H - 2) ? (y + 2) : (H - 1)) * W;
+        int32_t x = 0;
 
+#ifdef __AVX__
+        const __m256 vTwo = _mm256_set1_ps(2.0f);
+        const __m256 vQuarter = _mm256_set1_ps(0.25f);
+
+        for (; x + 8 <= W; x += 8) {
+            __m256 r0 = _mm256_loadu_ps(row0 + x);
+            __m256 r1 = _mm256_loadu_ps(row1 + x);
+            __m256 r2 = _mm256_loadu_ps(row2 + x);
+
+            __m256 result = _mm256_mul_ps(r1, vTwo);
+            result = _mm256_add_ps(result, r0);
+            result = _mm256_add_ps(result, r2);
+            result = _mm256_mul_ps(result, vQuarter);
+
+            _mm256_storeu_ps(dstRow + x, result);
+        }
+#endif
+
+#ifdef __SSE2__
+        const __m128 vTwo4 = _mm_set1_ps(2.0f);
+        const __m128 vQuarter4 = _mm_set1_ps(0.25f);
+
+        for (; x + 4 <= W; x += 4) {
+            __m128 r0 = _mm_loadu_ps(row0 + x);
+            __m128 r1 = _mm_loadu_ps(row1 + x);
+            __m128 r2 = _mm_loadu_ps(row2 + x);
+
+            __m128 result = _mm_mul_ps(r1, vTwo4);
+            result = _mm_add_ps(result, r0);
+            result = _mm_add_ps(result, r2);
+            result = _mm_mul_ps(result, vQuarter4);
+
+            _mm_storeu_ps(dstRow + x, result);
+        }
+#endif
+
+        for (; x < W; ++x) {
+            dstRow[x] = (row0[x] + 2.0f * row1[x] + row2[x]) * 0.25f;
+        }
+    }
+
+    // Pass 3: Sobel + 量化 (在完全平滑后的图像上)
+    // 使用快速八分法替代 atan2，大幅提升速度
+    // 8个方向: 0=E, 1=NE, 2=N, 3=NW, 4=W, 5=SW, 6=S, 7=SE
+    // tan(22.5°) ≈ 0.414, tan(67.5°) ≈ 2.414
+    constexpr float TAN_22_5 = 0.41421356f;  // tan(22.5°)
+    constexpr float TAN_67_5 = 2.41421356f;  // tan(67.5°)
+
+    // 快速角度量化函数 (内联 lambda)
+    auto fastQuantize = [&](float gx, float gy) -> uint8_t {
+        // 计算 |gy/gx| 的绝对值比例来确定八分区
+        float ax = std::abs(gx);
+        float ay = std::abs(gy);
+
+        int32_t bin;
+        if (ax > ay * TAN_67_5) {
+            // 接近水平: bin 0 或 4
+            bin = (gx >= 0) ? 0 : 4;
+        } else if (ay > ax * TAN_67_5) {
+            // 接近垂直: bin 2 或 6
+            bin = (gy >= 0) ? 2 : 6;
+        } else if (ax > ay * TAN_22_5) {
+            // 45度区域倾向水平
+            if (gx >= 0) {
+                bin = (gy >= 0) ? 1 : 7;
+            } else {
+                bin = (gy >= 0) ? 3 : 5;
+            }
+        } else {
+            // 45度区域倾向垂直
+            if (gy >= 0) {
+                bin = (gx >= 0) ? 1 : 3;
+            } else {
+                bin = (gx >= 0) ? 7 : 5;
+            }
+        }
+        return static_cast<uint8_t>(1 << bin);
+    };
+
+#pragma omp parallel for schedule(static)
+    for (int32_t y = 0; y < H; ++y) {
+        const float* row0 = smoothed.data() + ((y > 0) ? (y - 1) : 0) * W;
+        const float* row1 = smoothed.data() + y * W;
+        const float* row2 = smoothed.data() + ((y < H - 1) ? (y + 1) : (H - 1)) * W;
         float* magRow = magData ? magData + y * magStride : nullptr;
         uint8_t* quantRow = quantData + y * quantStride;
 
-        for (int32_t x = 0; x < W; ++x) {
-            // 列方向高斯平滑 (用于计算平滑后的 3x3 邻域)
-            // smoothed[y-1][x] = (rs_m2 + 2*rs_m1 + rs0) / 4 ≈ rs0 (近似)
-            // smoothed[y][x] = (rs0 + 2*rs1 + rs2) / 4
-            // smoothed[y+1][x] = (rs1 + 2*rs2 + rs_p2) / 4 ≈ rs2 (近似)
+        // 边界 x=0
+        {
+            float p00 = row0[0], p01 = row0[0], p02 = row0[1];
+            float p10 = row1[0], p12 = row1[1];
+            float p20 = row2[0], p21 = row2[0], p22 = row2[1];
 
-            // 获取邻域 x 坐标
-            int32_t x0 = (x > 0) ? x - 1 : 0;
-            int32_t x2 = (x < W - 1) ? x + 1 : W - 1;
-
-            // 列方向平滑后的 3x3 邻域值 (融合计算)
-            // 行 y-1: 用 rs_m2, rs0 做列平滑
-            float p00 = (rs_m2[x0] + 2.0f * rs0[x0] + rs1[x0]) * 0.25f;
-            float p01 = (rs_m2[x]  + 2.0f * rs0[x]  + rs1[x])  * 0.25f;
-            float p02 = (rs_m2[x2] + 2.0f * rs0[x2] + rs1[x2]) * 0.25f;
-
-            // 行 y: 用 rs0, rs1, rs2 做列平滑
-            float p10 = (rs0[x0] + 2.0f * rs1[x0] + rs2[x0]) * 0.25f;
-            float p12 = (rs0[x2] + 2.0f * rs1[x2] + rs2[x2]) * 0.25f;
-
-            // 行 y+1: 用 rs1, rs2, rs_p2 做列平滑
-            float p20 = (rs1[x0] + 2.0f * rs2[x0] + rs_p2[x0]) * 0.25f;
-            float p21 = (rs1[x]  + 2.0f * rs2[x]  + rs_p2[x])  * 0.25f;
-            float p22 = (rs1[x2] + 2.0f * rs2[x2] + rs_p2[x2]) * 0.25f;
-
-            // Sobel 梯度
             float gx = -p00 + p02 - 2.0f * p10 + 2.0f * p12 - p20 + p22;
             float gy = -p00 - 2.0f * p01 - p02 + p20 + 2.0f * p21 + p22;
+            float mag = std::sqrt(gx * gx + gy * gy);
+            if (magRow) magRow[0] = mag;
 
+            quantRow[0] = (mag < minMag) ? 0 : fastQuantize(gx, gy);
+        }
+
+        // 内部像素
+        for (int32_t x = 1; x < W - 1; ++x) {
+            float p00 = row0[x - 1], p01 = row0[x], p02 = row0[x + 1];
+            float p10 = row1[x - 1], p12 = row1[x + 1];
+            float p20 = row2[x - 1], p21 = row2[x], p22 = row2[x + 1];
+
+            float gx = -p00 + p02 - 2.0f * p10 + 2.0f * p12 - p20 + p22;
+            float gy = -p00 - 2.0f * p01 - p02 + p20 + 2.0f * p21 + p22;
             float mag = std::sqrt(gx * gx + gy * gy);
             if (magRow) magRow[x] = mag;
 
-            if (mag < minMag) {
-                quantRow[x] = 0;
-            } else {
-                double angle = std::atan2(gy, gx);
-                if (angle < 0) angle += 2.0 * PI;
-                int32_t bin = static_cast<int32_t>(angle * 8.0 * INV_2PI + 0.5) % 8;
-                quantRow[x] = static_cast<uint8_t>(1 << bin);
-            }
+            quantRow[x] = (mag < minMag) ? 0 : fastQuantize(gx, gy);
+        }
+
+        // 边界 x=W-1
+        if (W > 1) {
+            int32_t x = W - 1;
+            float p00 = row0[x - 1], p01 = row0[x], p02 = row0[x];
+            float p10 = row1[x - 1], p12 = row1[x];
+            float p20 = row2[x - 1], p21 = row2[x], p22 = row2[x];
+
+            float gx = -p00 + p02 - 2.0f * p10 + 2.0f * p12 - p20 + p22;
+            float gy = -p00 - 2.0f * p01 - p02 + p20 + 2.0f * p21 + p22;
+            float mag = std::sqrt(gx * gx + gy * gy);
+            if (magRow) magRow[x] = mag;
+
+            quantRow[x] = (mag < minMag) ? 0 : fastQuantize(gx, gy);
         }
     }
 

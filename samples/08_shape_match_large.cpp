@@ -329,7 +329,7 @@ int main(int argc, char* argv[]) {
         // Test 3: LINEMOD mode (8-bin quantization, LUT scoring)
         std::cout << "\n*** Testing LINEMOD mode ***" << std::endl;
         ModelParams linemodModelParams;
-        linemodModelParams.numLevels = 5;
+        // numLevels auto-calculated based on template size (135x200 → ~4 levels)
         linemodModelParams.angleStart = 0;
         linemodModelParams.angleExtent = 2 * M_PI;
         linemodModelParams.contrastHigh = 10;

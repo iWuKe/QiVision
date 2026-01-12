@@ -122,7 +122,7 @@ bool LinemodPyramid::Build(const QImage& image, const LinemodPyramidParams& para
     // Level 1+ 从量化图下采样，大幅减少计算量
     // =========================================================================
 
-    // Convert to float if needed
+    // Convert to float if needed (parallelized for large images)
     QImage floatImage;
     if (image.Type() == PixelType::Float32) {
         floatImage = image;
@@ -132,10 +132,15 @@ bool LinemodPyramid::Build(const QImage& image, const LinemodPyramidParams& para
         float* dst = static_cast<float*>(floatImage.Data());
         const int32_t srcStride = static_cast<int32_t>(image.Stride());
         const int32_t dstStride = static_cast<int32_t>(floatImage.Stride() / sizeof(float));
+        const int32_t imgW = image.Width();
+        const int32_t imgH = image.Height();
 
-        for (int32_t y = 0; y < image.Height(); ++y) {
-            for (int32_t x = 0; x < image.Width(); ++x) {
-                dst[y * dstStride + x] = static_cast<float>(src[y * srcStride + x]);
+#pragma omp parallel for schedule(static) if(imgW * imgH > 100000)
+        for (int32_t y = 0; y < imgH; ++y) {
+            const uint8_t* srcRow = src + y * srcStride;
+            float* dstRow = dst + y * dstStride;
+            for (int32_t x = 0; x < imgW; ++x) {
+                dstRow[x] = static_cast<float>(srcRow[x]);
             }
         }
     }
@@ -278,13 +283,14 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
     const float minMag = params_.minMagnitude;
     constexpr double INV_2PI = 1.0 / (2.0 * PI);
 
-    // Pass 1: 行方向高斯 [1,2,1]/4 - 输出到临时缓冲 (SIMD 优化)
-    std::vector<float> rowSmoothed(static_cast<size_t>(W) * H);
+    // Pass 1: 行方向高斯 [1,2,1]/4 - 使用复用缓冲区 (SIMD 优化)
+    const size_t bufSize = static_cast<size_t>(W) * H;
+    EnsureBuffer(rowSmoothed_, bufSize);
 
 #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < H; ++y) {
         const float* srcRow = srcData + y * srcStride;
-        float* dstRow = rowSmoothed.data() + y * W;
+        float* dstRow = rowSmoothed_.data() + y * W;
 
         // 边界: x=0
         dstRow[0] = (srcRow[0] * 3.0f + srcRow[1]) * 0.25f;
@@ -344,15 +350,15 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
     }
 
     // Pass 2: 列方向高斯 [1,2,1]/4 (SIMD 优化)
-    // 复用 rowSmoothed 做 in-place 或使用新缓冲
-    std::vector<float> smoothed(static_cast<size_t>(W) * H);
+    // 使用复用缓冲区
+    EnsureBuffer(smoothed_, bufSize);
 
 #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < H; ++y) {
-        const float* row0 = rowSmoothed.data() + ((y > 0) ? (y - 1) : 0) * W;
-        const float* row1 = rowSmoothed.data() + y * W;
-        const float* row2 = rowSmoothed.data() + ((y < H - 1) ? (y + 1) : (H - 1)) * W;
-        float* dstRow = smoothed.data() + y * W;
+        const float* row0 = rowSmoothed_.data() + ((y > 0) ? (y - 1) : 0) * W;
+        const float* row1 = rowSmoothed_.data() + y * W;
+        const float* row2 = rowSmoothed_.data() + ((y < H - 1) ? (y + 1) : (H - 1)) * W;
+        float* dstRow = smoothed_.data() + y * W;
 
         int32_t x = 0;
 
@@ -437,9 +443,9 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
 
 #pragma omp parallel for schedule(static)
     for (int32_t y = 0; y < H; ++y) {
-        const float* row0 = smoothed.data() + ((y > 0) ? (y - 1) : 0) * W;
-        const float* row1 = smoothed.data() + y * W;
-        const float* row2 = smoothed.data() + ((y < H - 1) ? (y + 1) : (H - 1)) * W;
+        const float* row0 = smoothed_.data() + ((y > 0) ? (y - 1) : 0) * W;
+        const float* row1 = smoothed_.data() + y * W;
+        const float* row2 = smoothed_.data() + ((y < H - 1) ? (y + 1) : (H - 1)) * W;
         float* magRow = magData ? magData + y * magStride : nullptr;
         uint8_t* quantRow = quantData + y * quantStride;
 
@@ -613,7 +619,7 @@ void LinemodPyramid::ApplyORSpreading(LinemodLevelData& level) {
             if (dy == 0 && dx == 0) continue;
 
             // OR src[y+dy][x+dx] into dst[y][x]
-#pragma omp parallel for if(W * H > 100000)
+#pragma omp parallel for schedule(static) if(W * H > 100000)
             for (int32_t y = 0; y < H - dy; ++y) {
                 for (int32_t x = 0; x < W - dx; ++x) {
                     dst[y * dstStride + x] |= src[(y + dy) * srcStride + (x + dx)];
@@ -628,7 +634,7 @@ void LinemodPyramid::ApplyORSpreading(LinemodLevelData& level) {
             if (dy == 0 && dx == 0) continue;
 
             // OR src[y-dy][x-dx] into dst[y][x]
-#pragma omp parallel for if(W * H > 100000)
+#pragma omp parallel for schedule(static) if(W * H > 100000)
             for (int32_t y = dy; y < H; ++y) {
                 for (int32_t x = dx; x < W; ++x) {
                     dst[y * dstStride + x] |= src[(y - dy) * srcStride + (x - dx)];

@@ -357,6 +357,11 @@ private:
     LinemodPyramidParams params_;
     bool valid_ = false;
 
+    // Reusable buffers to avoid repeated allocations
+    mutable std::vector<float> floatBuffer_;      ///< For uint8→float conversion
+    mutable std::vector<float> rowSmoothed_;      ///< Row Gaussian temp buffer
+    mutable std::vector<float> smoothed_;         ///< Column Gaussian temp buffer
+
     // Internal methods
     bool BuildLevel(const QImage& image, int32_t levelIdx);
     bool BuildLevelFromQuantized(int32_t levelIdx, const LinemodLevelData& prevLevel);
@@ -365,6 +370,13 @@ private:
     void ApplyORSpreading(LinemodLevelData& level);
     void BuildResponseMaps(LinemodLevelData& level);
     void ExtractLevelFeatures(LinemodLevelData& level);
+
+    /// Ensure buffer has at least 'size' elements
+    void EnsureBuffer(std::vector<float>& buf, size_t size) const {
+        if (buf.size() < size) {
+            buf.resize(size);
+        }
+    }
 };
 
 // =============================================================================

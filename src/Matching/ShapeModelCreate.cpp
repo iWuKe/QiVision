@@ -940,8 +940,20 @@ bool ShapeModelImpl::CreateModelLinemod(const QImage& image, const Rect2i& roi, 
     }
 
     // Build LINEMOD pyramid for template
+    // Compute optimal levels based on template size (not fixed!)
+    // Rule: top level template should be ~15-30 pixels in smallest dimension
     LinemodPyramidParams pyramidParams;
-    pyramidParams.numLevels = params_.numLevels > 0 ? params_.numLevels : 4;
+    if (params_.numLevels > 0) {
+        pyramidParams.numLevels = params_.numLevels;
+    } else {
+        int32_t minDim = std::min(actualRoi.width, actualRoi.height);
+        int32_t levels = 1;
+        while (minDim > 30 && levels < 6) {  // Stop when top level ~30px
+            minDim /= 2;
+            levels++;
+        }
+        pyramidParams.numLevels = levels;
+    }
     pyramidParams.minMagnitude = static_cast<float>(params_.contrastHigh);
     pyramidParams.smoothSigma = 1.0;
     pyramidParams.spreadT = 4;

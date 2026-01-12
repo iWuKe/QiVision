@@ -1252,6 +1252,23 @@ bool AnglePyramid::GetGradientData(int32_t level, const float*& gxData, const fl
     return true;
 }
 
+bool AnglePyramid::GetAngleBinData(int32_t level, const int16_t*& binData,
+                                    int32_t& width, int32_t& height, int32_t& stride,
+                                    int32_t& numBins) const {
+    if (level < 0 || level >= static_cast<int32_t>(impl_->levels_.size())) {
+        return false;
+    }
+
+    const auto& levelData = impl_->levels_[level];
+    binData = static_cast<const int16_t*>(levelData.angleBinImage.Data());
+    width = levelData.width;
+    height = levelData.height;
+    stride = levelData.angleBinImage.Stride() / sizeof(int16_t);
+    numBins = impl_->params_.angleBins;
+
+    return true;
+}
+
 std::vector<EdgePoint> AnglePyramid::ExtractEdgePoints(int32_t level,
                                                         const Rect2i& roi,
                                                         double minContrast) const {

@@ -82,6 +82,7 @@ struct LevelModel {
     std::vector<float> soaCosAngle;
     std::vector<float> soaSinAngle;
     std::vector<float> soaWeight;
+    std::vector<int16_t> soaAngleBin;  // Quantized angle bin index
 
     // SoA for Block 2 (grid points)
     std::vector<float> gridSoaX;
@@ -89,6 +90,7 @@ struct LevelModel {
     std::vector<float> gridSoaCosAngle;
     std::vector<float> gridSoaSinAngle;
     std::vector<float> gridSoaWeight;
+    std::vector<int16_t> gridSoaAngleBin;  // Quantized angle bin index
 
     void BuildSoA() {
         // Regenerate gridPoints from points if empty (e.g., after loading from file)
@@ -97,10 +99,10 @@ struct LevelModel {
         }
 
         // Build SoA for Block 1 (subpixel points)
-        BuildSoAForPoints(points, soaX, soaY, soaCosAngle, soaSinAngle, soaWeight);
+        BuildSoAForPoints(points, soaX, soaY, soaCosAngle, soaSinAngle, soaWeight, soaAngleBin);
 
         // Build SoA for Block 2 (grid points)
-        BuildSoAForPoints(gridPoints, gridSoaX, gridSoaY, gridSoaCosAngle, gridSoaSinAngle, gridSoaWeight);
+        BuildSoAForPoints(gridPoints, gridSoaX, gridSoaY, gridSoaCosAngle, gridSoaSinAngle, gridSoaWeight, gridSoaAngleBin);
     }
 
     void RegenerateGridPoints() {
@@ -133,7 +135,7 @@ private:
     static void BuildSoAForPoints(const std::vector<ModelPoint>& pts,
                                    std::vector<float>& x, std::vector<float>& y,
                                    std::vector<float>& cosA, std::vector<float>& sinA,
-                                   std::vector<float>& w) {
+                                   std::vector<float>& w, std::vector<int16_t>& bins) {
         const size_t n = pts.size();
         const size_t paddedN = (n + 7) & ~7;  // Pad to multiple of 8 for AVX2
 
@@ -142,6 +144,7 @@ private:
         cosA.resize(paddedN, 1.0f);
         sinA.resize(paddedN, 0.0f);
         w.resize(paddedN, 0.0f);
+        bins.resize(paddedN, 0);
 
         for (size_t i = 0; i < n; ++i) {
             x[i] = static_cast<float>(pts[i].x);
@@ -149,6 +152,7 @@ private:
             cosA[i] = static_cast<float>(pts[i].cosAngle);
             sinA[i] = static_cast<float>(pts[i].sinAngle);
             w[i] = static_cast<float>(pts[i].weight);
+            bins[i] = static_cast<int16_t>(pts[i].angleBin);
         }
     }
 };
@@ -242,6 +246,13 @@ public:
     // Precomputed angle data for common angles
     std::vector<std::vector<AngleData>> angleCache_;
 
+    // Direction quantization lookup table for fast scoring
+    // cosLUT_[i] = |cos(i * 2π / numBins)| for i = 0..numBins-1
+    std::vector<float> cosLUT_;
+    int32_t numAngleBins_ = 0;  // Number of angle bins (same as AnglePyramid)
+
+    void BuildCosLUT(int32_t numBins);  // Build cos lookup table
+
     // Methods
     bool CreateModel(const QImage& image, const Rect2i& roi, const Point2d& origin);
     void ExtractModelPoints(const AnglePyramid& pyramid);
@@ -261,7 +272,9 @@ public:
     std::vector<MatchResult> SearchLevel(const AnglePyramid& targetPyramid,
                                           int32_t level,
                                           const std::vector<MatchResult>& candidates,
-                                          const SearchParams& params) const;
+                                          const SearchParams& params,
+                                          int32_t positionRadius = -1,   // -1 = auto
+                                          double angleRadiusDeg = -1) const;  // -1 = auto
 
     // Score computation with optional grid points selection
     // useGridPoints: true = use Block 2 (gridPoints) for fast coarse search
@@ -287,6 +300,19 @@ public:
                                     double x, double y, double angle, double scale,
                                     double greediness, double* outCoverage = nullptr,
                                     bool useGridPoints = false) const;
+
+    // SSE optimized with precomputed sin/cos (for coarse search optimization)
+    double ComputeScoreWithSinCos(const AnglePyramid& pyramid, int32_t level,
+                                   double x, double y, float cosR, float sinR, double scale,
+                                   double greediness, double* outCoverage = nullptr,
+                                   bool useGridPoints = false) const;
+
+    // Direction-quantized scoring with lookup table (fastest for coarse search)
+    // Uses precomputed angle bins and cosine LUT to avoid sin/cos calculations
+    double ComputeScoreQuantized(const AnglePyramid& pyramid, int32_t level,
+                                  double x, double y, float cosR, float sinR, int32_t rotationBin,
+                                  double greediness, double* outCoverage = nullptr,
+                                  bool useGridPoints = false) const;
 
     void RefinePosition(const AnglePyramid& pyramid, MatchResult& match,
                         SubpixelMethod method) const;
@@ -521,6 +547,17 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
     for (auto& level : levels_) {
         level.BuildSoA();
     }
+
+    // Build cosine lookup table for direction-quantized scoring
+    // Get numBins from pyramid (default is 64)
+    const int16_t* binData;
+    int32_t w, h, s, numBins;
+    if (pyramid.GetAngleBinData(0, binData, w, h, s, numBins)) {
+        BuildCosLUT(numBins);
+    } else {
+        BuildCosLUT(64);  // Default fallback
+    }
+
     if (timingParams_.enableTiming) {
         createTiming_.buildSoAMs = elapsedMs(tStep);
         createTiming_.totalMs = elapsedMs(tTotal);
@@ -838,6 +875,18 @@ void ShapeModelImpl::OptimizeModel() {
     }
 }
 
+void ShapeModelImpl::BuildCosLUT(int32_t numBins) {
+    numAngleBins_ = numBins;
+    cosLUT_.resize(numBins);
+
+    // cosLUT_[i] = |cos(i * 2π / numBins)|
+    // For matching: similarity = cosLUT_[(modelBin + rotationBin - imageBin) & (numBins-1)]
+    const double step = 2.0 * PI / numBins;
+    for (int32_t i = 0; i < numBins; ++i) {
+        cosLUT_[i] = static_cast<float>(std::fabs(std::cos(i * step)));
+    }
+}
+
 void ShapeModelImpl::BuildAngleCache(double angleStart, double angleExtent, double angleStep) {
     angleCache_.clear();
 
@@ -950,7 +999,6 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
 
     // Search grid at top level
     // Step 2: ~1280 positions for 80×64 image
-    // Note: Step 3 causes misses - search radius can't compensate
     int32_t stepSize = 2;
 
     // Build COARSE angle list for parallel processing
@@ -969,6 +1017,16 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
         #pragma omp for schedule(dynamic)
         for (size_t ai = 0; ai < angles.size(); ++ai) {
             const double angle = angles[ai];
+
+            // Precompute sin/cos once per angle (optimization: avoid repeated trig calls)
+            const float cosR = static_cast<float>(std::cos(angle));
+            const float sinR = static_cast<float>(std::sin(angle));
+
+            // Compute rotation bin for quantized scoring
+            // angle -> bin: (angle / 2π) * numBins, normalized to [0, 2π)
+            double normAngle = angle - std::floor(angle / (2.0 * PI)) * (2.0 * PI);
+            int32_t rotationBin = (numAngleBins_ > 0) ?
+                static_cast<int32_t>(normAngle * numAngleBins_ / (2.0 * PI)) % numAngleBins_ : 0;
 
             // Compute rotated model bounds
             double rMinX, rMaxX, rMinY, rMaxY;
@@ -994,10 +1052,11 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
             for (int32_t y = searchYMin; y <= searchYMax; y += stepSize) {
                 for (int32_t x = searchXMin; x <= searchXMax; x += stepSize) {
                     double coverage = 0.0;
-                    // Use subpixel points (Block 1) for coarse search
-                    // Note: gridPoints (Block 2) available but subpixel points provide better accuracy
-                    double score = ComputeScoreAtPosition(targetPyramid, startLevel,
-                                                           x, y, angle, 1.0, params.greediness, &coverage,
+                    // Use precomputed sin/cos for faster scoring
+                    // (Quantized scoring with LUT was tested but showed no improvement due to
+                    //  random memory access patterns causing cache misses)
+                    double score = ComputeScoreWithSinCos(targetPyramid, startLevel,
+                                                           x, y, cosR, sinR, 1.0, params.greediness, &coverage,
                                                            false);
 
                     // Require good coverage (at least 70% of model points visible)
@@ -1040,8 +1099,13 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
     }
 
     // Refine through pyramid levels
+    // HALCON-style angle index passing: gradually narrow angle search range
     for (int32_t level = startLevel - 1; level >= 0; --level) {
-        candidates = SearchLevel(targetPyramid, level, candidates, params);
+        // Angle radius: ±6° at top, halving each level down to ±1° at bottom
+        double angleRadiusDeg = 6.0 / (1 << (startLevel - 1 - level));
+        angleRadiusDeg = std::max(1.0, angleRadiusDeg);  // Minimum ±1°
+
+        candidates = SearchLevel(targetPyramid, level, candidates, params, -1, angleRadiusDeg);
 
         // Re-sort and limit
         std::sort(candidates.begin(), candidates.end());
@@ -1332,7 +1396,9 @@ std::vector<MatchResult> ShapeModelImpl::SearchLevel(
     const AnglePyramid& targetPyramid,
     int32_t level,
     const std::vector<MatchResult>& candidates,
-    const SearchParams& params) const
+    const SearchParams& params,
+    int32_t positionRadius,
+    double angleRadiusDeg) const
 {
     std::vector<MatchResult> refined;
     refined.reserve(candidates.size());
@@ -1340,14 +1406,23 @@ std::vector<MatchResult> ShapeModelImpl::SearchLevel(
     // Scale factor between levels
     double scaleFactor = 2.0;
 
-    // Search window at this level (smaller at higher levels for efficiency)
-    int32_t searchRadius = (level == 0) ? 2 : 1;
+    // HALCON-style position passing: use provided radius or default
+    // Default: level 0 = ±2, others = ±1
+    int32_t searchRadius = (positionRadius >= 0) ? positionRadius : ((level == 0) ? 2 : 1);
 
-    // Angle refinement strategy:
-    // - Higher levels (coarse): range ±6°, step 2°
-    // - Level 0 (fine): range ±2°, step 0.5°
-    double angleRadius = (level == 0) ? 0.035 : 0.1;  // ±2° at level 0, ±6° at higher levels
-    double angleStep = (level == 0) ? 0.01 : 0.035;   // 0.5° at level 0, 2° at higher levels
+    // HALCON-style angle index passing: use provided radius or default
+    // Default: level 0 = ±2°, others = ±6°
+    double angleRadius, angleStep;
+    if (angleRadiusDeg >= 0) {
+        // Use provided angle radius (in degrees), convert to radians
+        angleRadius = angleRadiusDeg * PI / 180.0;
+        // Step size: radius / 3 (about 7 steps total)
+        angleStep = std::max(0.005, angleRadius / 3.0);
+    } else {
+        // Default behavior
+        angleRadius = (level == 0) ? 0.035 : 0.1;  // ±2° at level 0, ±6° at higher levels
+        angleStep = (level == 0) ? 0.01 : 0.035;   // 0.5° at level 0, 2° at higher levels
+    }
 
     int32_t targetWidth = targetPyramid.GetWidth(level);
     int32_t targetHeight = targetPyramid.GetHeight(level);
@@ -1709,6 +1784,260 @@ double ShapeModelImpl::ComputeScoreBilinearSSE(
 // Using SSE version (ComputeScoreBilinearSSE) which provides good performance
 // across all x86-64 platforms. AVX2 versions showed minimal improvement
 // due to memory-bound nature of the algorithm.
+
+// =============================================================================
+// ComputeScoreWithSinCos: Same as ComputeScoreBilinearSSE but with precomputed sin/cos
+// =============================================================================
+// This eliminates redundant sin/cos calculations when the same angle is used
+// for multiple positions in coarse search
+// =============================================================================
+double ShapeModelImpl::ComputeScoreWithSinCos(
+    const AnglePyramid& pyramid, int32_t level,
+    double x, double y, float cosR, float sinR, double scale,
+    double greediness, double* outCoverage, bool useGridPoints) const
+{
+    const auto& levelModel = levels_[level];
+
+    const auto& pts = useGridPoints ? levelModel.gridPoints : levelModel.points;
+    const size_t numPoints = pts.size();
+    if (numPoints == 0) {
+        if (outCoverage) *outCoverage = 0.0;
+        return 0.0;
+    }
+
+    const float* gxData;
+    const float* gyData;
+    int32_t width, height, stride;
+    if (!pyramid.GetGradientData(level, gxData, gyData, width, height, stride)) {
+        if (outCoverage) *outCoverage = 0.0;
+        return 0.0;
+    }
+
+    // Use precomputed sin/cos - no std::cos/sin calls here!
+    const float scalef = static_cast<float>(scale);
+    const float xf = static_cast<float>(x);
+    const float yf = static_cast<float>(y);
+
+    // SSE constants
+    const __m128 vMinMagSq = _mm_set_ss(25.0f);
+    const __m128 vSignMask = _mm_set_ss(-0.0f);
+
+    float totalScore = 0.0f;
+    float totalWeight = 0.0f;
+    int32_t matchedCount = 0;
+
+    const float earlyTermThreshold = static_cast<float>(greediness * numPoints);
+    const int32_t checkInterval = 8;
+
+    const float* soaX = useGridPoints ? levelModel.gridSoaX.data() : levelModel.soaX.data();
+    const float* soaY = useGridPoints ? levelModel.gridSoaY.data() : levelModel.soaY.data();
+    const float* soaCos = useGridPoints ? levelModel.gridSoaCosAngle.data() : levelModel.soaCosAngle.data();
+    const float* soaSin = useGridPoints ? levelModel.gridSoaSinAngle.data() : levelModel.soaSinAngle.data();
+    const float* soaWeight = useGridPoints ? levelModel.gridSoaWeight.data() : levelModel.soaWeight.data();
+
+    const int32_t maxX = width - 2;
+    const int32_t maxY = height - 2;
+
+    for (size_t i = 0; i < numPoints; ++i) {
+        float rotX = cosR * soaX[i] - sinR * soaY[i];
+        float rotY = sinR * soaX[i] + cosR * soaY[i];
+        float imgX = xf + scalef * rotX;
+        float imgY = yf + scalef * rotY;
+
+        int32_t ix = static_cast<int32_t>(imgX);
+        int32_t iy = static_cast<int32_t>(imgY);
+        if (imgX < 0) ix--;
+        if (imgY < 0) iy--;
+
+        if (ix >= 0 && ix <= maxX && iy >= 0 && iy <= maxY) {
+            float fx = imgX - ix;
+            float fy = imgY - iy;
+
+            float w00 = (1.0f - fx) * (1.0f - fy);
+            float w10 = fx * (1.0f - fy);
+            float w01 = (1.0f - fx) * fy;
+            float w11 = fx * fy;
+
+            int32_t idx = iy * stride + ix;
+
+            float g00 = gxData[idx];     float g10 = gxData[idx + 1];
+            float g01 = gxData[idx + stride]; float g11 = gxData[idx + stride + 1];
+            float gx = w00 * g00 + w10 * g10 + w01 * g01 + w11 * g11;
+
+            float h00 = gyData[idx];     float h10 = gyData[idx + 1];
+            float h01 = gyData[idx + stride]; float h11 = gyData[idx + stride + 1];
+            float gy = w00 * h00 + w10 * h10 + w01 * h01 + w11 * h11;
+
+            __m128 vGx = _mm_set_ss(gx);
+            __m128 vGy = _mm_set_ss(gy);
+            __m128 vMagSq = _mm_add_ss(_mm_mul_ss(vGx, vGx), _mm_mul_ss(vGy, vGy));
+
+            if (_mm_comige_ss(vMagSq, vMinMagSq)) {
+                float rotCos = soaCos[i] * cosR - soaSin[i] * sinR;
+                float rotSin = soaSin[i] * cosR + soaCos[i] * sinR;
+                float dot = rotCos * gx + rotSin * gy;
+
+                __m128 vInvMag = _mm_rsqrt_ss(vMagSq);
+                __m128 vDot = _mm_set_ss(dot);
+                __m128 vAbsDot = _mm_andnot_ps(vSignMask, vDot);
+                __m128 vScore = _mm_mul_ss(vAbsDot, vInvMag);
+
+                float score;
+                _mm_store_ss(&score, vScore);
+
+                totalScore += soaWeight[i] * score;
+                totalWeight += soaWeight[i];
+                matchedCount++;
+            }
+        }
+
+        if (greediness > 0.0 && ((i + 1) & (checkInterval - 1)) == 0) {
+            if (totalWeight > 0) {
+                if ((totalScore / totalWeight) * numPoints < earlyTermThreshold * 0.85f) {
+                    if (outCoverage) *outCoverage = static_cast<double>(matchedCount) / numPoints;
+                    return 0.0;
+                }
+            }
+        }
+    }
+
+    if (outCoverage) *outCoverage = static_cast<double>(matchedCount) / numPoints;
+    if (totalWeight <= 0) return 0.0;
+
+    return static_cast<double>(totalScore) / totalWeight;
+}
+
+// =============================================================================
+// ComputeScoreQuantized: Direction-quantized scoring with lookup table
+// =============================================================================
+// Uses precomputed angle bins from AnglePyramid and cosine LUT
+// Fastest method for coarse search: no trigonometric calculations in inner loop
+// =============================================================================
+double ShapeModelImpl::ComputeScoreQuantized(
+    const AnglePyramid& pyramid, int32_t level,
+    double x, double y, float cosR, float sinR, int32_t rotationBin,
+    double greediness, double* outCoverage, bool useGridPoints) const
+{
+    if (cosLUT_.empty() || numAngleBins_ <= 0) {
+        // Fallback to sin/cos method if LUT not built
+        return ComputeScoreWithSinCos(pyramid, level, x, y, cosR, sinR, 1.0, greediness, outCoverage, useGridPoints);
+    }
+
+    const auto& levelModel = levels_[level];
+    const auto& pts = useGridPoints ? levelModel.gridPoints : levelModel.points;
+    const size_t numPoints = pts.size();
+    if (numPoints == 0) {
+        if (outCoverage) *outCoverage = 0.0;
+        return 0.0;
+    }
+
+    // Get gradient and bin data
+    const float* gxData;
+    const float* gyData;
+    int32_t width, height, stride;
+    if (!pyramid.GetGradientData(level, gxData, gyData, width, height, stride)) {
+        if (outCoverage) *outCoverage = 0.0;
+        return 0.0;
+    }
+
+    const int16_t* binData;
+    int32_t binWidth, binHeight, binStride, numBins;
+    if (!pyramid.GetAngleBinData(level, binData, binWidth, binHeight, binStride, numBins)) {
+        // Fallback to sin/cos method
+        return ComputeScoreWithSinCos(pyramid, level, x, y, cosR, sinR, 1.0, greediness, outCoverage, useGridPoints);
+    }
+
+    const float scalef = 1.0f;
+    const float xf = static_cast<float>(x);
+    const float yf = static_cast<float>(y);
+
+    // Select SoA data
+    const float* soaX = useGridPoints ? levelModel.gridSoaX.data() : levelModel.soaX.data();
+    const float* soaY = useGridPoints ? levelModel.gridSoaY.data() : levelModel.soaY.data();
+    const int16_t* soaBin = useGridPoints ? levelModel.gridSoaAngleBin.data() : levelModel.soaAngleBin.data();
+    const float* soaWeight = useGridPoints ? levelModel.gridSoaWeight.data() : levelModel.soaWeight.data();
+
+    // Precompute LUT pointer and mask for fast modulo
+    const float* cosLUT = cosLUT_.data();
+    const int32_t binMask = numAngleBins_ - 1;  // Assumes numAngleBins_ is power of 2
+
+    float totalScore = 0.0f;
+    float totalWeight = 0.0f;
+    int32_t matchedCount = 0;
+
+    const float earlyTermThreshold = static_cast<float>(greediness * numPoints);
+    const int32_t checkInterval = 8;
+    const float minMagSq = 25.0f;
+
+    const int32_t maxX = width - 2;
+    const int32_t maxY = height - 2;
+
+    for (size_t i = 0; i < numPoints; ++i) {
+        float rotX = cosR * soaX[i] - sinR * soaY[i];
+        float rotY = sinR * soaX[i] + cosR * soaY[i];
+        float imgX = xf + scalef * rotX;
+        float imgY = yf + scalef * rotY;
+
+        int32_t ix = static_cast<int32_t>(imgX);
+        int32_t iy = static_cast<int32_t>(imgY);
+        if (imgX < 0) ix--;
+        if (imgY < 0) iy--;
+
+        if (ix >= 0 && ix <= maxX && iy >= 0 && iy <= maxY) {
+            float fx = imgX - ix;
+            float fy = imgY - iy;
+
+            // Bilinear interpolation for gradient magnitude check
+            float w00 = (1.0f - fx) * (1.0f - fy);
+            float w10 = fx * (1.0f - fy);
+            float w01 = (1.0f - fx) * fy;
+            float w11 = fx * fy;
+
+            int32_t idx = iy * stride + ix;
+            float gx = w00 * gxData[idx] + w10 * gxData[idx + 1] +
+                       w01 * gxData[idx + stride] + w11 * gxData[idx + stride + 1];
+            float gy = w00 * gyData[idx] + w10 * gyData[idx + 1] +
+                       w01 * gyData[idx + stride] + w11 * gyData[idx + stride + 1];
+
+            float magSq = gx * gx + gy * gy;
+            if (magSq >= minMagSq) {
+                // Use nearest neighbor for angle bin (sufficient for coarse search)
+                int32_t nearestX = static_cast<int32_t>(imgX + 0.5f);
+                int32_t nearestY = static_cast<int32_t>(imgY + 0.5f);
+                nearestX = std::max(0, std::min(binWidth - 1, nearestX));
+                nearestY = std::max(0, std::min(binHeight - 1, nearestY));
+
+                int16_t imageBin = binData[nearestY * binStride + nearestX];
+                int16_t modelBin = soaBin[i];
+
+                // Direction difference: (modelBin + rotationBin - imageBin) mod numBins
+                int32_t binDiff = (modelBin + rotationBin - imageBin) & binMask;
+
+                // Lookup cosine of angle difference
+                float score = cosLUT[binDiff];
+
+                totalScore += soaWeight[i] * score;
+                totalWeight += soaWeight[i];
+                matchedCount++;
+            }
+        }
+
+        // Greediness check
+        if (greediness > 0.0 && ((i + 1) & (checkInterval - 1)) == 0) {
+            if (totalWeight > 0) {
+                if ((totalScore / totalWeight) * numPoints < earlyTermThreshold * 0.85f) {
+                    if (outCoverage) *outCoverage = static_cast<double>(matchedCount) / numPoints;
+                    return 0.0;
+                }
+            }
+        }
+    }
+
+    if (outCoverage) *outCoverage = static_cast<double>(matchedCount) / numPoints;
+    if (totalWeight <= 0) return 0.0;
+
+    return static_cast<double>(totalScore) / totalWeight;
+}
 
 void ShapeModelImpl::RefinePosition(
     const AnglePyramid& pyramid, MatchResult& match,

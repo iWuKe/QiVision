@@ -267,6 +267,21 @@ public:
     bool GetGradientData(int32_t level, const float*& gxData, const float*& gyData,
                          int32_t& width, int32_t& height, int32_t& stride) const;
 
+    /**
+     * @brief Get quantized angle bin data pointer for direct access
+     * Used for direction-quantized scoring optimization
+     * @param level Pyramid level
+     * @param binData Output pointer to bin data (int16_t)
+     * @param width Output image width
+     * @param height Output image height
+     * @param stride Output stride in elements (not bytes)
+     * @param numBins Output number of angle bins
+     * @return true if level is valid
+     */
+    bool GetAngleBinData(int32_t level, const int16_t*& binData,
+                         int32_t& width, int32_t& height, int32_t& stride,
+                         int32_t& numBins) const;
+
     // =========================================================================
     // Edge Point Extraction
     // =========================================================================

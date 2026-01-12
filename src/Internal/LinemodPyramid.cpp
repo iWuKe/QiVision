@@ -282,12 +282,16 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
     }
 
     // Pass 2: Sobel + 幅值 + 量化 (合并为一个 pass)
-    level.gradMag = QImage(W, H, PixelType::Float32, ChannelType::Gray);
+    // 只在需要提取特征时分配 gradMag（搜索模式不需要）
+    const bool needGradMag = params_.extractFeatures;
+    if (needGradMag) {
+        level.gradMag = QImage(W, H, PixelType::Float32, ChannelType::Gray);
+    }
     level.quantized = QImage(W, H, PixelType::UInt8, ChannelType::Gray);
     {
-        float* magData = static_cast<float*>(level.gradMag.Data());
+        float* magData = needGradMag ? static_cast<float*>(level.gradMag.Data()) : nullptr;
         uint8_t* quantData = static_cast<uint8_t*>(level.quantized.Data());
-        const int32_t magStride = static_cast<int32_t>(level.gradMag.Stride() / sizeof(float));
+        const int32_t magStride = needGradMag ? static_cast<int32_t>(level.gradMag.Stride() / sizeof(float)) : 0;
         const int32_t quantStride = static_cast<int32_t>(level.quantized.Stride());
 
         // Sobel 核
@@ -325,7 +329,9 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
 
                 // 幅值
                 float mag = std::sqrt(gx * gx + gy * gy);
-                magData[y * magStride + x] = mag;
+                if (magData) {
+                    magData[y * magStride + x] = mag;
+                }
 
                 // 量化
                 if (mag < minMag) {
@@ -334,9 +340,8 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
                     // atan2 → 8 bins
                     double angle = std::atan2(gy, gx);
                     if (angle < 0) angle += 2.0 * PI;
-                    int32_t bin16 = static_cast<int32_t>(angle * 16.0 / (2.0 * PI) + 0.5) % 16;
-                    int32_t bin8 = bin16 & 7;
-                    quantData[y * quantStride + x] = static_cast<uint8_t>(1 << bin8);
+                    int32_t bin = static_cast<int32_t>(angle * 8.0 / (2.0 * PI) + 0.5) % 8;
+                    quantData[y * quantStride + x] = static_cast<uint8_t>(1 << bin);
                 }
             }
         }
@@ -371,49 +376,71 @@ void LinemodPyramid::ApplyNeighborVoting(LinemodLevelData& level) {
 
     std::memset(dst, 0, voted.Height() * voted.Stride());
 
+    const int32_t threshold = params_.neighborThreshold;
+
 #pragma omp parallel for if(W * H > 100000)
     for (int32_t y = 1; y < H - 1; ++y) {
+        const uint8_t* srcRow0 = src + (y - 1) * stride;
+        const uint8_t* srcRow1 = src + y * stride;
+        const uint8_t* srcRow2 = src + (y + 1) * stride;
+        uint8_t* dstRow = dst + y * dstStride;
+
         for (int32_t x = 1; x < W - 1; ++x) {
-            // Count votes for each orientation in 3x3 neighborhood
-            std::array<int32_t, 8> votes = {0};
-            int32_t totalVotes = 0;
+            // 读取 3x3 邻域的 9 个值
+            uint8_t n0 = srcRow0[x - 1];
+            uint8_t n1 = srcRow0[x];
+            uint8_t n2 = srcRow0[x + 1];
+            uint8_t n3 = srcRow1[x - 1];
+            uint8_t n4 = srcRow1[x];
+            uint8_t n5 = srcRow1[x + 1];
+            uint8_t n6 = srcRow2[x - 1];
+            uint8_t n7 = srcRow2[x];
+            uint8_t n8 = srcRow2[x + 1];
 
-            for (int32_t dy = -1; dy <= 1; ++dy) {
-                for (int32_t dx = -1; dx <= 1; ++dx) {
-                    uint8_t q = src[(y + dy) * stride + (x + dx)];
-                    if (q == 0) continue;
-
-                    // Count set bits (should be only one for valid pixels)
-                    for (int32_t b = 0; b < 8; ++b) {
-                        if (q & (1 << b)) {
-                            votes[b]++;
-                            totalVotes++;
-                        }
-                    }
-                }
-            }
-
-            if (totalVotes == 0) {
-                dst[y * dstStride + x] = 0;
+            // 快速检查：如果所有邻域都是 0，跳过
+            uint8_t anySet = n0 | n1 | n2 | n3 | n4 | n5 | n6 | n7 | n8;
+            if (anySet == 0) {
+                dstRow[x] = 0;
                 continue;
             }
 
-            // Find max vote
-            int32_t maxVotes = 0;
+            // 统计每个 bin 的投票数
+            // 由于每个像素只有 0 或 1 位被设置，可以用位运算优化
+            int32_t votes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+            // 展开循环统计每个 bit 的投票
+            #define COUNT_BIT(n, bit) if (n & (1 << bit)) votes[bit]++
+            #define COUNT_ALL_BITS(n) \
+                COUNT_BIT(n, 0); COUNT_BIT(n, 1); COUNT_BIT(n, 2); COUNT_BIT(n, 3); \
+                COUNT_BIT(n, 4); COUNT_BIT(n, 5); COUNT_BIT(n, 6); COUNT_BIT(n, 7)
+
+            COUNT_ALL_BITS(n0);
+            COUNT_ALL_BITS(n1);
+            COUNT_ALL_BITS(n2);
+            COUNT_ALL_BITS(n3);
+            COUNT_ALL_BITS(n4);
+            COUNT_ALL_BITS(n5);
+            COUNT_ALL_BITS(n6);
+            COUNT_ALL_BITS(n7);
+            COUNT_ALL_BITS(n8);
+
+            #undef COUNT_BIT
+            #undef COUNT_ALL_BITS
+
+            // 找最大投票的 bin
+            int32_t maxVotes = votes[0];
             int32_t maxBin = 0;
-            for (int32_t b = 0; b < 8; ++b) {
+            for (int32_t b = 1; b < 8; ++b) {
                 if (votes[b] > maxVotes) {
                     maxVotes = votes[b];
                     maxBin = b;
                 }
             }
 
-            // Threshold: only keep if max_votes >= threshold
-            if (maxVotes >= params_.neighborThreshold) {
-                dst[y * dstStride + x] = static_cast<uint8_t>(1 << maxBin);
-            } else {
-                dst[y * dstStride + x] = 0;
-            }
+            // 阈值判断
+            dstRow[x] = (maxVotes >= threshold)
+                ? static_cast<uint8_t>(1 << maxBin)
+                : 0;
         }
     }
 

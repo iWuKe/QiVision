@@ -363,6 +363,8 @@ void FindShapeModel(
         pyramidParams.minContrast = searchContrast;
         pyramidParams.smoothSigma = 0.5;
         pyramidParams.extractEdgePoints = false;
+        pyramidParams.enableTiming = true;  // Enable detailed timing
+        pyramidParams.lightweight = true;   // Use lightweight mode for search (bins + magSq only)
 
         Internal::AnglePyramid targetPyramid;
         if (!targetPyramid.Build(image, pyramidParams)) {
@@ -375,8 +377,12 @@ void FindShapeModel(
         results = impl->SearchPyramid(targetPyramid, params);
 
         auto tSearchEnd = std::chrono::high_resolution_clock::now();
-        fprintf(stderr, "[Find] Pyramid: %.1fms, Search: %.1fms\n",
+
+        // Print detailed pyramid timing
+        const auto& timing = targetPyramid.GetTiming();
+        fprintf(stderr, "[Find] Pyramid: %.1fms (toFloat:%.1f gauss:%.1f sobel:%.1f copy:%.1f), Search: %.1fms\n",
                 std::chrono::duration<double, std::milli>(tPyramidEnd - tPyramidStart).count(),
+                timing.toFloatMs, timing.gaussPyramidMs, timing.sobelMs, timing.copyMs,
                 std::chrono::duration<double, std::milli>(tSearchEnd - tSearchStart).count());
     }
 

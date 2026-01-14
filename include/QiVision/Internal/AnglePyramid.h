@@ -79,6 +79,7 @@ struct AnglePyramidParams {
     bool enableTiming = false;          ///< Enable detailed timing statistics
     bool extractEdgePoints = true;      ///< Extract edge points (false for search pyramid)
     bool useNMS = true;                 ///< Apply Non-Maximum Suppression (false for shape matching)
+    bool lightweight = false;           ///< Lightweight mode: only store bins + magSq (no gx/gy/dir)
 
     // Builder pattern
     AnglePyramidParams& SetNumLevels(int32_t n) { numLevels = n; return *this; }
@@ -89,6 +90,7 @@ struct AnglePyramidParams {
     AnglePyramidParams& SetEnableTiming(bool v) { enableTiming = v; return *this; }
     AnglePyramidParams& SetExtractEdgePoints(bool v) { extractEdgePoints = v; return *this; }
     AnglePyramidParams& SetUseNMS(bool v) { useNMS = v; return *this; }
+    AnglePyramidParams& SetLightweight(bool v) { lightweight = v; return *this; }
 };
 
 /**
@@ -283,6 +285,25 @@ public:
     bool GetAngleBinData(int32_t level, const int16_t*& binData,
                          int32_t& width, int32_t& height, int32_t& stride,
                          int32_t& numBins) const;
+
+    /**
+     * @brief Get magnitude (or magSq in lightweight mode) data pointer
+     * @param level Pyramid level
+     * @param magData Output pointer to magnitude data (float)
+     * @param width Output image width
+     * @param height Output image height
+     * @param stride Output stride in elements
+     * @param isSquared Output true if data is magSq (lightweight mode), false if mag
+     * @return true if level is valid and has magnitude data
+     */
+    bool GetMagnitudeData(int32_t level, const float*& magData,
+                          int32_t& width, int32_t& height, int32_t& stride,
+                          bool& isSquared) const;
+
+    /**
+     * @brief Check if pyramid is in lightweight mode (no gx/gy stored)
+     */
+    bool IsLightweight() const;
 
     // =========================================================================
     // Edge Point Extraction

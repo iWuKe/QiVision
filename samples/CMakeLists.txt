@@ -6,7 +6,6 @@
 set(SAMPLES
     01_basic_image
     06_contour_segment
-    07_shape_match_draw
     08_shape_match_large
     # 09_performance_benchmark  # Temporarily disabled - needs timing API
 )

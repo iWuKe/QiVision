@@ -29,7 +29,6 @@ OptimizationMode ParseOptimization(const std::string& str) {
     if (str == "point_reduction_low") return OptimizationMode::PointReductionLow;
     if (str == "point_reduction_medium") return OptimizationMode::PointReductionMedium;
     if (str == "point_reduction_high") return OptimizationMode::PointReductionHigh;
-    if (str == "xld_contour") return OptimizationMode::XLDContour;
     return OptimizationMode::Auto;  // default
 }
 
@@ -55,6 +54,100 @@ std::string MetricToString(MetricMode mode) {
         case MetricMode::IgnoreLocalPolarity: return "ignore_local_polarity";
         case MetricMode::IgnoreColorPolarity: return "ignore_color_polarity";
         default: return "use_polarity";
+    }
+}
+
+/**
+ * @brief Parse contrast parameter string
+ *
+ * Supports Halcon-style contrast formats:
+ * - "auto" or "auto_contrast": Auto-detect threshold
+ * - "auto_contrast_hyst": Auto-detect hysteresis thresholds
+ * - "auto_min_size": Auto with minimum component size filter
+ * - Numeric string (e.g., "30"): Manual single threshold
+ * - "[low,high]" (e.g., "[10,30]"): Manual hysteresis thresholds
+ * - "[low,high,minSize]" (e.g., "[10,30,15]"): Hysteresis + min component filter
+ *
+ * @param str Contrast parameter string
+ * @param[out] mode Contrast mode
+ * @param[out] contrastHigh High threshold value
+ * @param[out] contrastLow Low threshold value (for hysteresis)
+ * @param[out] minComponentSize Minimum component size (for filtering)
+ */
+void ParseContrast(const std::string& str, ContrastMode& mode,
+                   double& contrastHigh, double& contrastLow, int32_t& minComponentSize) {
+    // Default values
+    mode = ContrastMode::Manual;
+    contrastHigh = 30.0;
+    contrastLow = 0.0;
+    minComponentSize = 3;
+
+    if (str.empty()) {
+        return;
+    }
+
+    // Check for auto modes
+    if (str == "auto" || str == "auto_contrast") {
+        mode = ContrastMode::Auto;
+        contrastHigh = 0.0;  // Will be auto-detected
+        contrastLow = 0.0;
+        return;
+    }
+
+    if (str == "auto_contrast_hyst" || str == "auto_hyst") {
+        mode = ContrastMode::AutoHysteresis;
+        contrastHigh = 0.0;
+        contrastLow = 0.0;
+        return;
+    }
+
+    if (str == "auto_min_size") {
+        mode = ContrastMode::AutoMinSize;
+        contrastHigh = 0.0;
+        contrastLow = 0.0;
+        return;
+    }
+
+    // Check for [low,high] or [low,high,minSize] format
+    if (str.size() > 2 && str.front() == '[' && str.back() == ']') {
+        std::string inner = str.substr(1, str.size() - 2);
+
+        // Split by commas
+        std::vector<std::string> parts;
+        size_t start = 0;
+        size_t pos;
+        while ((pos = inner.find(',', start)) != std::string::npos) {
+            parts.push_back(inner.substr(start, pos - start));
+            start = pos + 1;
+        }
+        parts.push_back(inner.substr(start));
+
+        try {
+            if (parts.size() >= 2) {
+                contrastLow = std::stod(parts[0]);
+                contrastHigh = std::stod(parts[1]);
+                mode = ContrastMode::Manual;
+
+                if (parts.size() >= 3) {
+                    minComponentSize = std::stoi(parts[2]);
+                }
+                return;
+            }
+        } catch (...) {
+            // Parse error, fall through to single value
+        }
+    }
+
+    // Try to parse as single numeric value
+    try {
+        contrastHigh = std::stod(str);
+        contrastLow = 0.0;
+        mode = ContrastMode::Manual;
+    } catch (...) {
+        // Invalid format, use default
+        mode = ContrastMode::Manual;
+        contrastHigh = 30.0;
+        contrastLow = 0.0;
     }
 }
 
@@ -98,7 +191,7 @@ ShapeModel CreateShapeModel(
     double angleStep,
     const std::string& optimization,
     const std::string& metric,
-    double contrast,
+    const std::string& contrast,
     double minContrast)
 {
     return CreateShapeModel(templateImage, Rect2i{}, numLevels,
@@ -115,7 +208,7 @@ ShapeModel CreateShapeModel(
     double angleStep,
     const std::string& optimization,
     const std::string& metric,
-    double contrast,
+    const std::string& contrast,
     double minContrast)
 {
     ShapeModel model;
@@ -128,9 +221,10 @@ ShapeModel CreateShapeModel(
     params.angleStep = angleStep;
     params.optimization = ParseOptimization(optimization);
     params.metric = ParseMetric(metric);
-    params.contrastHigh = contrast;
+
+    // Parse contrast parameter (supports "auto", numeric, "[low,high]", or "[low,high,minSize]")
+    ParseContrast(contrast, params.contrastMode, params.contrastHigh, params.contrastLow, params.minComponentSize);
     params.minContrast = minContrast;
-    params.contrastMode = ContrastMode::Manual;
 
     model.Impl()->params_ = params;
 
@@ -154,7 +248,7 @@ ShapeModel CreateScaledShapeModel(
     double scaleStep,
     const std::string& optimization,
     const std::string& metric,
-    double contrast,
+    const std::string& contrast,
     double minContrast)
 {
     ShapeModel model;
@@ -170,9 +264,10 @@ ShapeModel CreateScaledShapeModel(
     (void)scaleStep;
     params.optimization = ParseOptimization(optimization);
     params.metric = ParseMetric(metric);
-    params.contrastHigh = contrast;
+
+    // Parse contrast parameter (supports "auto", numeric, "[low,high]", or "[low,high,minSize]")
+    ParseContrast(contrast, params.contrastMode, params.contrastHigh, params.contrastLow, params.minComponentSize);
     params.minContrast = minContrast;
-    params.contrastMode = ContrastMode::Manual;
 
     model.Impl()->params_ = params;
 

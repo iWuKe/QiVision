@@ -149,7 +149,7 @@ void TestImageSet(const std::string& name, const std::string& dataDir,
                   int32_t numLevels,
                   double angleStart, double angleExtent, double angleStep,
                   const std::string& optimization, const std::string& metric,
-                  double contrast, double minContrast,
+                  const std::string& contrast, double minContrast,
                   double searchAngleStart, double searchAngleExtent,
                   double minScore, int32_t numMatches, double maxOverlap,
                   const std::string& subPixel, int32_t searchNumLevels, double greediness) {
@@ -265,7 +265,7 @@ int main(int argc, char* argv[]) {
     std::string outputDir = "tests/data/matching/";
 
     // =========================================================================
-    // Test 1: Small Images (640x512)
+    // Test 1: Small Images (640x512) - XLDContour mode
     // =========================================================================
     {
         std::vector<std::string> smallImages = {
@@ -284,9 +284,9 @@ int main(int argc, char* argv[]) {
                      smallImages, smallROI,
                      4,                      // numLevels
                      0, RAD(360), 0,         // angleStart, angleExtent, angleStep (0=auto)
-                     "auto",                 // optimization
+                     "auto",                 // optimization (storage optimization level)
                      "use_polarity",         // metric
-                     30, 10,                 // contrast, minContrast
+                     "auto", 10,             // contrast (auto), minContrast
                      0, RAD(360),            // search angleStart, angleExtent
                      0.5, 5, 0.5,            // minScore, numMatches, maxOverlap
                      "least_squares", 0, 0.9 // subPixel, numLevels, greediness
@@ -294,7 +294,7 @@ int main(int argc, char* argv[]) {
     }
 
     // =========================================================================
-    // Test 2: Large Images (2048x4001) - XLDContour mode
+    // Test 2: Large Images (2048x4001)
     // =========================================================================
     {
         std::vector<std::string> largeImages = {
@@ -313,31 +313,15 @@ int main(int argc, char* argv[]) {
 
         Rect2i largeROI(1065, 2720, 135, 200);
 
-        std::cout << "\n*** Testing XLDContour mode ***" << std::endl;
-        TestImageSet("Large Images - XLDContour",
-                     "tests/data/matching/image2/",
-                     outputDir + "output_large_xld",
-                     largeImages, largeROI,
-                     5,                             // numLevels
-                     0, RAD(360), 0,                // angleStart, angleExtent, angleStep
-                     "xld_contour",                 // optimization
-                     "ignore_local_polarity",       // metric
-                     10, 5,                         // contrast (high), minContrast (low as hysteresis)
-                     0, RAD(360),                   // search angleStart, angleExtent
-                     0.7, 10, 0.5,                  // minScore, numMatches, maxOverlap
-                     "least_squares", 0, 0.9        // subPixel, numLevels, greediness
-        );
-
-        std::cout << "\n*** Testing Auto mode (original) ***" << std::endl;
-        TestImageSet("Large Images - Auto",
+        TestImageSet("Large Images (2048x4001)",
                      "tests/data/matching/image2/",
                      outputDir + "output_large",
                      largeImages, largeROI,
                      5,                             // numLevels
                      0, RAD(360), 0,                // angleStart, angleExtent, angleStep
-                     "auto",                        // optimization
+                     "auto",                        // optimization (storage optimization)
                      "ignore_local_polarity",       // metric
-                     10, 5,                         // contrast, minContrast
+                     "auto", 5,                     // contrast (auto), minContrast
                      0, RAD(360),                   // search angleStart, angleExtent
                      0.7, 10, 0.5,                  // minScore, numMatches, maxOverlap
                      "least_squares", 0, 0.9        // subPixel, numLevels, greediness

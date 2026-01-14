@@ -108,7 +108,7 @@ ShapeModel CreateShapeModel(
     double angleStep,
     const std::string& optimization,
     const std::string& metric,
-    double contrast,
+    const std::string& contrast,
     double minContrast
 );
 
@@ -136,7 +136,7 @@ ShapeModel CreateShapeModel(
     double angleStep,
     const std::string& optimization,
     const std::string& metric,
-    double contrast,
+    const std::string& contrast,
     double minContrast
 );
 
@@ -170,7 +170,7 @@ ShapeModel CreateScaledShapeModel(
     double scaleStep,
     const std::string& optimization,
     const std::string& metric,
-    double contrast,
+    const std::string& contrast,
     double minContrast
 );
 

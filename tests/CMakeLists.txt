@@ -66,8 +66,6 @@ set(UNIT_TEST_SOURCES
     unit/internal/test_homography.cpp
     unit/internal/test_eigen.cpp
     unit/internal/test_hough.cpp
-    # Matching (Feature Layer)
-    unit/matching/test_shape_model.cpp
     # Measure (Feature Layer)
     unit/measure/test_caliper.cpp
     unit/measure/test_caliper_array.cpp
@@ -98,7 +96,6 @@ set(ACCURACY_TEST_SOURCES
     accuracy/FittingAccuracyTest.cpp
     accuracy/SubPixelAccuracyTest.cpp
     accuracy/CaliperAccuracyTest.cpp
-    accuracy/ShapeModelAccuracyTest.cpp
 )
 
 add_executable(accuracy_test ${ACCURACY_TEST_SOURCES})

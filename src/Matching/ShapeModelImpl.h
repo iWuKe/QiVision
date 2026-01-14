@@ -192,7 +192,6 @@ public:
 
     bool CreateModel(const QImage& image, const Rect2i& roi, const Point2d& origin);
     bool CreateModelLinemod(const QImage& image, const Rect2i& roi, const Point2d& origin);
-    void ExtractModelPoints(const AnglePyramid& pyramid);
     void ExtractModelPointsXLD(const QImage& templateImg, const AnglePyramid& pyramid);
     void OptimizeModel();
     void BuildCosLUT(int32_t numBins);

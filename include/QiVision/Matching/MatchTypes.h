@@ -232,16 +232,19 @@ enum class ContrastMode {
 };
 
 /**
- * @brief Point reduction optimization level
+ * @brief Storage optimization level (affects search speed, not edge extraction)
  * Corresponds to Halcon's Optimization parameter
+ *
+ * Note: This does NOT affect edge extraction method. XLD contour extraction
+ * (Sobel → NMS → Threshold → 8-neighbor tracing → Resample) is always used.
+ * This parameter only controls internal storage optimization and pregeneration.
  */
 enum class OptimizationMode {
-    None,               ///< Keep all model points ('none')
-    PointReductionLow,  ///< Light point reduction ('point_reduction_low')
-    PointReductionMedium, ///< Medium reduction ('point_reduction_medium')
-    PointReductionHigh, ///< Heavy reduction ('point_reduction_high')
-    Auto,               ///< Automatic selection ('auto')
-    XLDContour          ///< Use XLD contour key points only (~20-50 points, Halcon-style)
+    None,               ///< No optimization, keep all data ('none')
+    PointReductionLow,  ///< Light storage optimization ('point_reduction_low')
+    PointReductionMedium, ///< Medium optimization ('point_reduction_medium')
+    PointReductionHigh, ///< Heavy optimization ('point_reduction_high')
+    Auto                ///< Automatic selection ('auto') - default
 };
 
 /**

@@ -77,6 +77,8 @@ set(QIVISION_SOURCES
     Color/ColorConvert.cpp
     # Filter (Feature Layer)
     Filter/Filter.cpp
+    # Blob (Feature Layer)
+    Blob/Blob.cpp
 )
 
 set(QIVISION_HEADERS
@@ -159,6 +161,8 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Color/ColorConvert.h
     # Filter (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Filter/Filter.h
+    # Blob (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Blob/Blob.h
 )
 
 # Create library

@@ -68,7 +68,7 @@
 | `circularity` | Region → Circularity | `RegionCircularity()` | ✅ |
 | `compactness` | Region → Compactness | `RegionCompactness()` | ✅ |
 | `convexity` | Region → Convexity | `RegionConvexity()` | ✅ |
-| `eccentricity` | Region → Anisometry, Bulkiness, StructureFactor | | ⬜ |
+| `eccentricity` | Region → Anisometry, Bulkiness, StructureFactor | `Blob::Eccentricity()` | ✅ |
 | `moments_region_2nd` | Region → M11, M20, M02, Ia, Ib | `RegionMoments()` | ✅ |
 | `moments_region_central` | Region → ... | | ⬜ |
 | `region_features` | Region, Features → Value | `RegionFeatures.h` | 🟡 |
@@ -77,16 +77,52 @@
 
 ---
 
-## 2. Connection 连通域分析
+## 2. Blob 区域分析
+
+### 2.1 连通域分析
 
 | Halcon 算子 | 参数 | QiVision 对应 | 状态 |
 |-------------|------|---------------|:----:|
-| `connection` | Region → ConnectedRegions | `LabelConnectedComponents()` + `ExtractComponents()` | ✅ |
-| `count_obj` | Objects → Number | `numLabels` 返回值 | ✅ |
-| `select_obj` | Objects, Index → ObjectSelected | `ExtractComponent()` | ✅ |
+| `connection` | Region → ConnectedRegions | `Blob::Connection()` | ✅ |
+| `count_obj` | Objects → Number | `Blob::CountObj()` | ✅ |
+| `select_obj` | Objects, Index → ObjectSelected | `Blob::SelectObj()` | ✅ |
 | `partition_dynamic` | Region, Distance, Percent → Partitioned | | ⬜ |
 | `partition_rectangle` | Region, Width, Height → Partitioned | | ⬜ |
 | `expand_region` | Region, ForbiddenArea, Iterations, Mode → RegionExpanded | | ⬜ |
+
+### 2.2 区域特征 (Blob API)
+
+| Halcon 算子 | 参数 | QiVision 对应 | 状态 |
+|-------------|------|---------------|:----:|
+| `area_center` | Region → Area, Row, Col | `Blob::AreaCenter()` | ✅ |
+| `smallest_rectangle1` | Region → Row1, Col1, Row2, Col2 | `Blob::SmallestRectangle1()` | ✅ |
+| `smallest_rectangle2` | Region → Row, Col, Phi, Length1, Length2 | `Blob::SmallestRectangle2()` | ✅ |
+| `smallest_circle` | Region → Row, Col, Radius | `Blob::SmallestCircle()` | ✅ |
+| `elliptic_axis` | Region → Ra, Rb, Phi | `Blob::EllipticAxis()` | ✅ |
+| `circularity` | Region → Circularity | `Blob::Circularity()` | ✅ |
+| `compactness` | Region → Compactness | `Blob::Compactness()` | ✅ |
+| `convexity` | Region → Convexity | `Blob::Convexity()` | ✅ |
+| `rectangularity` | Region → Rectangularity | `Blob::Rectangularity()` | ✅ |
+| `eccentricity` | Region → Anisometry, Bulkiness, StructureFactor | `Blob::Eccentricity()` | ✅ |
+| `moments_region_2nd` | Region → M11, M20, M02, Ia, Ib | `Blob::MomentsRegion2nd()` | ✅ |
+| `orientation_region` | Region → Phi | `Blob::OrientationRegion()` | ✅ |
+
+### 2.3 区域选择与排序
+
+| Halcon 算子 | 参数 | QiVision 对应 | 状态 |
+|-------------|------|---------------|:----:|
+| `select_shape` | Regions, Features, Operation, Min, Max → SelectedRegions | `Blob::SelectShape()` | ✅ |
+| `select_shape_std` | Regions, Shape, Percent → SelectedRegions | | ⬜ |
+| `sort_region` | Regions, SortMode, Order, RowOrCol → SortedRegions | `Blob::SortRegion()` | ✅ |
+| `rank_region` | Regions, RankIndex → RankedRegion | | ⬜ |
+
+**支持的形状特征 (SelectShape)**:
+- area, row, column, width, height
+- circularity, compactness, convexity, rectangularity
+- elongation, orientation
+- ra, rb, phi (等效椭圆)
+- anisometry, bulkiness, structure_factor
+- outer_radius, inner_radius, holes
 
 ---
 
@@ -538,8 +574,8 @@
 
 | 类别 | 已实现 | 部分实现 | 未实现 | 总计 |
 |------|:------:|:--------:|:------:|:----:|
-| Region 区域 | 28 | 1 | 15 | 44 |
-| Connection 连通域 | 3 | 0 | 3 | 6 |
+| Region 区域 | 29 | 1 | 14 | 44 |
+| Blob 区域分析 | 18 | 0 | 4 | 22 |
 | Morphology 形态学 | 30 | 0 | 6 | 36 |
 | Edge 边缘 | 12 | 0 | 9 | 21 |
 | Contour XLD | 24 | 0 | 9 | 33 |
@@ -551,6 +587,6 @@
 | Transform 变换 | 14 | 0 | 16 | 30 |
 | Distance/Fitting | 9 | 0 | 4 | 13 |
 | Hough | 2 | 0 | 3 | 5 |
-| **总计** | **200** | **3** | **99** | **302** |
+| **总计** | **216** | **3** | **99** | **318** |
 
-**覆盖率**: 200/302 = **66%**
+**覆盖率**: 216/318 = **68%**

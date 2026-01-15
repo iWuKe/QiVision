@@ -216,6 +216,10 @@ public:
     double searchAngleExtent_ = 2.0 * PI;            ///< Search angle range extent
     double searchAngleStep_ = 0.0;                   ///< Search angle step (0 = auto)
 
+    // Dynamic coverage threshold (computed from model complexity)
+    // Simple models (few points) need higher coverage to avoid false matches
+    double minCoverage_ = 0.7;                       ///< Minimum coverage for valid match
+
     // ==========================================================================
     // Model Creation (ShapeModelCreate.cpp)
     // ==========================================================================

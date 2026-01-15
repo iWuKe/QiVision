@@ -286,7 +286,7 @@ int main(int argc, char* argv[]) {
                      "use_polarity",         // metric
                      "auto", 10,             // contrast (auto), minContrast
                      0, RAD(360),            // search angleStart, angleExtent
-                     0.5, 5, 0.5,            // minScore, numMatches, maxOverlap
+                     0.9, 5, 0.5,            // minScore, numMatches, maxOverlap
                      "least_squares", 0, 0.9 // subPixel, numLevels, greediness
         );
     }
@@ -321,7 +321,7 @@ int main(int argc, char* argv[]) {
                      "ignore_local_polarity",       // metric
                      "auto", 5,                     // contrast (auto), minContrast
                      0, RAD(360),                   // search angleStart, angleExtent
-                     0.7, 10, 0.5,                  // minScore, numMatches, maxOverlap
+                     0.9, 10, 0.5,                  // minScore, numMatches, maxOverlap
                      "least_squares", 0, 0.9        // subPixel, numLevels, greediness
         );
     }
@@ -415,7 +415,54 @@ int main(int argc, char* argv[]) {
                      "ignore_local_polarity",       // metric
                      "auto", 10,                    // contrast (auto), minContrast
                      0, RAD(360),                   // search angleStart, angleExtent
-                     0.6, 10, 0.5,                  // minScore, numMatches, maxOverlap
+                     0.9, 10, 0.5,                  // minScore, numMatches, maxOverlap
+                     "least_squares", 0, 0.9        // subPixel, numLevels, greediness
+        );
+    }
+
+    // =========================================================================
+    // Test 4: Image4 - Rotated images (10° to 200°, step 10°)
+    // =========================================================================
+    {
+        std::vector<std::string> image4Files = {
+            // Template image first
+            "rotated_10.png",
+            // All rotated images (20 total)
+            "rotated_20.png",
+            "rotated_30.png",
+            "rotated_40.png",
+            "rotated_50.png",
+            "rotated_60.png",
+            "rotated_70.png",
+            "rotated_80.png",
+            "rotated_90.png",
+            "rotated_100.png",
+            "rotated_110.png",
+            "rotated_120.png",
+            "rotated_130.png",
+            "rotated_140.png",
+            "rotated_150.png",
+            "rotated_160.png",
+            "rotated_170.png",
+            "rotated_180.png",
+            "rotated_190.png",
+            "rotated_200.png"
+        };
+
+        // ROI: (266, 467) to (300, 496) -> x=266, y=467, width=34, height=29
+        Rect2i image4ROI(266, 467, 34, 29);
+
+        TestImageSet("Image4 (Rotated) - 20 images",
+                     "tests/data/matching/image4/",
+                     "tests/data/matching/image4_result/output",
+                     image4Files, image4ROI,
+                     4,                             // numLevels
+                     0, RAD(360), 0,                // angleStart, angleExtent, angleStep
+                     "auto",                        // optimization
+                     "use_polarity",                // metric - stricter matching
+                     "auto", 10,                    // contrast (auto), minContrast
+                     0, RAD(360),                   // search angleStart, angleExtent
+                     0.9, 10, 0.5,                  // minScore, numMatches, maxOverlap
                      "least_squares", 0, 0.9        // subPixel, numLevels, greediness
         );
     }

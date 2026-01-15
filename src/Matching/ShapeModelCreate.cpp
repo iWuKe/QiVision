@@ -648,6 +648,21 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
     // Compute model bounding box for search constraints
     ComputeModelBounds();
 
+    // Compute dynamic coverage threshold based on model complexity
+    // Simple models (few points) need higher coverage to avoid false matches
+    // Complex models (many points) can use lower coverage
+    // This matches Halcon's automatic internal handling
+    if (!levels_.empty() && !levels_[0].points.empty()) {
+        size_t numModelPoints = levels_[0].points.size();
+        if (numModelPoints < 200) {
+            // Scale from 0.85 (50 points) to 0.7 (200 points)
+            minCoverage_ = 0.7 + 0.15 * std::max(0.0, (200.0 - static_cast<double>(numModelPoints)) / 150.0);
+            minCoverage_ = std::min(0.85, minCoverage_);
+        } else {
+            minCoverage_ = 0.7;
+        }
+    }
+
     // Build SoA data for SIMD optimization
     tStep = std::chrono::high_resolution_clock::now();
     for (auto& level : levels_) {
@@ -1207,6 +1222,18 @@ bool ShapeModelImpl::CreateModelLinemod(const QImage& image, const Rect2i& roi, 
     }
 
     ComputeModelBounds();
+
+    // Compute dynamic coverage threshold based on model complexity
+    if (!levels_.empty() && !levels_[0].points.empty()) {
+        size_t numModelPoints = levels_[0].points.size();
+        if (numModelPoints < 200) {
+            minCoverage_ = 0.7 + 0.15 * std::max(0.0, (200.0 - static_cast<double>(numModelPoints)) / 150.0);
+            minCoverage_ = std::min(0.85, minCoverage_);
+        } else {
+            minCoverage_ = 0.7;
+        }
+    }
+
     valid_ = true;
 
     return true;

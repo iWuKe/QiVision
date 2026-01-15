@@ -215,7 +215,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
                                                                x, y, cosR, sinR, 1.0, params.greediness, &coverage,
                                                                false);
 
-                        if (score >= params.minScore * 0.7 && coverage >= 0.7) {
+                        if (score >= params.minScore * 0.7 && coverage >= minCoverage_) {
                             MatchResult result;
                             result.x = x;
                             result.y = y;
@@ -283,7 +283,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
                                                                x, y, cosR, sinR, 1.0, params.greediness, &coverage,
                                                                false);
 
-                        if (score >= params.minScore * 0.7 && coverage >= 0.7) {
+                        if (score >= params.minScore * 0.7 && coverage >= minCoverage_) {
                             MatchResult result;
                             result.x = x;
                             result.y = y;
@@ -455,7 +455,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramidWithResponseMap(
                     double score = responseMap.ComputeScore(rotatedModel, startLevel,
                                                             x, y, &coverage);
 
-                    if (score >= params.minScore * 0.5 && coverage >= 0.7) {
+                    if (score >= params.minScore * 0.5 && coverage >= minCoverage_) {
                         MatchResult result;
                         result.x = x;
                         result.y = y;
@@ -517,7 +517,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramidWithResponseMap(
                                                               px, py, angle, 1.0,
                                                               params.greediness, &coverage);
 
-                        if (coverage >= 0.7 && score > bestMatch.score) {
+                        if (coverage >= minCoverage_ && score > bestMatch.score) {
                             bestMatch.x = px;
                             bestMatch.y = py;
                             bestMatch.angle = angle;
@@ -646,7 +646,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchLevel(
                                                            x, y, angle, 1.0, params.greediness, &coverage,
                                                            false);
 
-                    if (coverage >= 0.7 && score > bestMatch.score) {
+                    if (coverage >= minCoverage_ && score > bestMatch.score) {
                         bestMatch.x = x;
                         bestMatch.y = y;
                         bestMatch.angle = angle;

@@ -7,6 +7,7 @@
 #include <QiVision/Core/Exception.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 
@@ -934,6 +935,150 @@ QImage InvertColors(const QImage& image) {
             for (int32_t x = 0; x < w * channels; ++x) {
                 row[x] = 255 - row[x];
             }
+        }
+    }
+
+    return result;
+}
+
+QImage ScaleImage(const QImage& image, double mult, double add) {
+    if (image.Empty()) return QImage();
+
+    QImage result(image.Width(), image.Height(), image.Type(), image.GetChannelType());
+    int32_t w = image.Width();
+    int32_t h = image.Height();
+    int channels = image.Channels();
+
+    if (image.Type() == PixelType::UInt8) {
+        for (int32_t y = 0; y < h; ++y) {
+            const uint8_t* srcRow = static_cast<const uint8_t*>(image.RowPtr(y));
+            uint8_t* dstRow = static_cast<uint8_t*>(result.RowPtr(y));
+            for (int32_t x = 0; x < w * channels; ++x) {
+                double val = srcRow[x] * mult + add;
+                dstRow[x] = static_cast<uint8_t>(std::clamp(val, 0.0, 255.0));
+            }
+        }
+    } else if (image.Type() == PixelType::UInt16) {
+        for (int32_t y = 0; y < h; ++y) {
+            const uint16_t* srcRow = static_cast<const uint16_t*>(image.RowPtr(y));
+            uint16_t* dstRow = static_cast<uint16_t*>(result.RowPtr(y));
+            for (int32_t x = 0; x < w * channels; ++x) {
+                double val = srcRow[x] * mult + add;
+                dstRow[x] = static_cast<uint16_t>(std::clamp(val, 0.0, 65535.0));
+            }
+        }
+    } else if (image.Type() == PixelType::Float32) {
+        for (int32_t y = 0; y < h; ++y) {
+            const float* srcRow = static_cast<const float*>(image.RowPtr(y));
+            float* dstRow = static_cast<float*>(result.RowPtr(y));
+            for (int32_t x = 0; x < w * channels; ++x) {
+                dstRow[x] = static_cast<float>(srcRow[x] * mult + add);
+            }
+        }
+    }
+
+    return result;
+}
+
+QImage ScaleImageMax(const QImage& image) {
+    if (image.Empty()) return QImage();
+
+    int32_t w = image.Width();
+    int32_t h = image.Height();
+    int channels = image.Channels();
+
+    if (image.Type() == PixelType::UInt8) {
+        // Find min and max
+        uint8_t minVal = 255, maxVal = 0;
+        for (int32_t y = 0; y < h; ++y) {
+            const uint8_t* row = static_cast<const uint8_t*>(image.RowPtr(y));
+            for (int32_t x = 0; x < w * channels; ++x) {
+                if (row[x] < minVal) minVal = row[x];
+                if (row[x] > maxVal) maxVal = row[x];
+            }
+        }
+
+        if (minVal == maxVal) {
+            return image.Clone();
+        }
+
+        double scale = 255.0 / (maxVal - minVal);
+        return ScaleImage(image, scale, -minVal * scale);
+    } else if (image.Type() == PixelType::UInt16) {
+        uint16_t minVal = 65535, maxVal = 0;
+        for (int32_t y = 0; y < h; ++y) {
+            const uint16_t* row = static_cast<const uint16_t*>(image.RowPtr(y));
+            for (int32_t x = 0; x < w * channels; ++x) {
+                if (row[x] < minVal) minVal = row[x];
+                if (row[x] > maxVal) maxVal = row[x];
+            }
+        }
+
+        if (minVal == maxVal) {
+            return image.Clone();
+        }
+
+        double scale = 65535.0 / (maxVal - minVal);
+        return ScaleImage(image, scale, -minVal * scale);
+    }
+
+    return image.Clone();
+}
+
+QImage EquHistoImage(const QImage& image) {
+    if (image.Empty()) return QImage();
+
+    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+        throw UnsupportedException("EquHistoImage requires single-channel UInt8 image");
+    }
+
+    int32_t w = image.Width();
+    int32_t h = image.Height();
+    int64_t totalPixels = static_cast<int64_t>(w) * h;
+
+    // Compute histogram
+    std::array<int64_t, 256> histogram = {};
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* row = static_cast<const uint8_t*>(image.RowPtr(y));
+        for (int32_t x = 0; x < w; ++x) {
+            histogram[row[x]]++;
+        }
+    }
+
+    // Compute cumulative distribution function (CDF)
+    std::array<int64_t, 256> cdf = {};
+    cdf[0] = histogram[0];
+    for (int i = 1; i < 256; ++i) {
+        cdf[i] = cdf[i - 1] + histogram[i];
+    }
+
+    // Find minimum non-zero CDF value
+    int64_t cdfMin = 0;
+    for (int i = 0; i < 256; ++i) {
+        if (cdf[i] > 0) {
+            cdfMin = cdf[i];
+            break;
+        }
+    }
+
+    // Build lookup table
+    std::array<uint8_t, 256> lut = {};
+    double scale = 255.0 / (totalPixels - cdfMin);
+    for (int i = 0; i < 256; ++i) {
+        if (cdf[i] <= cdfMin) {
+            lut[i] = 0;
+        } else {
+            lut[i] = static_cast<uint8_t>(std::clamp((cdf[i] - cdfMin) * scale, 0.0, 255.0));
+        }
+    }
+
+    // Apply LUT
+    QImage result(w, h, PixelType::UInt8, ChannelType::Gray);
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* srcRow = static_cast<const uint8_t*>(image.RowPtr(y));
+        uint8_t* dstRow = static_cast<uint8_t*>(result.RowPtr(y));
+        for (int32_t x = 0; x < w; ++x) {
+            dstRow[x] = lut[srcRow[x]];
         }
     }
 

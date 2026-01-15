@@ -356,6 +356,54 @@ QImage AdjustGamma(const QImage& image, double gamma);
  */
 QImage InvertColors(const QImage& image);
 
+/**
+ * @brief Scale image intensity values linearly
+ *
+ * Equivalent to Halcon's scale_image operator.
+ * Output = Input * mult + add
+ *
+ * @param image Input image
+ * @param mult Multiplication factor
+ * @param add Addition value
+ * @return Scaled image
+ *
+ * @code
+ * QImage bright = ScaleImage(image, 1.2, 20);  // Increase brightness
+ * QImage contrast = ScaleImage(image, 1.5, -64);  // Increase contrast
+ * @endcode
+ */
+QImage ScaleImage(const QImage& image, double mult, double add);
+
+/**
+ * @brief Scale image to full dynamic range
+ *
+ * Equivalent to Halcon's scale_image_max operator.
+ * Linearly maps [min, max] to [0, 255].
+ *
+ * @param image Input image
+ * @return Scaled image with full dynamic range
+ *
+ * @code
+ * QImage enhanced = ScaleImageMax(image);
+ * @endcode
+ */
+QImage ScaleImageMax(const QImage& image);
+
+/**
+ * @brief Apply histogram equalization
+ *
+ * Equivalent to Halcon's equ_histo_image operator.
+ * Enhances contrast by redistributing intensity values.
+ *
+ * @param image Input grayscale image
+ * @return Equalized image
+ *
+ * @code
+ * QImage enhanced = EquHistoImage(image);
+ * @endcode
+ */
+QImage EquHistoImage(const QImage& image);
+
 // =============================================================================
 // White Balance
 // =============================================================================

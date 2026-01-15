@@ -188,6 +188,38 @@ QImage SobelDir(const QImage& image, const std::string& dirType = "gradient",
                  int32_t size = 3);
 
 /**
+ * @brief Compute Prewitt amplitude (gradient magnitude)
+ *
+ * Equivalent to Halcon's prewitt_amp operator.
+ * Uses uniform smoothing kernel [1,1,1]/3 instead of Sobel's [1,2,1]/4.
+ *
+ * @param image Input image
+ * @param filterType Filter type: "sum_abs" (|Gx|+|Gy|), "sum_sqrt" (sqrt(Gx^2+Gy^2))
+ * @return Gradient magnitude image
+ *
+ * @code
+ * QImage edges = PrewittAmp(image, "sum_abs");
+ * @endcode
+ */
+QImage PrewittAmp(const QImage& image, const std::string& filterType = "sum_abs");
+
+/**
+ * @brief Compute Roberts cross gradient (2x2 diagonal derivative)
+ *
+ * Equivalent to Halcon's roberts operator.
+ * Uses 2x2 kernels: [[1,0],[0,-1]] and [[0,1],[-1,0]]
+ *
+ * @param image Input image
+ * @param filterType Filter type: "sum_abs" (|Gx|+|Gy|), "sum_sqrt" (sqrt(Gx^2+Gy^2))
+ * @return Gradient magnitude image
+ *
+ * @code
+ * QImage edges = RobertsAmp(image, "sum_abs");
+ * @endcode
+ */
+QImage RobertsAmp(const QImage& image, const std::string& filterType = "sum_abs");
+
+/**
  * @brief Compute Gaussian derivative
  *
  * Equivalent to Halcon's derivate_gauss operator.

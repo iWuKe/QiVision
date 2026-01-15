@@ -156,8 +156,8 @@
 |-------------|------|---------------|:----:|
 | `sobel_amp` | Image, FilterType, Size → EdgeAmplitude | `SobelAmp()` | ✅ |
 | `sobel_dir` | Image, FilterType, Size → EdgeDirection | `SobelDir()` | ✅ |
-| `prewitt_amp` | Image → EdgeAmplitude | | ⬜ |
-| `roberts` | Image, FilterType → EdgeImage | | ⬜ |
+| `prewitt_amp` | Image → EdgeAmplitude | `PrewittAmp()` | ✅ |
+| `roberts` | Image, FilterType → EdgeImage | `RobertsAmp()` | ✅ |
 | `laplace` | Image, ResultType, MaskSize, FilterMask → ImageLaplace | `Laplace()` | ✅ |
 | `laplace_of_gauss` | Image, Sigma → ImageLoG | `LaplacianOfGaussian()` | ✅ |
 | `diff_of_gauss` | Image, Sigma1, Sigma2 → ImageDoG | | ⬜ |
@@ -330,10 +330,10 @@
 
 | Halcon 算子 | 参数 | QiVision 对应 | 状态 |
 |-------------|------|---------------|:----:|
-| `scale_image` | Image, Mult, Add → ImageScaled | | ⬜ |
-| `scale_image_max` | Image → ImageScaled | | ⬜ |
+| `scale_image` | Image, Mult, Add → ImageScaled | `ScaleImage()` | ✅ |
+| `scale_image_max` | Image → ImageScaled | `ScaleImageMax()` | ✅ |
 | `illuminate` | Image, MaskWidth, MaskHeight, Factor → ImageIlluminate | | ⬜ |
-| `equ_histo_image` | Image → ImageEquHisto | | ⬜ |
+| `equ_histo_image` | Image → ImageEquHisto | `EquHistoImage()` | ✅ |
 | `adapt_histo_image` | Image, RegionAdapt, Factor → ImageAdapt | | ⬜ |
 | `invert_image` | Image → ImageInvert | `InvertColors()` | ✅ |
 | `gamma_image` | Image, Gamma, Offset, Threshold → ImageGamma | `AdjustGamma()` | ✅ |
@@ -528,16 +528,16 @@
 | Region 区域 | 28 | 1 | 15 | 44 |
 | Connection 连通域 | 3 | 0 | 3 | 6 |
 | Morphology 形态学 | 30 | 0 | 6 | 36 |
-| Edge 边缘 | 10 | 0 | 11 | 21 |
+| Edge 边缘 | 12 | 0 | 9 | 21 |
 | Contour XLD | 24 | 0 | 9 | 33 |
 | Filter 滤波 | 20 | 0 | 9 | 29 |
-| Color 颜色 | 22 | 0 | 5 | 27 |
+| Color 颜色 | 25 | 0 | 2 | 27 |
 | Matching 匹配 | 15 | 2 | 12 | 29 |
 | Measure 测量 | 6 | 0 | 6 | 12 |
 | IO 读写 | 7 | 0 | 2 | 9 |
 | Transform 变换 | 14 | 0 | 16 | 30 |
 | Distance/Fitting | 9 | 0 | 4 | 13 |
 | Hough | 2 | 0 | 3 | 5 |
-| **总计** | **190** | **3** | **101** | **294** |
+| **总计** | **195** | **3** | **96** | **294** |
 
-**覆盖率**: 190/294 = **65%**
+**覆盖率**: 195/294 = **66%**

@@ -548,6 +548,110 @@ QImage SobelDir(const QImage& image, const std::string& dirType, int32_t size) {
     return result;
 }
 
+QImage PrewittAmp(const QImage& image, const std::string& filterType) {
+    if (image.Empty()) return QImage();
+
+    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+        throw UnsupportedException("PrewittAmp requires single-channel UInt8 image");
+    }
+
+    int32_t w = image.Width();
+    int32_t h = image.Height();
+
+    // Prewitt uses uniform smoothing [1,1,1]/3 and derivative [-1,0,1]
+    auto deriv = Internal::PrewittDerivativeKernel();
+    auto smooth = Internal::PrewittSmoothingKernel();
+
+    std::vector<float> src(w * h);
+    std::vector<float> gx(w * h);
+    std::vector<float> gy(w * h);
+
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* row = static_cast<const uint8_t*>(image.RowPtr(y));
+        for (int32_t x = 0; x < w; ++x) {
+            src[y * w + x] = static_cast<float>(row[x]);
+        }
+    }
+
+    // Gx: derivative in X, smooth in Y
+    Internal::ConvolveSeparable<float, float>(
+        src.data(), gx.data(), w, h,
+        deriv.data(), static_cast<int32_t>(deriv.size()),
+        smooth.data(), static_cast<int32_t>(smooth.size()),
+        BorderMode::Reflect101);
+
+    // Gy: smooth in X, derivative in Y
+    Internal::ConvolveSeparable<float, float>(
+        src.data(), gy.data(), w, h,
+        smooth.data(), static_cast<int32_t>(smooth.size()),
+        deriv.data(), static_cast<int32_t>(deriv.size()),
+        BorderMode::Reflect101);
+
+    QImage result(w, h, PixelType::UInt8, ChannelType::Gray);
+
+    std::string lowerType = filterType;
+    std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
+    bool useSqrt = (lowerType == "sum_sqrt" || lowerType == "sqrt");
+
+    for (int32_t y = 0; y < h; ++y) {
+        uint8_t* row = static_cast<uint8_t*>(result.RowPtr(y));
+        for (int32_t x = 0; x < w; ++x) {
+            float gxVal = gx[y * w + x];
+            float gyVal = gy[y * w + x];
+            double mag = useSqrt ? std::sqrt(gxVal * gxVal + gyVal * gyVal)
+                                 : std::abs(gxVal) + std::abs(gyVal);
+            row[x] = ClampU8(mag);
+        }
+    }
+
+    return result;
+}
+
+QImage RobertsAmp(const QImage& image, const std::string& filterType) {
+    if (image.Empty()) return QImage();
+
+    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+        throw UnsupportedException("RobertsAmp requires single-channel UInt8 image");
+    }
+
+    int32_t w = image.Width();
+    int32_t h = image.Height();
+
+    QImage result(w, h, PixelType::UInt8, ChannelType::Gray);
+
+    std::string lowerType = filterType;
+    std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
+    bool useSqrt = (lowerType == "sum_sqrt" || lowerType == "sqrt");
+
+    // Roberts cross kernels (2x2):
+    // Gx: [[1, 0], [0, -1]]  (diagonal difference)
+    // Gy: [[0, 1], [-1, 0]]  (anti-diagonal difference)
+
+    for (int32_t y = 0; y < h - 1; ++y) {
+        const uint8_t* row0 = static_cast<const uint8_t*>(image.RowPtr(y));
+        const uint8_t* row1 = static_cast<const uint8_t*>(image.RowPtr(y + 1));
+        uint8_t* dstRow = static_cast<uint8_t*>(result.RowPtr(y));
+
+        for (int32_t x = 0; x < w - 1; ++x) {
+            // Gx = I(x,y) - I(x+1,y+1)
+            double gx = static_cast<double>(row0[x]) - static_cast<double>(row1[x + 1]);
+            // Gy = I(x+1,y) - I(x,y+1)
+            double gy = static_cast<double>(row0[x + 1]) - static_cast<double>(row1[x]);
+
+            double mag = useSqrt ? std::sqrt(gx * gx + gy * gy)
+                                 : std::abs(gx) + std::abs(gy);
+            dstRow[x] = ClampU8(mag);
+        }
+        // Last column
+        dstRow[w - 1] = 0;
+    }
+    // Last row
+    uint8_t* lastRow = static_cast<uint8_t*>(result.RowPtr(h - 1));
+    std::memset(lastRow, 0, w);
+
+    return result;
+}
+
 QImage DerivateGauss(const QImage& image, double sigma, const std::string& component) {
     if (image.Empty()) return QImage();
 

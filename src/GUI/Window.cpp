@@ -94,12 +94,43 @@ public:
     int32_t imageWidth_ = 0;
     int32_t imageHeight_ = 0;
 
+    // Original image dimensions (for coordinate conversion)
+    int32_t srcImageWidth_ = 0;
+    int32_t srcImageHeight_ = 0;
+
     // Auto-resize settings
     bool autoResize_ = false;
     int32_t maxWidth_ = 0;
     int32_t maxHeight_ = 0;
     int32_t screenWidth_ = 0;
     int32_t screenHeight_ = 0;
+
+    // Mouse interaction
+    MouseCallback mouseCallback_;
+    KeyCallback keyCallback_;
+    int32_t mouseX_ = 0;
+    int32_t mouseY_ = 0;
+    bool mouseInWindow_ = false;
+
+    // Zoom and pan
+    bool zoomPanEnabled_ = false;
+    double zoomLevel_ = 1.0;
+    double panOffsetX_ = 0.0;
+    double panOffsetY_ = 0.0;
+    bool isPanning_ = false;
+    int32_t panStartX_ = 0;
+    int32_t panStartY_ = 0;
+    double panStartOffsetX_ = 0.0;
+    double panStartOffsetY_ = 0.0;
+
+    // Display offset (for centering)
+    int32_t displayOffsetX_ = 0;
+    int32_t displayOffsetY_ = 0;
+    double displayScale_ = 1.0;
+
+    // Store the original image for redraw
+    QImage currentImage_;
+    ScaleMode currentScaleMode_ = ScaleMode::Fit;
 
     Impl(const std::string& title, int32_t width, int32_t height)
         : width_(width), height_(height), title_(title) {
@@ -138,9 +169,11 @@ public:
         // Set window title
         XStoreName(display_, window_, title_.c_str());
 
-        // Select input events
+        // Select input events (including mouse events)
         XSelectInput(display_, window_,
-                     ExposureMask | KeyPressMask | StructureNotifyMask);
+                     ExposureMask | KeyPressMask | StructureNotifyMask |
+                     ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
+                     EnterWindowMask | LeaveWindowMask);
 
         // Handle window close button
         wmDeleteMessage_ = XInternAtom(display_, "WM_DELETE_WINDOW", False);
@@ -185,8 +218,14 @@ public:
     void Show(const QImage& image, ScaleMode scaleMode) {
         if (!isOpen_ || !display_) return;
 
+        // Store for redraw
+        currentImage_ = image.Clone();
+        currentScaleMode_ = scaleMode;
+
         int32_t srcWidth = image.Width();
         int32_t srcHeight = image.Height();
+        srcImageWidth_ = srcWidth;
+        srcImageHeight_ = srcHeight;
 
         // Auto-resize window to fit image
         if (autoResize_) {
@@ -254,8 +293,17 @@ public:
                 break;
         }
 
+        // Apply zoom if enabled
+        if (zoomPanEnabled_) {
+            scaleX *= zoomLevel_;
+            scaleY *= zoomLevel_;
+            dstWidth = static_cast<int32_t>(srcWidth * scaleX);
+            dstHeight = static_cast<int32_t>(srcHeight * scaleY);
+        }
+
         imageWidth_ = dstWidth;
         imageHeight_ = dstHeight;
+        displayScale_ = scaleX;  // Assuming uniform scaling
 
         const uint8_t* srcData = static_cast<const uint8_t*>(image.Data());
         size_t srcStride = image.Stride();
@@ -364,12 +412,216 @@ public:
 
         int offsetX = (width_ - dstWidth) / 2;
         int offsetY = (height_ - dstHeight) / 2;
-        if (offsetX < 0) offsetX = 0;
-        if (offsetY < 0) offsetY = 0;
 
-        XPutImage(display_, window_, gc_, ximage_,
-                  0, 0, offsetX, offsetY, dstWidth, dstHeight);
+        // Apply pan offset if zoom/pan enabled
+        if (zoomPanEnabled_) {
+            offsetX = static_cast<int>(offsetX - panOffsetX_ * displayScale_);
+            offsetY = static_cast<int>(offsetY - panOffsetY_ * displayScale_);
+        }
+
+        displayOffsetX_ = offsetX;
+        displayOffsetY_ = offsetY;
+
+        // Clip to window bounds
+        int srcX = 0, srcY = 0;
+        int drawX = offsetX, drawY = offsetY;
+        int drawWidth = dstWidth, drawHeight = dstHeight;
+
+        if (drawX < 0) {
+            srcX = -drawX;
+            drawWidth += drawX;
+            drawX = 0;
+        }
+        if (drawY < 0) {
+            srcY = -drawY;
+            drawHeight += drawY;
+            drawY = 0;
+        }
+        if (drawX + drawWidth > width_) {
+            drawWidth = width_ - drawX;
+        }
+        if (drawY + drawHeight > height_) {
+            drawHeight = height_ - drawY;
+        }
+
+        if (drawWidth > 0 && drawHeight > 0) {
+            XPutImage(display_, window_, gc_, ximage_,
+                      srcX, srcY, drawX, drawY, drawWidth, drawHeight);
+        }
         XFlush(display_);
+    }
+
+    // Helper to get modifiers from X11 state
+    KeyModifier GetModifiers(unsigned int state) {
+        KeyModifier mods = KeyModifier::None;
+        if (state & ShiftMask) mods = mods | KeyModifier::Shift;
+        if (state & ControlMask) mods = mods | KeyModifier::Ctrl;
+        if (state & Mod1Mask) mods = mods | KeyModifier::Alt;
+        return mods;
+    }
+
+    // Convert window coords to image coords
+    bool WindowToImageCoords(int32_t wx, int32_t wy, double& ix, double& iy) {
+        if (displayScale_ <= 0 || srcImageWidth_ <= 0 || srcImageHeight_ <= 0) {
+            return false;
+        }
+        ix = (wx - displayOffsetX_) / displayScale_ + panOffsetX_;
+        iy = (wy - displayOffsetY_) / displayScale_ + panOffsetY_;
+        return ix >= 0 && ix < srcImageWidth_ && iy >= 0 && iy < srcImageHeight_;
+    }
+
+    // Convert image coords to window coords
+    bool ImageToWindowCoords(double ix, double iy, int32_t& wx, int32_t& wy) {
+        if (displayScale_ <= 0) return false;
+        wx = static_cast<int32_t>(ix * displayScale_ + displayOffsetX_);
+        wy = static_cast<int32_t>(iy * displayScale_ + displayOffsetY_);
+        return wx >= 0 && wx < width_ && wy >= 0 && wy < height_;
+    }
+
+    // Create mouse event from X11 event
+    MouseEvent CreateMouseEvent(MouseEventType type, int x, int y,
+                                MouseButton button, unsigned int state, int wheelDelta = 0) {
+        MouseEvent evt;
+        evt.type = type;
+        evt.button = button;
+        evt.x = x;
+        evt.y = y;
+        evt.wheelDelta = wheelDelta;
+        evt.modifiers = GetModifiers(state);
+        WindowToImageCoords(x, y, evt.imageX, evt.imageY);
+        return evt;
+    }
+
+    void HandleMouseEvent(const XEvent& event) {
+        MouseEvent mouseEvt;
+
+        switch (event.type) {
+            case MotionNotify:
+                mouseX_ = event.xmotion.x;
+                mouseY_ = event.xmotion.y;
+
+                // Handle panning
+                if (isPanning_ && zoomPanEnabled_) {
+                    double dx = (mouseX_ - panStartX_) / displayScale_;
+                    double dy = (mouseY_ - panStartY_) / displayScale_;
+                    panOffsetX_ = panStartOffsetX_ - dx;
+                    panOffsetY_ = panStartOffsetY_ - dy;
+                    if (currentImage_.Width() > 0) {
+                        Show(currentImage_, currentScaleMode_);
+                    }
+                }
+
+                if (mouseCallback_) {
+                    mouseEvt = CreateMouseEvent(MouseEventType::Move,
+                        mouseX_, mouseY_, MouseButton::None, event.xmotion.state);
+                    mouseCallback_(mouseEvt);
+                }
+                break;
+
+            case ButtonPress: {
+                MouseButton btn = MouseButton::None;
+                int wheelDelta = 0;
+
+                switch (event.xbutton.button) {
+                    case Button1: btn = MouseButton::Left; break;
+                    case Button2: btn = MouseButton::Middle; break;
+                    case Button3: btn = MouseButton::Right; break;
+                    case Button4: btn = MouseButton::WheelUp; wheelDelta = 1; break;
+                    case Button5: btn = MouseButton::WheelDown; wheelDelta = -1; break;
+                }
+
+                // Handle zoom/pan
+                if (zoomPanEnabled_) {
+                    if (btn == MouseButton::Left) {
+                        isPanning_ = true;
+                        panStartX_ = event.xbutton.x;
+                        panStartY_ = event.xbutton.y;
+                        panStartOffsetX_ = panOffsetX_;
+                        panStartOffsetY_ = panOffsetY_;
+                    } else if (btn == MouseButton::WheelUp || btn == MouseButton::WheelDown) {
+                        // Zoom centered on mouse cursor
+                        // Get image coords under mouse before zoom
+                        double ix = 0, iy = 0;
+                        WindowToImageCoords(event.xbutton.x, event.xbutton.y, ix, iy);
+
+                        double oldZoom = zoomLevel_;
+                        if (btn == MouseButton::WheelUp) {
+                            zoomLevel_ *= 1.2;
+                        } else {
+                            zoomLevel_ /= 1.2;
+                        }
+                        zoomLevel_ = std::max(0.1, std::min(100.0, zoomLevel_));
+
+                        // Calculate base scale (without zoom)
+                        double baseScale = displayScale_ / oldZoom;
+                        double newScale = baseScale * zoomLevel_;
+
+                        // Adjust panOffset so that (ix, iy) stays under mouse cursor
+                        // After zoom: windowX = ix * newScale + newDisplayOffsetX
+                        // newDisplayOffsetX = (width_ - srcImageWidth_ * newScale) / 2 - panOffsetX * newScale
+                        // We want: event.xbutton.x = ix * newScale + (width_ - srcImageWidth_ * newScale) / 2 - panOffsetX * newScale
+                        // Solve for panOffsetX:
+                        double newDstWidth = srcImageWidth_ * newScale;
+                        double baseOffsetX = (width_ - newDstWidth) / 2.0;
+                        panOffsetX_ = (ix * newScale + baseOffsetX - event.xbutton.x) / newScale;
+
+                        double newDstHeight = srcImageHeight_ * newScale;
+                        double baseOffsetY = (height_ - newDstHeight) / 2.0;
+                        panOffsetY_ = (iy * newScale + baseOffsetY - event.xbutton.y) / newScale;
+
+                        if (currentImage_.Width() > 0) {
+                            Show(currentImage_, currentScaleMode_);
+                        }
+                    } else if (btn == MouseButton::Right) {
+                        // Reset to 1:1
+                        zoomLevel_ = 1.0;
+                        panOffsetX_ = 0;
+                        panOffsetY_ = 0;
+                        if (currentImage_.Width() > 0) {
+                            Show(currentImage_, currentScaleMode_);
+                        }
+                    }
+                }
+
+                if (mouseCallback_) {
+                    MouseEventType type = (wheelDelta != 0) ? MouseEventType::Wheel : MouseEventType::ButtonDown;
+                    mouseEvt = CreateMouseEvent(type, event.xbutton.x, event.xbutton.y,
+                        btn, event.xbutton.state, wheelDelta);
+                    mouseCallback_(mouseEvt);
+                }
+                break;
+            }
+
+            case ButtonRelease: {
+                MouseButton btn = MouseButton::None;
+                switch (event.xbutton.button) {
+                    case Button1: btn = MouseButton::Left; break;
+                    case Button2: btn = MouseButton::Middle; break;
+                    case Button3: btn = MouseButton::Right; break;
+                }
+
+                if (btn == MouseButton::Left) {
+                    isPanning_ = false;
+                }
+
+                if (mouseCallback_) {
+                    mouseEvt = CreateMouseEvent(MouseEventType::ButtonUp,
+                        event.xbutton.x, event.xbutton.y, btn, event.xbutton.state);
+                    mouseCallback_(mouseEvt);
+                }
+                break;
+            }
+
+            case EnterNotify:
+                mouseInWindow_ = true;
+                mouseX_ = event.xcrossing.x;
+                mouseY_ = event.xcrossing.y;
+                break;
+
+            case LeaveNotify:
+                mouseInWindow_ = false;
+                break;
+        }
     }
 
     int32_t WaitKey(int32_t timeoutMs) {
@@ -388,30 +640,53 @@ public:
                 switch (event.type) {
                     case Expose:
                         // Redraw
-                        if (ximage_) {
-                            int offsetX = (width_ - imageWidth_) / 2;
-                            int offsetY = (height_ - imageHeight_) / 2;
-                            if (offsetX < 0) offsetX = 0;
-                            if (offsetY < 0) offsetY = 0;
+                        if (currentImage_.Width() > 0) {
+                            Show(currentImage_, currentScaleMode_);
+                        } else if (ximage_) {
                             XPutImage(display_, window_, gc_, ximage_,
-                                      0, 0, offsetX, offsetY, imageWidth_, imageHeight_);
+                                      0, 0, displayOffsetX_, displayOffsetY_,
+                                      imageWidth_, imageHeight_);
                             XFlush(display_);
                         }
                         break;
 
                     case KeyPress: {
                         KeySym keysym = XLookupKeysym(&event.xkey, 0);
+                        KeyModifier mods = GetModifiers(event.xkey.state);
+
+                        // Call key callback if set
+                        if (keyCallback_) {
+                            keyCallback_(static_cast<int32_t>(keysym & 0xFFFF), mods);
+                        }
+
+                        // Handle double-click reset (not a key, but using 'f' for fit)
+                        if (zoomPanEnabled_ && (keysym == XK_f || keysym == XK_F)) {
+                            zoomLevel_ = 1.0;
+                            panOffsetX_ = 0;
+                            panOffsetY_ = 0;
+                            if (currentImage_.Width() > 0) {
+                                Show(currentImage_, currentScaleMode_);
+                            }
+                        }
+
                         // Convert to ASCII if possible
                         if (keysym >= XK_space && keysym <= XK_asciitilde) {
                             return static_cast<int32_t>(keysym);
                         }
-                        // Return special keys as negative
+                        // Return special keys as-is
                         return static_cast<int32_t>(keysym & 0xFFFF);
                     }
 
                     case ConfigureNotify:
-                        width_ = event.xconfigure.width;
-                        height_ = event.xconfigure.height;
+                        if (width_ != event.xconfigure.width ||
+                            height_ != event.xconfigure.height) {
+                            width_ = event.xconfigure.width;
+                            height_ = event.xconfigure.height;
+                            // Redraw with new size
+                            if (currentImage_.Width() > 0) {
+                                Show(currentImage_, currentScaleMode_);
+                            }
+                        }
                         break;
 
                     case ClientMessage:
@@ -419,6 +694,14 @@ public:
                             isOpen_ = false;
                             return -1;
                         }
+                        break;
+
+                    case MotionNotify:
+                    case ButtonPress:
+                    case ButtonRelease:
+                    case EnterNotify:
+                    case LeaveNotify:
+                        HandleMouseEvent(event);
                         break;
                 }
             }
@@ -476,6 +759,376 @@ public:
     bool IsAutoResize() const {
         return autoResize_;
     }
+
+    // Mouse interaction setters/getters
+    void SetMouseCallback(MouseCallback cb) { mouseCallback_ = std::move(cb); }
+    void SetKeyCallback(KeyCallback cb) { keyCallback_ = std::move(cb); }
+
+    bool GetMousePosition(int32_t& x, int32_t& y) const {
+        x = mouseX_;
+        y = mouseY_;
+        return mouseInWindow_;
+    }
+
+    bool GetMouseImagePosition(double& ix, double& iy) const {
+        if (!mouseInWindow_) return false;
+        double imgX = 0, imgY = 0;
+        // Use const_cast for the const method
+        bool inImage = const_cast<Impl*>(this)->WindowToImageCoords(mouseX_, mouseY_, imgX, imgY);
+        ix = imgX;
+        iy = imgY;
+        return inImage;
+    }
+
+    // Zoom and pan
+    void EnableZoomPan(bool enable) {
+        zoomPanEnabled_ = enable;
+        if (!enable) {
+            zoomLevel_ = 1.0;
+            panOffsetX_ = 0;
+            panOffsetY_ = 0;
+            isPanning_ = false;
+        }
+    }
+
+    bool IsZoomPanEnabled() const { return zoomPanEnabled_; }
+    double GetZoomLevel() const { return zoomLevel_; }
+
+    void SetZoomLevel(double zoom, bool centerOnMouse) {
+        double oldZoom = zoomLevel_;
+        zoomLevel_ = std::max(0.1, std::min(100.0, zoom));
+
+        if (centerOnMouse && mouseInWindow_) {
+            double ix = 0, iy = 0;
+            WindowToImageCoords(mouseX_, mouseY_, ix, iy);
+            double newScale = displayScale_ * zoomLevel_ / oldZoom;
+            panOffsetX_ = ix - (mouseX_ - displayOffsetX_) / newScale;
+            panOffsetY_ = iy - (mouseY_ - displayOffsetY_) / newScale;
+        }
+
+        if (currentImage_.Width() > 0) {
+            Show(currentImage_, currentScaleMode_);
+        }
+    }
+
+    void GetPanOffset(double& ox, double& oy) const {
+        ox = panOffsetX_;
+        oy = panOffsetY_;
+    }
+
+    void SetPanOffset(double ox, double oy) {
+        panOffsetX_ = ox;
+        panOffsetY_ = oy;
+        if (currentImage_.Width() > 0) {
+            Show(currentImage_, currentScaleMode_);
+        }
+    }
+
+    void ResetZoom() {
+        zoomLevel_ = 1.0;
+        panOffsetX_ = 0;
+        panOffsetY_ = 0;
+        if (currentImage_.Width() > 0) {
+            Show(currentImage_, currentScaleMode_);
+        }
+    }
+
+    void ZoomToRegion(double r1, double c1, double r2, double c2) {
+        if (r2 <= r1 || c2 <= c1) return;
+
+        double regionWidth = c2 - c1;
+        double regionHeight = r2 - r1;
+
+        double scaleX = width_ / regionWidth;
+        double scaleY = height_ / regionHeight;
+        zoomLevel_ = std::min(scaleX, scaleY);
+        zoomLevel_ = std::max(0.1, std::min(100.0, zoomLevel_));
+
+        panOffsetX_ = c1 + regionWidth / 2 - width_ / (2 * displayScale_ * zoomLevel_);
+        panOffsetY_ = r1 + regionHeight / 2 - height_ / (2 * displayScale_ * zoomLevel_);
+
+        if (currentImage_.Width() > 0) {
+            Show(currentImage_, currentScaleMode_);
+        }
+    }
+
+    bool WindowToImage(int32_t wx, int32_t wy, double& ix, double& iy) const {
+        return const_cast<Impl*>(this)->WindowToImageCoords(wx, wy, ix, iy);
+    }
+
+    bool ImageToWindow(double ix, double iy, int32_t& wx, int32_t& wy) const {
+        if (displayScale_ <= 0) return false;
+        wx = static_cast<int32_t>((ix - panOffsetX_) * displayScale_ + displayOffsetX_);
+        wy = static_cast<int32_t>((iy - panOffsetY_) * displayScale_ + displayOffsetY_);
+        return wx >= 0 && wx < width_ && wy >= 0 && wy < height_;
+    }
+
+    // Draw XOR rectangle overlay on window (for ROI visualization)
+    void DrawXORRect(int x1, int y1, int x2, int y2) {
+        if (!display_ || !window_ || !gc_) return;
+
+        // Use XOR mode for rubber-band drawing
+        XSetFunction(display_, gc_, GXxor);
+        XSetForeground(display_, gc_, 0xFFFFFF);  // White XOR
+        XSetLineAttributes(display_, gc_, 2, LineSolid, CapButt, JoinMiter);
+
+        // Normalize coordinates
+        int rx = std::min(x1, x2);
+        int ry = std::min(y1, y2);
+        int rw = std::abs(x2 - x1);
+        int rh = std::abs(y2 - y1);
+
+        XDrawRectangle(display_, window_, gc_, rx, ry, rw, rh);
+        XFlush(display_);
+
+        // Restore normal drawing mode
+        XSetFunction(display_, gc_, GXcopy);
+    }
+
+    // Draw XOR circle overlay
+    void DrawXORCircle(int cx, int cy, int radius) {
+        if (!display_ || !window_ || !gc_) return;
+
+        XSetFunction(display_, gc_, GXxor);
+        XSetForeground(display_, gc_, 0xFFFFFF);
+        XSetLineAttributes(display_, gc_, 2, LineSolid, CapButt, JoinMiter);
+
+        XDrawArc(display_, window_, gc_, cx - radius, cy - radius,
+                 radius * 2, radius * 2, 0, 360 * 64);
+        XFlush(display_);
+
+        XSetFunction(display_, gc_, GXcopy);
+    }
+
+    // Draw XOR line overlay
+    void DrawXORLine(int x1, int y1, int x2, int y2) {
+        if (!display_ || !window_ || !gc_) return;
+
+        XSetFunction(display_, gc_, GXxor);
+        XSetForeground(display_, gc_, 0xFFFFFF);
+        XSetLineAttributes(display_, gc_, 2, LineSolid, CapButt, JoinMiter);
+
+        XDrawLine(display_, window_, gc_, x1, y1, x2, y2);
+        XFlush(display_);
+
+        XSetFunction(display_, gc_, GXcopy);
+    }
+
+    // ROI drawing with real-time feedback
+    ROIResult DrawROI(ROIType type) {
+        ROIResult result;
+        result.type = type;
+        result.valid = false;
+
+        if (!isOpen_ || !display_) return result;
+
+        bool drawing = false;
+        int32_t startWinX = 0, startWinY = 0;  // Window coords of start point
+        int32_t lastWinX = 0, lastWinY = 0;    // Last drawn position (for XOR erase)
+        double startImgX = 0, startImgY = 0;   // Image coords of start point
+        std::vector<Point2d> polygonPoints;
+        bool hasLastDraw = false;
+
+        while (isOpen_) {
+            while (XPending(display_)) {
+                XEvent event;
+                XNextEvent(display_, &event);
+
+                switch (event.type) {
+                    case ButtonPress:
+                        if (event.xbutton.button == Button1) {
+                            double ix = 0, iy = 0;
+                            WindowToImageCoords(event.xbutton.x, event.xbutton.y, ix, iy);
+
+                            if (type == ROIType::Point) {
+                                result.points.push_back(Point2d{ix, iy});
+                                result.valid = true;
+                                return result;
+                            } else if (type == ROIType::Polygon) {
+                                polygonPoints.push_back(Point2d{ix, iy});
+                                // TODO: Draw polygon points
+                            } else {
+                                drawing = true;
+                                startWinX = event.xbutton.x;
+                                startWinY = event.xbutton.y;
+                                startImgX = ix;
+                                startImgY = iy;
+                                lastWinX = startWinX;
+                                lastWinY = startWinY;
+                                hasLastDraw = false;
+                            }
+                        } else if (event.xbutton.button == Button3) {
+                            // Right click cancels - erase any drawn shape first
+                            if (hasLastDraw) {
+                                if (type == ROIType::Rectangle || type == ROIType::RotatedRect) {
+                                    DrawXORRect(startWinX, startWinY, lastWinX, lastWinY);
+                                } else if (type == ROIType::Circle || type == ROIType::Ellipse) {
+                                    int radius = static_cast<int>(std::sqrt(
+                                        (lastWinX - startWinX) * (lastWinX - startWinX) +
+                                        (lastWinY - startWinY) * (lastWinY - startWinY)));
+                                    DrawXORCircle(startWinX, startWinY, radius);
+                                } else if (type == ROIType::Line) {
+                                    DrawXORLine(startWinX, startWinY, lastWinX, lastWinY);
+                                }
+                            }
+                            return result;
+                        }
+                        break;
+
+                    case MotionNotify:
+                        if (drawing) {
+                            int curX = event.xmotion.x;
+                            int curY = event.xmotion.y;
+
+                            // Erase previous shape (XOR again = erase)
+                            if (hasLastDraw) {
+                                if (type == ROIType::Rectangle || type == ROIType::RotatedRect) {
+                                    DrawXORRect(startWinX, startWinY, lastWinX, lastWinY);
+                                } else if (type == ROIType::Circle || type == ROIType::Ellipse) {
+                                    int radius = static_cast<int>(std::sqrt(
+                                        (lastWinX - startWinX) * (lastWinX - startWinX) +
+                                        (lastWinY - startWinY) * (lastWinY - startWinY)));
+                                    DrawXORCircle(startWinX, startWinY, radius);
+                                } else if (type == ROIType::Line) {
+                                    DrawXORLine(startWinX, startWinY, lastWinX, lastWinY);
+                                }
+                            }
+
+                            // Draw new shape
+                            if (type == ROIType::Rectangle || type == ROIType::RotatedRect) {
+                                DrawXORRect(startWinX, startWinY, curX, curY);
+                            } else if (type == ROIType::Circle || type == ROIType::Ellipse) {
+                                int radius = static_cast<int>(std::sqrt(
+                                    (curX - startWinX) * (curX - startWinX) +
+                                    (curY - startWinY) * (curY - startWinY)));
+                                DrawXORCircle(startWinX, startWinY, radius);
+                            } else if (type == ROIType::Line) {
+                                DrawXORLine(startWinX, startWinY, curX, curY);
+                            }
+
+                            lastWinX = curX;
+                            lastWinY = curY;
+                            hasLastDraw = true;
+                        }
+                        break;
+
+                    case ButtonRelease:
+                        if (event.xbutton.button == Button1 && drawing) {
+                            // Erase final XOR shape
+                            if (hasLastDraw) {
+                                if (type == ROIType::Rectangle || type == ROIType::RotatedRect) {
+                                    DrawXORRect(startWinX, startWinY, lastWinX, lastWinY);
+                                } else if (type == ROIType::Circle || type == ROIType::Ellipse) {
+                                    int radius = static_cast<int>(std::sqrt(
+                                        (lastWinX - startWinX) * (lastWinX - startWinX) +
+                                        (lastWinY - startWinY) * (lastWinY - startWinY)));
+                                    DrawXORCircle(startWinX, startWinY, radius);
+                                } else if (type == ROIType::Line) {
+                                    DrawXORLine(startWinX, startWinY, lastWinX, lastWinY);
+                                }
+                            }
+
+                            double ix = 0, iy = 0;
+                            WindowToImageCoords(event.xbutton.x, event.xbutton.y, ix, iy);
+
+                            switch (type) {
+                                case ROIType::Rectangle:
+                                case ROIType::RotatedRect:
+                                    result.row1 = std::min(startImgY, iy);
+                                    result.col1 = std::min(startImgX, ix);
+                                    result.row2 = std::max(startImgY, iy);
+                                    result.col2 = std::max(startImgX, ix);
+                                    result.valid = true;
+                                    return result;
+
+                                case ROIType::Circle:
+                                case ROIType::Ellipse:
+                                    result.centerRow = startImgY;
+                                    result.centerCol = startImgX;
+                                    result.radius = std::sqrt((ix - startImgX) * (ix - startImgX) +
+                                                             (iy - startImgY) * (iy - startImgY));
+                                    result.valid = true;
+                                    return result;
+
+                                case ROIType::Line:
+                                    result.startRow = startImgY;
+                                    result.startCol = startImgX;
+                                    result.endRow = iy;
+                                    result.endCol = ix;
+                                    result.valid = true;
+                                    return result;
+
+                                default:
+                                    break;
+                            }
+                        }
+                        break;
+
+                    case KeyPress: {
+                        KeySym keysym = XLookupKeysym(&event.xkey, 0);
+                        if (keysym == XK_Escape) {
+                            // Erase any drawn shape before returning
+                            if (hasLastDraw) {
+                                if (type == ROIType::Rectangle || type == ROIType::RotatedRect) {
+                                    DrawXORRect(startWinX, startWinY, lastWinX, lastWinY);
+                                } else if (type == ROIType::Circle || type == ROIType::Ellipse) {
+                                    int radius = static_cast<int>(std::sqrt(
+                                        (lastWinX - startWinX) * (lastWinX - startWinX) +
+                                        (lastWinY - startWinY) * (lastWinY - startWinY)));
+                                    DrawXORCircle(startWinX, startWinY, radius);
+                                } else if (type == ROIType::Line) {
+                                    DrawXORLine(startWinX, startWinY, lastWinX, lastWinY);
+                                }
+                            }
+                            return result; // Cancel
+                        }
+                        if (keysym == XK_Return && type == ROIType::Polygon && polygonPoints.size() >= 3) {
+                            result.points = polygonPoints;
+                            result.valid = true;
+                            return result;
+                        }
+                        if (keysym == XK_BackSpace && type == ROIType::Polygon && !polygonPoints.empty()) {
+                            polygonPoints.pop_back();
+                        }
+                        break;
+                    }
+
+                    case ClientMessage:
+                        if (static_cast<Atom>(event.xclient.data.l[0]) == wmDeleteMessage_) {
+                            isOpen_ = false;
+                            return result;
+                        }
+                        break;
+
+                    case Expose:
+                        // Redraw image on expose
+                        if (currentImage_.Width() > 0) {
+                            Show(currentImage_, currentScaleMode_);
+                            // Redraw current ROI shape if drawing
+                            if (drawing && hasLastDraw) {
+                                if (type == ROIType::Rectangle || type == ROIType::RotatedRect) {
+                                    DrawXORRect(startWinX, startWinY, lastWinX, lastWinY);
+                                } else if (type == ROIType::Circle || type == ROIType::Ellipse) {
+                                    int radius = static_cast<int>(std::sqrt(
+                                        (lastWinX - startWinX) * (lastWinX - startWinX) +
+                                        (lastWinY - startWinY) * (lastWinY - startWinY)));
+                                    DrawXORCircle(startWinX, startWinY, radius);
+                                } else if (type == ROIType::Line) {
+                                    DrawXORLine(startWinX, startWinY, lastWinX, lastWinY);
+                                }
+                            }
+                        }
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+            usleep(10000);
+        }
+
+        return result;
+    }
 };
 
 #endif // QIVISION_PLATFORM_LINUX && QIVISION_HAS_X11
@@ -498,12 +1151,43 @@ public:
     int32_t imageWidth_ = 0;
     int32_t imageHeight_ = 0;
 
+    // Original image dimensions
+    int32_t srcImageWidth_ = 0;
+    int32_t srcImageHeight_ = 0;
+
     // Auto-resize settings
     bool autoResize_ = false;
     int32_t maxWidth_ = 0;
     int32_t maxHeight_ = 0;
     int32_t screenWidth_ = 0;
     int32_t screenHeight_ = 0;
+
+    // Mouse interaction
+    MouseCallback mouseCallback_;
+    KeyCallback keyCallback_;
+    int32_t mouseX_ = 0;
+    int32_t mouseY_ = 0;
+    bool mouseInWindow_ = false;
+
+    // Zoom and pan
+    bool zoomPanEnabled_ = false;
+    double zoomLevel_ = 1.0;
+    double panOffsetX_ = 0.0;
+    double panOffsetY_ = 0.0;
+    bool isPanning_ = false;
+    int32_t panStartX_ = 0;
+    int32_t panStartY_ = 0;
+    double panStartOffsetX_ = 0.0;
+    double panStartOffsetY_ = 0.0;
+
+    // Display offset (for centering)
+    int32_t displayOffsetX_ = 0;
+    int32_t displayOffsetY_ = 0;
+    double displayScale_ = 1.0;
+
+    // Store the original image for redraw
+    QImage currentImage_;
+    ScaleMode currentScaleMode_ = ScaleMode::Fit;
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         Impl* impl = reinterpret_cast<Impl*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
@@ -517,6 +1201,10 @@ public:
                 if (impl) {
                     impl->width_ = LOWORD(lParam);
                     impl->height_ = HIWORD(lParam);
+                    // Redraw with new size
+                    if (impl->currentImage_.Width() > 0) {
+                        impl->Show(impl->currentImage_, impl->currentScaleMode_);
+                    }
                 }
                 return 0;
 
@@ -524,25 +1212,171 @@ public:
                 PAINTSTRUCT ps;
                 HDC hdc = BeginPaint(hwnd, &ps);
                 if (impl && impl->memDC_) {
-                    int offsetX = (impl->width_ - impl->imageWidth_) / 2;
-                    int offsetY = (impl->height_ - impl->imageHeight_) / 2;
-                    if (offsetX < 0) offsetX = 0;
-                    if (offsetY < 0) offsetY = 0;
-
                     // Clear background
                     RECT rect;
                     GetClientRect(hwnd, &rect);
                     FillRect(hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH));
 
                     // Draw image
-                    BitBlt(hdc, offsetX, offsetY, impl->imageWidth_, impl->imageHeight_,
+                    BitBlt(hdc, impl->displayOffsetX_, impl->displayOffsetY_,
+                           impl->imageWidth_, impl->imageHeight_,
                            impl->memDC_, 0, 0, SRCCOPY);
                 }
                 EndPaint(hwnd, &ps);
                 return 0;
             }
+
+            case WM_MOUSEMOVE:
+                if (impl) {
+                    impl->mouseX_ = LOWORD(lParam);
+                    impl->mouseY_ = HIWORD(lParam);
+                    impl->mouseInWindow_ = true;
+
+                    // Handle panning
+                    if (impl->isPanning_ && impl->zoomPanEnabled_) {
+                        double dx = (impl->mouseX_ - impl->panStartX_) / impl->displayScale_;
+                        double dy = (impl->mouseY_ - impl->panStartY_) / impl->displayScale_;
+                        impl->panOffsetX_ = impl->panStartOffsetX_ - dx;
+                        impl->panOffsetY_ = impl->panStartOffsetY_ - dy;
+                        if (impl->currentImage_.Width() > 0) {
+                            impl->Show(impl->currentImage_, impl->currentScaleMode_);
+                        }
+                    }
+
+                    if (impl->mouseCallback_) {
+                        MouseEvent evt = impl->CreateMouseEvent(MouseEventType::Move,
+                            impl->mouseX_, impl->mouseY_, MouseButton::None, wParam);
+                        impl->mouseCallback_(evt);
+                    }
+                }
+                return 0;
+
+            case WM_LBUTTONDOWN:
+            case WM_RBUTTONDOWN:
+            case WM_MBUTTONDOWN:
+                if (impl) {
+                    int x = LOWORD(lParam);
+                    int y = HIWORD(lParam);
+                    MouseButton btn = (msg == WM_LBUTTONDOWN) ? MouseButton::Left :
+                                      (msg == WM_RBUTTONDOWN) ? MouseButton::Right : MouseButton::Middle;
+
+                    if (impl->zoomPanEnabled_) {
+                        if (btn == MouseButton::Left) {
+                            impl->isPanning_ = true;
+                            impl->panStartX_ = x;
+                            impl->panStartY_ = y;
+                            impl->panStartOffsetX_ = impl->panOffsetX_;
+                            impl->panStartOffsetY_ = impl->panOffsetY_;
+                            SetCapture(hwnd);
+                        } else if (btn == MouseButton::Right) {
+                            impl->zoomLevel_ = 1.0;
+                            impl->panOffsetX_ = 0;
+                            impl->panOffsetY_ = 0;
+                            if (impl->currentImage_.Width() > 0) {
+                                impl->Show(impl->currentImage_, impl->currentScaleMode_);
+                            }
+                        }
+                    }
+
+                    if (impl->mouseCallback_) {
+                        MouseEvent evt = impl->CreateMouseEvent(MouseEventType::ButtonDown, x, y, btn, wParam);
+                        impl->mouseCallback_(evt);
+                    }
+                }
+                return 0;
+
+            case WM_LBUTTONUP:
+            case WM_RBUTTONUP:
+            case WM_MBUTTONUP:
+                if (impl) {
+                    int x = LOWORD(lParam);
+                    int y = HIWORD(lParam);
+                    MouseButton btn = (msg == WM_LBUTTONUP) ? MouseButton::Left :
+                                      (msg == WM_RBUTTONUP) ? MouseButton::Right : MouseButton::Middle;
+
+                    if (btn == MouseButton::Left) {
+                        impl->isPanning_ = false;
+                        ReleaseCapture();
+                    }
+
+                    if (impl->mouseCallback_) {
+                        MouseEvent evt = impl->CreateMouseEvent(MouseEventType::ButtonUp, x, y, btn, wParam);
+                        impl->mouseCallback_(evt);
+                    }
+                }
+                return 0;
+
+            case WM_MOUSEWHEEL:
+                if (impl && impl->zoomPanEnabled_) {
+                    int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+                    POINT pt = { LOWORD(lParam), HIWORD(lParam) };
+                    ScreenToClient(hwnd, &pt);
+
+                    double ix, iy;
+                    impl->WindowToImageCoords(pt.x, pt.y, ix, iy);
+
+                    double oldZoom = impl->zoomLevel_;
+                    if (delta > 0) {
+                        impl->zoomLevel_ *= 1.2;
+                    } else {
+                        impl->zoomLevel_ /= 1.2;
+                    }
+                    impl->zoomLevel_ = std::max(0.1, std::min(100.0, impl->zoomLevel_));
+
+                    double newScale = impl->displayScale_ * impl->zoomLevel_ / oldZoom;
+                    impl->panOffsetX_ = ix - (pt.x - impl->displayOffsetX_) / newScale;
+                    impl->panOffsetY_ = iy - (pt.y - impl->displayOffsetY_) / newScale;
+
+                    if (impl->currentImage_.Width() > 0) {
+                        impl->Show(impl->currentImage_, impl->currentScaleMode_);
+                    }
+
+                    if (impl->mouseCallback_) {
+                        MouseButton btn = (delta > 0) ? MouseButton::WheelUp : MouseButton::WheelDown;
+                        MouseEvent evt = impl->CreateMouseEvent(MouseEventType::Wheel, pt.x, pt.y, btn, wParam, delta);
+                        impl->mouseCallback_(evt);
+                    }
+                }
+                return 0;
+
+            case WM_MOUSELEAVE:
+                if (impl) impl->mouseInWindow_ = false;
+                return 0;
         }
         return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Helper to get modifiers from Windows state
+    KeyModifier GetModifiers(WPARAM wParam) {
+        KeyModifier mods = KeyModifier::None;
+        if (wParam & MK_SHIFT) mods = mods | KeyModifier::Shift;
+        if (wParam & MK_CONTROL) mods = mods | KeyModifier::Ctrl;
+        if (GetKeyState(VK_MENU) & 0x8000) mods = mods | KeyModifier::Alt;
+        return mods;
+    }
+
+    // Convert window coords to image coords
+    bool WindowToImageCoords(int32_t wx, int32_t wy, double& ix, double& iy) {
+        if (displayScale_ <= 0 || srcImageWidth_ <= 0 || srcImageHeight_ <= 0) {
+            return false;
+        }
+        ix = (wx - displayOffsetX_) / displayScale_ + panOffsetX_;
+        iy = (wy - displayOffsetY_) / displayScale_ + panOffsetY_;
+        return ix >= 0 && ix < srcImageWidth_ && iy >= 0 && iy < srcImageHeight_;
+    }
+
+    // Create mouse event
+    MouseEvent CreateMouseEvent(MouseEventType type, int x, int y,
+                                MouseButton button, WPARAM wParam, int wheelDelta = 0) {
+        MouseEvent evt;
+        evt.type = type;
+        evt.button = button;
+        evt.x = x;
+        evt.y = y;
+        evt.wheelDelta = wheelDelta;
+        evt.modifiers = GetModifiers(wParam);
+        WindowToImageCoords(x, y, evt.imageX, evt.imageY);
+        return evt;
     }
 
     Impl(const std::string& title, int32_t width, int32_t height)
@@ -622,8 +1456,14 @@ public:
     void Show(const QImage& image, ScaleMode scaleMode) {
         if (!isOpen_ || !hwnd_) return;
 
+        // Store for redraw
+        currentImage_ = image.Clone();
+        currentScaleMode_ = scaleMode;
+
         int32_t srcWidth = image.Width();
         int32_t srcHeight = image.Height();
+        srcImageWidth_ = srcWidth;
+        srcImageHeight_ = srcHeight;
 
         // Auto-resize window to fit image
         if (autoResize_) {
@@ -693,8 +1533,26 @@ public:
                 break;
         }
 
+        // Apply zoom if enabled
+        if (zoomPanEnabled_) {
+            scaleX *= zoomLevel_;
+            scaleY *= zoomLevel_;
+            dstWidth = static_cast<int32_t>(srcWidth * scaleX);
+            dstHeight = static_cast<int32_t>(srcHeight * scaleY);
+        }
+
         imageWidth_ = dstWidth;
         imageHeight_ = dstHeight;
+        displayScale_ = scaleX;
+
+        // Calculate display offset
+        displayOffsetX_ = (width_ - dstWidth) / 2;
+        displayOffsetY_ = (height_ - dstHeight) / 2;
+
+        if (zoomPanEnabled_) {
+            displayOffsetX_ = static_cast<int>(displayOffsetX_ - panOffsetX_ * displayScale_);
+            displayOffsetY_ = static_cast<int>(displayOffsetY_ - panOffsetY_ * displayScale_);
+        }
 
         // Create DIB
         BITMAPINFO bmi = {};
@@ -831,6 +1689,117 @@ public:
     bool IsAutoResize() const {
         return autoResize_;
     }
+
+    // Mouse interaction setters/getters
+    void SetMouseCallback(MouseCallback cb) { mouseCallback_ = std::move(cb); }
+    void SetKeyCallback(KeyCallback cb) { keyCallback_ = std::move(cb); }
+
+    bool GetMousePosition(int32_t& x, int32_t& y) const {
+        x = mouseX_;
+        y = mouseY_;
+        return mouseInWindow_;
+    }
+
+    bool GetMouseImagePosition(double& ix, double& iy) const {
+        if (!mouseInWindow_) return false;
+        double imgX, imgY;
+        bool inImage = const_cast<Impl*>(this)->WindowToImageCoords(mouseX_, mouseY_, imgX, imgY);
+        ix = imgX;
+        iy = imgY;
+        return inImage;
+    }
+
+    // Zoom and pan
+    void EnableZoomPan(bool enable) {
+        zoomPanEnabled_ = enable;
+        if (!enable) {
+            zoomLevel_ = 1.0;
+            panOffsetX_ = 0;
+            panOffsetY_ = 0;
+            isPanning_ = false;
+        }
+    }
+
+    bool IsZoomPanEnabled() const { return zoomPanEnabled_; }
+    double GetZoomLevel() const { return zoomLevel_; }
+
+    void SetZoomLevel(double zoom, bool centerOnMouse) {
+        double oldZoom = zoomLevel_;
+        zoomLevel_ = std::max(0.1, std::min(100.0, zoom));
+
+        if (centerOnMouse && mouseInWindow_) {
+            double ix = 0, iy = 0;
+            WindowToImageCoords(mouseX_, mouseY_, ix, iy);
+            double newScale = displayScale_ * zoomLevel_ / oldZoom;
+            panOffsetX_ = ix - (mouseX_ - displayOffsetX_) / newScale;
+            panOffsetY_ = iy - (mouseY_ - displayOffsetY_) / newScale;
+        }
+
+        if (currentImage_.Width() > 0) {
+            Show(currentImage_, currentScaleMode_);
+        }
+    }
+
+    void GetPanOffset(double& ox, double& oy) const {
+        ox = panOffsetX_;
+        oy = panOffsetY_;
+    }
+
+    void SetPanOffset(double ox, double oy) {
+        panOffsetX_ = ox;
+        panOffsetY_ = oy;
+        if (currentImage_.Width() > 0) {
+            Show(currentImage_, currentScaleMode_);
+        }
+    }
+
+    void ResetZoom() {
+        zoomLevel_ = 1.0;
+        panOffsetX_ = 0;
+        panOffsetY_ = 0;
+        if (currentImage_.Width() > 0) {
+            Show(currentImage_, currentScaleMode_);
+        }
+    }
+
+    void ZoomToRegion(double r1, double c1, double r2, double c2) {
+        if (r2 <= r1 || c2 <= c1) return;
+
+        double regionWidth = c2 - c1;
+        double regionHeight = r2 - r1;
+
+        double scaleX = width_ / regionWidth;
+        double scaleY = height_ / regionHeight;
+        zoomLevel_ = std::min(scaleX, scaleY);
+        zoomLevel_ = std::max(0.1, std::min(100.0, zoomLevel_));
+
+        panOffsetX_ = c1 + regionWidth / 2 - width_ / (2 * displayScale_ * zoomLevel_);
+        panOffsetY_ = r1 + regionHeight / 2 - height_ / (2 * displayScale_ * zoomLevel_);
+
+        if (currentImage_.Width() > 0) {
+            Show(currentImage_, currentScaleMode_);
+        }
+    }
+
+    bool WindowToImage(int32_t wx, int32_t wy, double& ix, double& iy) const {
+        return const_cast<Impl*>(this)->WindowToImageCoords(wx, wy, ix, iy);
+    }
+
+    bool ImageToWindow(double ix, double iy, int32_t& wx, int32_t& wy) const {
+        if (displayScale_ <= 0) return false;
+        wx = static_cast<int32_t>((ix - panOffsetX_) * displayScale_ + displayOffsetX_);
+        wy = static_cast<int32_t>((iy - panOffsetY_) * displayScale_ + displayOffsetY_);
+        return wx >= 0 && wx < width_ && wy >= 0 && wy < height_;
+    }
+
+    // ROI drawing - placeholder (Windows implementation would be similar to X11)
+    ROIResult DrawROI(ROIType type) {
+        ROIResult result;
+        result.type = type;
+        result.valid = false;
+        // TODO: Implement Windows ROI drawing
+        return result;
+    }
 };
 
 #endif // QIVISION_PLATFORM_WINDOWS
@@ -875,6 +1844,32 @@ public:
     void Move(int32_t /*x*/, int32_t /*y*/) {}
     void SetAutoResize(bool enable, int32_t /*maxWidth*/, int32_t /*maxHeight*/) { autoResize_ = enable; }
     bool IsAutoResize() const { return autoResize_; }
+
+    // Stub implementations for mouse interaction
+    void SetMouseCallback(MouseCallback) {}
+    void SetKeyCallback(KeyCallback) {}
+    bool GetMousePosition(int32_t& x, int32_t& y) const { x = y = 0; return false; }
+    bool GetMouseImagePosition(double& ix, double& iy) const { ix = iy = 0; return false; }
+
+    // Stub implementations for zoom/pan
+    void EnableZoomPan(bool) {}
+    bool IsZoomPanEnabled() const { return false; }
+    double GetZoomLevel() const { return 1.0; }
+    void SetZoomLevel(double, bool) {}
+    void GetPanOffset(double& ox, double& oy) const { ox = oy = 0; }
+    void SetPanOffset(double, double) {}
+    void ResetZoom() {}
+    void ZoomToRegion(double, double, double, double) {}
+    bool WindowToImage(int32_t, int32_t, double& ix, double& iy) const { ix = iy = 0; return false; }
+    bool ImageToWindow(double, double, int32_t& wx, int32_t& wy) const { wx = wy = 0; return false; }
+
+    // Stub ROI drawing
+    ROIResult DrawROI(ROIType type) {
+        ROIResult result;
+        result.type = type;
+        result.valid = false;
+        return result;
+    }
 };
 
 #endif // Stub implementation
@@ -934,6 +1929,104 @@ void Window::SetAutoResize(bool enable, int32_t maxWidth, int32_t maxHeight) {
 
 bool Window::IsAutoResize() const {
     return impl_ ? impl_->IsAutoResize() : false;
+}
+
+// Mouse interaction
+void Window::SetMouseCallback(MouseCallback callback) {
+    if (impl_) impl_->SetMouseCallback(std::move(callback));
+}
+
+void Window::SetKeyCallback(KeyCallback callback) {
+    if (impl_) impl_->SetKeyCallback(std::move(callback));
+}
+
+bool Window::GetMousePosition(int32_t& x, int32_t& y) const {
+    return impl_ ? impl_->GetMousePosition(x, y) : false;
+}
+
+bool Window::GetMouseImagePosition(double& imageX, double& imageY) const {
+    return impl_ ? impl_->GetMouseImagePosition(imageX, imageY) : false;
+}
+
+// Zoom and pan
+void Window::EnableZoomPan(bool enable) {
+    if (impl_) impl_->EnableZoomPan(enable);
+}
+
+bool Window::IsZoomPanEnabled() const {
+    return impl_ ? impl_->IsZoomPanEnabled() : false;
+}
+
+double Window::GetZoomLevel() const {
+    return impl_ ? impl_->GetZoomLevel() : 1.0;
+}
+
+void Window::SetZoomLevel(double zoom, bool centerOnMouse) {
+    if (impl_) impl_->SetZoomLevel(zoom, centerOnMouse);
+}
+
+void Window::GetPanOffset(double& offsetX, double& offsetY) const {
+    if (impl_) {
+        impl_->GetPanOffset(offsetX, offsetY);
+    } else {
+        offsetX = offsetY = 0;
+    }
+}
+
+void Window::SetPanOffset(double offsetX, double offsetY) {
+    if (impl_) impl_->SetPanOffset(offsetX, offsetY);
+}
+
+void Window::ResetZoom() {
+    if (impl_) impl_->ResetZoom();
+}
+
+void Window::ZoomToRegion(double row1, double col1, double row2, double col2) {
+    if (impl_) impl_->ZoomToRegion(row1, col1, row2, col2);
+}
+
+// Coordinate conversion
+bool Window::WindowToImage(int32_t windowX, int32_t windowY,
+                           double& imageX, double& imageY) const {
+    return impl_ ? impl_->WindowToImage(windowX, windowY, imageX, imageY) : false;
+}
+
+bool Window::ImageToWindow(double imageX, double imageY,
+                           int32_t& windowX, int32_t& windowY) const {
+    return impl_ ? impl_->ImageToWindow(imageX, imageY, windowX, windowY) : false;
+}
+
+// Helper to create invalid ROI result
+static ROIResult MakeInvalidROI(ROIType type) {
+    ROIResult result;
+    result.type = type;
+    result.valid = false;
+    return result;
+}
+
+// ROI drawing
+ROIResult Window::DrawRectangle() {
+    return impl_ ? impl_->DrawROI(ROIType::Rectangle) : MakeInvalidROI(ROIType::Rectangle);
+}
+
+ROIResult Window::DrawCircle() {
+    return impl_ ? impl_->DrawROI(ROIType::Circle) : MakeInvalidROI(ROIType::Circle);
+}
+
+ROIResult Window::DrawLine() {
+    return impl_ ? impl_->DrawROI(ROIType::Line) : MakeInvalidROI(ROIType::Line);
+}
+
+ROIResult Window::DrawPolygon() {
+    return impl_ ? impl_->DrawROI(ROIType::Polygon) : MakeInvalidROI(ROIType::Polygon);
+}
+
+ROIResult Window::DrawPoint() {
+    return impl_ ? impl_->DrawROI(ROIType::Point) : MakeInvalidROI(ROIType::Point);
+}
+
+ROIResult Window::DrawROI(ROIType type) {
+    return impl_ ? impl_->DrawROI(type) : MakeInvalidROI(type);
 }
 
 int32_t Window::ShowImage(const QImage& image, const std::string& title) {

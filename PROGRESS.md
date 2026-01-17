@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-17 (GUI 多平台支持)
+> 最后更新: 2026-01-17 (GUI 交互功能)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -17,7 +17,7 @@
 Platform █████████████████░░░ 86%
 Core     ████████████████████ 100%
 Internal ████████████████████ 100%
-Feature  █████░░░░░░░░░░░░░░░ 25%
+Feature  ██████░░░░░░░░░░░░░░ 30%
 Tests    █████████████████░░░ 87%
 ```
 
@@ -182,8 +182,8 @@ Tests    █████████████████░░░ 87%
 | **Color/ColorConvert.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 颜色转换 (RGB/HSV/Lab/YCrCb) |
 | **Filter/Filter.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 图像滤波 (Gauss/Mean/Median/Sobel) |
 | **Display/Display.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像显示与绘制 (Halcon 风格 API) |
-| **GUI/Window.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 窗口调试 (Win32/X11, macOS/Android stub) |
-| Blob/* | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | P1 | Blob 分析 |
+| **GUI/Window.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 窗口调试 (Win32/X11, macOS/Android stub, AutoResize) |
+| **Blob/Blob.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P0** | Blob 分析 (Connection, SelectShape, InnerCircle, FillUp, CountHoles等) |
 | Edge/* | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | P1 | 2D 边缘检测 |
 | Transform/* | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | P1 | 几何变换 |
 | Morphology/* | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | P1 | 形态学 |
@@ -245,6 +245,39 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-17 (GUI 交互功能)
+- **GUI/Window.h 交互增强**:
+  - **鼠标事件类型**: `MouseButton`, `MouseEventType`, `KeyModifier`, `MouseEvent`
+  - **事件回调**: `SetMouseCallback()`, `SetKeyCallback()`
+  - **鼠标位置查询**: `GetMousePosition()`, `GetMouseImagePosition()`
+  - **缩放平移**: `EnableZoomPan()`, `GetZoomLevel()`, `SetZoomLevel()`, `GetPanOffset()`, `SetPanOffset()`, `ResetZoom()`, `ZoomToRegion()`
+  - **坐标转换**: `WindowToImage()`, `ImageToWindow()`
+  - **交互式 ROI 绘制**: `DrawRectangle()`, `DrawCircle()`, `DrawLine()`, `DrawPolygon()`, `DrawPoint()`, `DrawROI()`
+  - **交互方式**:
+    - 滚轮缩放（以光标为中心）
+    - 左键拖拽平移
+    - 右键重置为 1:1
+    - 'F' 键重置为适应窗口
+  - X11/Win32 双平台完整实现
+
+### 2026-01-17 (Blob 模块增强)
+- **Blob/Blob.h 新增函数**:
+  - `InnerCircle`: 最大内接圆（基于距离变换）
+  - `ContourLength`: 区域轮廓长度（周长）
+  - `CountHoles` / `EulerNumber`: 孔洞分析
+  - `FillUp`: 填充孔洞
+  - `GetHoles`: 获取孔洞区域列表
+  - `SelectShapeStd`: 按标准差选择（剔除异常值）
+  - `SelectShapeMulti`: 多特征同时选择
+  - `SelectShapeConvexity` / `SelectShapeElongation`: 按凸度/延伸度选择
+  - `SelectShapeProto`: 选择 N 个最大/最小区域
+- **GUI/Window.h 增强**:
+  - `SetAutoResize(bool, maxW, maxH)`: 自适应窗口大小
+  - 修复 X11 大图像显示时细线消失问题（使用区域平均而非最近邻）
+- **文档更新**:
+  - `docs/API_Reference.md`: 添加 Blob 新函数文档 (6.11-6.14)
+  - `PROGRESS.md`: 更新 Blob 模块状态
 
 ### 2026-01-17 (GUI 多平台支持)
 - **GUI/Window.cpp 平台扩展**

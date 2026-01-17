@@ -59,8 +59,8 @@ set(QIVISION_SOURCES
     Internal/Eigen.cpp
     Internal/Hough.cpp
     Internal/AnglePyramid.cpp
-    Internal/LinemodPyramid.cpp
-    Internal/ResponseMap.cpp
+    # Internal/LinemodPyramid.cpp  # Archived - using XLD method
+    # Internal/ResponseMap.cpp     # Archived - using XLD method
     Internal/IntegralImage.cpp
     # Matching (Feature Layer)
     Matching/ShapeModel.cpp
@@ -71,6 +71,7 @@ set(QIVISION_SOURCES
     Measure/MeasureHandle.cpp
     Measure/Caliper.cpp
     Measure/CaliperArray.cpp
+    Measure/Metrology.cpp
     # IO (Feature Layer)
     IO/ImageIO.cpp
     # Color (Feature Layer)
@@ -79,6 +80,10 @@ set(QIVISION_SOURCES
     Filter/Filter.cpp
     # Blob (Feature Layer)
     Blob/Blob.cpp
+    # Display (Feature Layer)
+    Display/Display.cpp
+    # GUI (Feature Layer)
+    GUI/Window.cpp
 )
 
 set(QIVISION_HEADERS
@@ -142,8 +147,8 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Eigen.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Hough.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/AnglePyramid.h
-    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/LinemodPyramid.h
-    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ResponseMap.h
+    # ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/LinemodPyramid.h  # Archived
+    # ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ResponseMap.h     # Archived
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/IntegralImage.h
     # Matching (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/MatchTypes.h
@@ -155,6 +160,7 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/MeasureHandle.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/Caliper.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/CaliperArray.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/Metrology.h
     # IO (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/IO/ImageIO.h
     # Color (Feature Layer)
@@ -163,6 +169,10 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Filter/Filter.h
     # Blob (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Blob/Blob.h
+    # Display (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Display/Display.h
+    # GUI (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/GUI/Window.h
 )
 
 # Create library
@@ -182,6 +192,20 @@ if(QIVISION_ENABLE_OPENMP)
     find_package(OpenMP)
     if(OpenMP_CXX_FOUND)
         target_link_libraries(QiVision PUBLIC OpenMP::OpenMP_CXX)
+    endif()
+endif()
+
+# X11 for GUI on Linux (optional)
+if(UNIX AND NOT APPLE)
+    find_package(X11 QUIET)
+    if(X11_FOUND)
+        target_link_libraries(QiVision PRIVATE ${X11_LIBRARIES})
+        target_include_directories(QiVision PRIVATE ${X11_INCLUDE_DIR})
+        target_compile_definitions(QiVision PRIVATE QIVISION_HAS_X11)
+        message(STATUS "X11 found - GUI support enabled")
+    else()
+        message(STATUS "X11 not found - GUI support disabled (stub implementation)")
+        target_compile_definitions(QiVision PRIVATE QIVISION_NO_GUI)
     endif()
 endif()
 

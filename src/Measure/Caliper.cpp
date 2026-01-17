@@ -10,6 +10,7 @@
 #include <QiVision/Internal/Interpolate.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <numeric>
 
@@ -71,10 +72,10 @@ std::vector<double> ExtractMeasureProfile(const QImage& image,
 
     // Build RectProfileParams
     Internal::RectProfileParams params;
-    params.centerX = handle.CenterCol();
-    params.centerY = handle.CenterRow();
-    params.length = handle.Length();
-    params.width = handle.Width();
+    params.centerX = handle.Column();
+    params.centerY = handle.Row();
+    params.length = handle.ProfileLength();  // 2 * Length1
+    params.width = 2.0 * handle.Length2();   // Full width
     params.angle = handle.ProfileAngle();
     params.numLines = handle.NumLines();
     params.samplesPerPixel = handle.SamplesPerPixel();
@@ -143,10 +144,10 @@ Point2d ProfileToImage(const MeasureRectangle2& handle, double profilePos) {
     t = std::clamp(t, 0.0, 1.0);
 
     double profileAngle = handle.ProfileAngle();
-    double halfLen = handle.Length() / 2.0;
+    double halfLen = handle.Length1();  // Length1 is half-length
 
-    double startX = handle.CenterCol() - halfLen * std::cos(profileAngle);
-    double startY = handle.CenterRow() - halfLen * std::sin(profileAngle);
+    double startX = handle.Column() - halfLen * std::cos(profileAngle);
+    double startY = handle.Row() - halfLen * std::sin(profileAngle);
 
     return Point2d{
         startX + profilePos * std::cos(profileAngle),
@@ -175,7 +176,7 @@ Point2d ProfileToImage(const MeasureConcentricCircles& handle, double profilePos
 // =============================================================================
 
 int32_t GetNumSamples(const MeasureRectangle2& handle) {
-    return static_cast<int32_t>(std::ceil(handle.Length() * handle.SamplesPerPixel())) + 1;
+    return static_cast<int32_t>(std::ceil(handle.ProfileLength() * handle.SamplesPerPixel())) + 1;
 }
 
 int32_t GetNumSamples(const MeasureArc& handle) {
@@ -337,8 +338,9 @@ namespace {
                 pair.second.confidence = std::min(1.0, pair.second.amplitude / 255.0);
                 pair.second.angle = handle.ProfileAngle();
 
-                // Pair properties
-                pair.width = width;
+                // Pair properties (Halcon compatible)
+                pair.intraDistance = width;  // Distance within this pair
+                pair.width = width;          // Legacy alias
                 pair.centerColumn = (pair.first.column + pair.second.column) / 2.0;
                 pair.centerRow = (pair.first.row + pair.second.row) / 2.0;
 
@@ -514,7 +516,8 @@ namespace {
                 PairResult pair;
                 pair.first = first;
                 pair.second = second;
-                pair.width = width;
+                pair.intraDistance = width;  // Halcon compatible
+                pair.width = width;          // Legacy alias
                 pair.centerColumn = (first.column + second.column) / 2.0;
                 pair.centerRow = (first.row + second.row) / 2.0;
 
@@ -787,6 +790,180 @@ void SortPairs(std::vector<PairResult>& pairs, PairSortBy criterion, bool ascend
     };
 
     std::sort(pairs.begin(), pairs.end(), compare);
+}
+
+// =============================================================================
+// String Parameter Parsing (Halcon compatible)
+// =============================================================================
+
+EdgeTransition ParseTransition(const std::string& transition) {
+    std::string lower;
+    lower.reserve(transition.size());
+    for (char c : transition) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+
+    if (lower == "positive") return EdgeTransition::Positive;
+    if (lower == "negative") return EdgeTransition::Negative;
+    if (lower == "all")      return EdgeTransition::All;
+
+    // Default
+    return EdgeTransition::All;
+}
+
+EdgeSelectMode ParseEdgeSelect(const std::string& select) {
+    std::string lower;
+    lower.reserve(select.size());
+    for (char c : select) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+
+    if (lower == "first")     return EdgeSelectMode::First;
+    if (lower == "last")      return EdgeSelectMode::Last;
+    if (lower == "all")       return EdgeSelectMode::All;
+    if (lower == "strongest") return EdgeSelectMode::Strongest;
+    if (lower == "weakest")   return EdgeSelectMode::Weakest;
+
+    // Default
+    return EdgeSelectMode::All;
+}
+
+PairSelectMode ParsePairSelect(const std::string& select) {
+    std::string lower;
+    lower.reserve(select.size());
+    for (char c : select) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+
+    if (lower == "first")     return PairSelectMode::First;
+    if (lower == "last")      return PairSelectMode::Last;
+    if (lower == "all")       return PairSelectMode::All;
+    if (lower == "strongest") return PairSelectMode::Strongest;
+    if (lower == "widest")    return PairSelectMode::Widest;
+    if (lower == "narrowest") return PairSelectMode::Narrowest;
+
+    // Default
+    return PairSelectMode::All;
+}
+
+ProfileInterpolation ParseInterpolation(const std::string& interpolation) {
+    std::string lower;
+    lower.reserve(interpolation.size());
+    for (char c : interpolation) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+
+    if (lower == "nearest")  return ProfileInterpolation::Nearest;
+    if (lower == "bilinear") return ProfileInterpolation::Bilinear;
+    if (lower == "bicubic")  return ProfileInterpolation::Bicubic;
+
+    // Default
+    return ProfileInterpolation::Bilinear;
+}
+
+std::string TransitionToString(EdgeTransition t) {
+    switch (t) {
+        case EdgeTransition::Positive: return "positive";
+        case EdgeTransition::Negative: return "negative";
+        case EdgeTransition::All:      return "all";
+    }
+    return "all";
+}
+
+std::string EdgeSelectToString(EdgeSelectMode m) {
+    switch (m) {
+        case EdgeSelectMode::First:     return "first";
+        case EdgeSelectMode::Last:      return "last";
+        case EdgeSelectMode::All:       return "all";
+        case EdgeSelectMode::Strongest: return "strongest";
+        case EdgeSelectMode::Weakest:   return "weakest";
+    }
+    return "all";
+}
+
+// =============================================================================
+// Halcon Compatible String Parameter Overloads
+// =============================================================================
+
+std::vector<EdgeResult> MeasurePos(const QImage& image,
+                                    const MeasureRectangle2& handle,
+                                    double sigma,
+                                    double threshold,
+                                    const std::string& transition,
+                                    const std::string& select) {
+    MeasureParams params;
+    params.sigma = sigma;
+    params.minAmplitude = threshold;
+    params.transition = ParseTransition(transition);
+    params.selectMode = ParseEdgeSelect(select);
+    return MeasurePos(image, handle, params);
+}
+
+std::vector<EdgeResult> MeasurePos(const QImage& image,
+                                    const MeasureArc& handle,
+                                    double sigma,
+                                    double threshold,
+                                    const std::string& transition,
+                                    const std::string& select) {
+    MeasureParams params;
+    params.sigma = sigma;
+    params.minAmplitude = threshold;
+    params.transition = ParseTransition(transition);
+    params.selectMode = ParseEdgeSelect(select);
+    return MeasurePos(image, handle, params);
+}
+
+std::vector<PairResult> MeasurePairs(const QImage& image,
+                                      const MeasureRectangle2& handle,
+                                      double sigma,
+                                      double threshold,
+                                      const std::string& transition,
+                                      const std::string& select) {
+    PairParams params;
+    params.sigma = sigma;
+    params.minAmplitude = threshold;
+
+    // Parse transition for pair: interpret as first/second transition
+    EdgeTransition trans = ParseTransition(transition);
+    if (trans == EdgeTransition::All) {
+        params.firstTransition = EdgeTransition::Positive;
+        params.secondTransition = EdgeTransition::Negative;
+    } else if (trans == EdgeTransition::Positive) {
+        params.firstTransition = EdgeTransition::Positive;
+        params.secondTransition = EdgeTransition::Negative;
+    } else {
+        params.firstTransition = EdgeTransition::Negative;
+        params.secondTransition = EdgeTransition::Positive;
+    }
+
+    params.pairSelectMode = ParsePairSelect(select);
+    return MeasurePairs(image, handle, params);
+}
+
+std::vector<PairResult> MeasurePairs(const QImage& image,
+                                      const MeasureArc& handle,
+                                      double sigma,
+                                      double threshold,
+                                      const std::string& transition,
+                                      const std::string& select) {
+    PairParams params;
+    params.sigma = sigma;
+    params.minAmplitude = threshold;
+
+    EdgeTransition trans = ParseTransition(transition);
+    if (trans == EdgeTransition::All) {
+        params.firstTransition = EdgeTransition::Positive;
+        params.secondTransition = EdgeTransition::Negative;
+    } else if (trans == EdgeTransition::Positive) {
+        params.firstTransition = EdgeTransition::Positive;
+        params.secondTransition = EdgeTransition::Negative;
+    } else {
+        params.firstTransition = EdgeTransition::Negative;
+        params.secondTransition = EdgeTransition::Positive;
+    }
+
+    params.pairSelectMode = ParsePairSelect(select);
+    return MeasurePairs(image, handle, params);
 }
 
 } // namespace Qi::Vision::Measure

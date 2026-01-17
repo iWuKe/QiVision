@@ -2,24 +2,24 @@
 # QiVision Samples
 # =============================================================================
 
-# Sample executables (only include samples with stable API)
-set(SAMPLES
-    01_basic_image
-    06_contour_segment
-    08_shape_match_large
-    # 09_performance_benchmark  # Temporarily disabled - needs timing API
-)
-
-foreach(sample ${SAMPLES})
-    add_executable(${sample} ${sample}.cpp)
-    target_link_libraries(${sample} PRIVATE QiVision)
-    target_include_directories(${sample} PRIVATE ${CMAKE_SOURCE_DIR}/include)
-
-    # Set output directory
-    set_target_properties(${sample} PROPERTIES
+# Helper function to add sample executable
+function(add_sample name source_file)
+    add_executable(${name} ${source_file})
+    target_link_libraries(${name} PRIVATE QiVision)
+    target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    set_target_properties(${name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/samples
     )
-endforeach()
+endfunction()
 
-# Create a custom target to build all samples
-add_custom_target(samples DEPENDS ${SAMPLES})
+# Core - Basic image operations
+add_sample(core_basic_image core/basic_image.cpp)
+
+# Matching - Shape matching
+add_sample(matching_shape_match matching/shape_match.cpp)
+
+# Build all samples
+add_custom_target(samples DEPENDS
+    core_basic_image
+    matching_shape_match
+)

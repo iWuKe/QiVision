@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-15 (API 文档完成 + IO/Color/Filter 模块)
+> 最后更新: 2026-01-16 (GUI 模块实现)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -164,9 +164,13 @@ Tests    █████████████████░░░ 87%
 
 | 模块 | 设计 | 实现 | 单测 | 精度测试 | 审查 | 备注 |
 |------|:----:|:----:|:----:|:--------:|:----:|------|
-| MetrologyTypes.h | ⬜ | ⬜ | - | - | ⬜ | 参数和结果结构体 |
-| MetrologyModel.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 组合测量模型 |
-| MetrologyObject.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 测量对象基类 |
+| Metrology.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 计量模型框架 (合并为单文件) |
+
+**说明**: Metrology 模块已整合到单个头文件，包含:
+- MetrologyMeasureParams: 测量参数
+- MetrologyLineResult/CircleResult/EllipseResult/Rectangle2Result: 结果结构体
+- MetrologyObjectLine/Circle/Ellipse/Rectangle2: 测量对象类
+- MetrologyModel: 组合测量模型
 
 ---
 
@@ -177,6 +181,8 @@ Tests    █████████████████░░░ 87%
 | **IO/ImageIO.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像读写 (PNG/JPEG/BMP/RAW) |
 | **Color/ColorConvert.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 颜色转换 (RGB/HSV/Lab/YCrCb) |
 | **Filter/Filter.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 图像滤波 (Gauss/Mean/Median/Sobel) |
+| **Display/Display.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像显示与绘制 (Halcon 风格 API) |
+| **GUI/Window.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 窗口调试 (X11/Win32, stub for WSL) |
 | Blob/* | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | P1 | Blob 分析 |
 | Edge/* | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | P1 | 2D 边缘检测 |
 | Transform/* | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | P1 | 几何变换 |
@@ -239,6 +245,91 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-16 (GUI 模块实现)
+
+- **GUI/Window.h 模块实现完成**
+  - **新增文件**:
+    - `include/QiVision/GUI/Window.h`: 窗口类定义 (~165 行)
+    - `src/GUI/Window.cpp`: 跨平台实现 (~800 行)
+  - **功能**:
+    - `Window`: 窗口类 (构造、移动语义)
+    - `Show`: 显示图像，支持多种缩放模式
+    - `WaitKey`: 等待按键 (支持超时)
+    - `SetTitle`, `Resize`, `Move`, `GetSize`: 窗口控制
+    - `ShowImage`: 静态便捷函数
+    - `DispImage`, `WaitKey`, `CloseWindow`, `CloseAllWindows`: Halcon 风格全局函数
+  - **ScaleMode 枚举**: None/Fit/Fill/Stretch
+  - **平台支持**:
+    - Linux: X11 (Xlib) - 需要 libX11-dev
+    - Windows: Win32 GDI
+    - Stub: 无 GUI 时的占位实现 (WSL 环境)
+  - **编译配置**: CMake 自动检测 X11，找不到时使用 stub
+  - **构建**: `QIVISION_HAS_X11` / `QIVISION_NO_GUI` 宏控制
+
+- **Core/Draw.h 增强**
+  - 新增颜色: Pink, Purple, Brown, Gray, LightGray, DarkGray
+  - `Color::FromHSV()`: HSV 转 RGB
+  - `Color::Blend()`: 颜色混合
+  - `DrawStyle` 结构体: 颜色、线宽、字号
+  - `PixelAlpha`: alpha 混合绘制
+  - `LineAA`: 抗锯齿线 (Wu 算法)
+  - `FilledCircle`, `Ellipse`, `FilledEllipse`, `Arc`, `FilledPolygon`
+  - `TextSize()`: 获取文本尺寸
+  - `GenerateColors()`: 生成 N 种不同颜色
+  - 完整 ASCII 字体 (5x7 位图, 字符 32-126)
+
+- **samples 目录重组**
+  - 新结构: `core/`, `matching/`
+  - 保留: `core_basic_image`, `matching_shape_match`
+  - CMakeLists.txt: 使用 `add_sample()` 辅助函数
+
+### 2026-01-16 (Display 模块实现)
+
+- **Display/Display.h 模块实现完成**
+  - **新增文件**:
+    - `include/QiVision/Display/Display.h`: 显示与绘制 API (~100 行)
+    - `src/Display/Display.cpp`: 实现 (~600 行)
+  - **功能 (Halcon 风格 API, row/col 坐标顺序)**:
+    - `DispImage`: 显示图像 (WSL 兼容, 使用 explorer.exe)
+    - `DispLine`, `DispCircle`, `DispEllipse`: 基本图形绘制
+    - `DispRectangle1`, `DispRectangle2`: 矩形绘制 (轴对齐/旋转)
+    - `DispCross`, `DispArrow`: 标记绘制
+    - `DispPolygon`, `DispContour`, `DispContours`: 多边形与轮廓绘制
+    - `DispPoint`, `DispPoints`, `DispText`: 点与文本绘制
+    - `DispMatchResult`, `DispEdgeResult`: 高级结果可视化
+    - `GrayToRgb`, `PrepareForDrawing`: 图像格式转换工具
+    - `DrawColor`: 颜色定义 (预定义颜色: Red/Green/Blue/Yellow/Cyan/Magenta/White/Black/Orange)
+  - **与旧 Draw 模块区别**:
+    - 命名从 OpenCV 风格改为 Halcon 风格 (Draw::Line → DispLine)
+    - 坐标顺序从 (x, y) 改为 (row, col)
+  - **依赖**: IO/ImageIO.h (写图像), Core/Constants.h (PI 常量)
+
+- **测试图像复制**
+  - 复制 Halcon 测试图像到项目: `tests/data/halcon_images/`
+  - 2.9GB, 15,226 张图像, 218 个子目录
+
+### 2026-01-15 (Metrology 模块实现完成)
+
+- **Measure/Metrology 模块实现完成**
+  - **新增文件**:
+    - `include/QiVision/Measure/Metrology.h`: 计量模型 API (~600 行)
+    - `src/Measure/Metrology.cpp`: 计量模型实现 (~800 行)
+    - `tests/unit/measure/test_metrology.cpp`: 单元测试 (~500 行)
+  - **功能**:
+    - `MetrologyModel`: 组合测量模型容器
+    - `MetrologyObjectLine/Circle/Ellipse/Rectangle2`: 测量对象类
+    - `AddLineMeasure`, `AddCircleMeasure`, `AddArcMeasure`, `AddEllipseMeasure`, `AddRectangle2Measure`: 添加测量对象
+    - `Apply`: 执行测量并拟合几何图元
+    - `GetLineResult`, `GetCircleResult`, `GetEllipseResult`, `GetRectangle2Result`: 获取结果
+    - `GetResultContour`, `GetMeasuredPoints`: 可视化支持
+    - `Align`, `ResetAlignment`: 模型对齐
+  - **测试结果**: 41/41 单元测试通过
+  - **依赖**: Caliper.h, MeasureHandle.h, Fitting.h
+
+- **MeasureHandle 扩展**
+  - 新增 `Translate()`, `SetPosition()` 方法
+  - 新增 `TranslateMeasure()` 自由函数 (Halcon 兼容)
 
 ### 2026-01-15 (API 文档完成)
 

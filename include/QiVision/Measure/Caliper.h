@@ -61,11 +61,39 @@ std::vector<EdgeResult> MeasurePos(const QImage& image,
                                     const MeasureParams& params = MeasureParams());
 
 /**
+ * @brief Measure edge positions (Halcon compatible string parameters)
+ *
+ * @param image Input image
+ * @param handle Measurement handle
+ * @param sigma Gaussian smoothing sigma (Halcon: Sigma)
+ * @param threshold Edge amplitude threshold (Halcon: Threshold)
+ * @param transition "positive", "negative", "all" (Halcon: Transition)
+ * @param select "first", "last", "all" (Halcon: Select)
+ * @return Vector of edge results
+ */
+std::vector<EdgeResult> MeasurePos(const QImage& image,
+                                    const MeasureRectangle2& handle,
+                                    double sigma,
+                                    double threshold,
+                                    const std::string& transition,
+                                    const std::string& select);
+
+/**
  * @brief Measure edge positions along arc
  */
 std::vector<EdgeResult> MeasurePos(const QImage& image,
                                     const MeasureArc& handle,
                                     const MeasureParams& params = MeasureParams());
+
+/**
+ * @brief Measure edge positions along arc (Halcon compatible)
+ */
+std::vector<EdgeResult> MeasurePos(const QImage& image,
+                                    const MeasureArc& handle,
+                                    double sigma,
+                                    double threshold,
+                                    const std::string& transition,
+                                    const std::string& select);
 
 /**
  * @brief Measure edge positions along concentric circles (radial)
@@ -110,11 +138,39 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
                                       const PairParams& params = PairParams());
 
 /**
+ * @brief Measure edge pairs (Halcon compatible string parameters)
+ *
+ * @param image Input image
+ * @param handle Measurement handle
+ * @param sigma Gaussian smoothing sigma (Halcon: Sigma)
+ * @param threshold Edge amplitude threshold (Halcon: Threshold)
+ * @param transition "positive", "negative", "all" (Halcon: Transition)
+ * @param select "first", "last", "all" (Halcon: Select)
+ * @return Vector of pair results with intraDistance and interDistance
+ */
+std::vector<PairResult> MeasurePairs(const QImage& image,
+                                      const MeasureRectangle2& handle,
+                                      double sigma,
+                                      double threshold,
+                                      const std::string& transition,
+                                      const std::string& select);
+
+/**
  * @brief Measure edge pairs along arc
  */
 std::vector<PairResult> MeasurePairs(const QImage& image,
                                       const MeasureArc& handle,
                                       const PairParams& params = PairParams());
+
+/**
+ * @brief Measure edge pairs along arc (Halcon compatible)
+ */
+std::vector<PairResult> MeasurePairs(const QImage& image,
+                                      const MeasureArc& handle,
+                                      double sigma,
+                                      double threshold,
+                                      const std::string& transition,
+                                      const std::string& select);
 
 /**
  * @brief Measure edge pairs along concentric circles

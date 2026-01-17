@@ -146,7 +146,8 @@ TEST_F(MeasureTypesTest, PairResultCenter) {
     pair.second.column = 70;
     pair.second.amplitude = 55;
     pair.second.confidence = 0.75;
-    pair.width = 20;
+    pair.intraDistance = 20;  // Halcon compatible
+    pair.width = 20;          // Legacy
     pair.centerRow = 100;
     pair.centerColumn = 60;
 
@@ -176,34 +177,36 @@ protected:
 };
 
 TEST_F(MeasureHandleTest, RectangleConstruction) {
-    MeasureRectangle2 rect(100, 200, 0, 50, 10, 5, 1.0);
+    // Halcon-style: (row, col, phi, length1, length2)
+    // length1=25 (half-length), length2=5 (half-width)
+    MeasureRectangle2 rect(100, 200, 0, 25, 5);
 
     EXPECT_TRUE(rect.IsValid());
     EXPECT_EQ(rect.Type(), HandleType::Rectangle);
-    EXPECT_DOUBLE_EQ(rect.CenterRow(), 100);
-    EXPECT_DOUBLE_EQ(rect.CenterCol(), 200);
+    EXPECT_DOUBLE_EQ(rect.Row(), 100);
+    EXPECT_DOUBLE_EQ(rect.Column(), 200);
     EXPECT_DOUBLE_EQ(rect.Phi(), 0);
-    EXPECT_DOUBLE_EQ(rect.Length(), 50);
-    EXPECT_DOUBLE_EQ(rect.Width(), 10);
-    EXPECT_DOUBLE_EQ(rect.ProfileLength(), 50);
-    EXPECT_EQ(rect.NumLines(), 5);
+    EXPECT_DOUBLE_EQ(rect.Length1(), 25);  // Half-length
+    EXPECT_DOUBLE_EQ(rect.Length2(), 5);   // Half-width
+    EXPECT_DOUBLE_EQ(rect.ProfileLength(), 50);  // 2 * length1
 }
 
 TEST_F(MeasureHandleTest, RectangleFromPoints) {
     Point2d p1{100, 50};
     Point2d p2{200, 50};  // Horizontal line
 
-    auto rect = MeasureRectangle2::FromPoints(p1, p2, 20, 10);
+    auto rect = MeasureRectangle2::FromPoints(p1, p2, 10);  // halfWidth=10
 
     EXPECT_TRUE(rect.IsValid());
-    EXPECT_DOUBLE_EQ(rect.CenterCol(), 150);
-    EXPECT_DOUBLE_EQ(rect.CenterRow(), 50);
-    EXPECT_NEAR(rect.Length(), 100, 1e-6);
-    EXPECT_DOUBLE_EQ(rect.Width(), 20);
+    EXPECT_DOUBLE_EQ(rect.Column(), 150);
+    EXPECT_DOUBLE_EQ(rect.Row(), 50);
+    EXPECT_NEAR(rect.ProfileLength(), 100, 1e-6);  // Full length
+    EXPECT_DOUBLE_EQ(rect.Length2(), 10);          // Half-width
 }
 
 TEST_F(MeasureHandleTest, RectangleProfileEndpoints) {
-    MeasureRectangle2 rect(100, 100, 0, 50, 10);
+    // length1=25 (half-length), so profile is 50 pixels
+    MeasureRectangle2 rect(100, 100, 0, 25, 5);
 
     Point2d start, end;
     rect.GetProfileEndpoints(start, end);
@@ -211,28 +214,31 @@ TEST_F(MeasureHandleTest, RectangleProfileEndpoints) {
     // Profile should be along phi+90 degrees = 90 degrees (vertical)
     EXPECT_NEAR(start.x, 100, 1e-6);
     EXPECT_NEAR(end.x, 100, 1e-6);
-    EXPECT_NEAR(end.y - start.y, 50, 1e-6);
+    EXPECT_NEAR(end.y - start.y, 50, 1e-6);  // 2 * length1 = 50
 }
 
 TEST_F(MeasureHandleTest, RectangleBoundingBox) {
-    MeasureRectangle2 rect(100, 100, 0, 50, 20);
+    // length1=25 (half-length), length2=10 (half-width)
+    MeasureRectangle2 rect(100, 100, 0, 25, 10);
 
     Rect2d bbox = rect.BoundingBox();
 
-    // Axis-aligned, centered at (100, 100) with length 50 (profile) and width 20
+    // Axis-aligned, centered at (100, 100) with profile=50 and width=20
     EXPECT_GE(bbox.width, 20);
     EXPECT_GE(bbox.height, 50);
 }
 
 TEST_F(MeasureHandleTest, RectangleContains) {
-    MeasureRectangle2 rect(100, 100, 0, 50, 20);
+    // length1=25, length2=10
+    MeasureRectangle2 rect(100, 100, 0, 25, 10);
 
     EXPECT_TRUE(rect.Contains({100, 100}));  // Center
     EXPECT_FALSE(rect.Contains({200, 200})); // Far away
 }
 
 TEST_F(MeasureHandleTest, ArcConstruction) {
-    MeasureArc arc(100, 100, 50, 0, TEST_PI, 5, 10, 1.0);
+    // Halcon-style: (centerRow, centerCol, radius, angleStart, angleExtent, annulusRadius)
+    MeasureArc arc(100, 100, 50, 0, TEST_PI, 5);
 
     EXPECT_TRUE(arc.IsValid());
     EXPECT_EQ(arc.Type(), HandleType::Arc);
@@ -283,13 +289,16 @@ TEST_F(MeasureHandleTest, ConcentricConstruction) {
 }
 
 TEST_F(MeasureHandleTest, FactoryFunctions) {
-    auto rect = CreateMeasureRect(100, 200, 0, 50, 10, 5, 1.0);
+    // Halcon-style: GenMeasureRectangle2(row, col, phi, length1, length2)
+    auto rect = GenMeasureRectangle2(100, 200, 0, 25, 5);
     EXPECT_TRUE(rect.IsValid());
 
-    auto arc = CreateMeasureArc(100, 200, 50, 0, TEST_PI, 5, 10, 1.0);
+    // Halcon-style: GenMeasureArc(centerRow, centerCol, radius, angleStart, angleExtent, annulusRadius)
+    auto arc = GenMeasureArc(100, 200, 50, 0, TEST_PI, 5);
     EXPECT_TRUE(arc.IsValid());
 
-    auto conc = CreateMeasureConcentric(100, 200, 20, 50, 0, 0.1, 5, 1.0);
+    // CreateMeasureConcentric(centerRow, centerCol, innerRadius, outerRadius, angle, angularWidth)
+    auto conc = CreateMeasureConcentric(100, 200, 20, 50, 0, 0.1);
     EXPECT_TRUE(conc.IsValid());
 }
 
@@ -307,7 +316,7 @@ TEST_F(MeasurePosRectTest, SingleVerticalEdge) {
     auto img = CreateVerticalEdgeImage(100, 100, 50);
 
     // Create horizontal measurement handle crossing the edge
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 40, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 20, 10);
 
     MeasureParams params;
     params.sigma = 1.0;
@@ -328,7 +337,7 @@ TEST_F(MeasurePosRectTest, SingleHorizontalEdge) {
     auto img = CreateHorizontalEdgeImage(100, 100, 50);
 
     // Create vertical measurement handle crossing the edge
-    auto handle = CreateMeasureRect(50, 50, 0, 40, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, 0, 20, 10);
 
     MeasureParams params;
     params.sigma = 1.0;
@@ -346,7 +355,7 @@ TEST_F(MeasurePosRectTest, EdgeSelectFirst) {
     // Create stripe with two edges
     auto img = CreateStripeImage(100, 100, 30, 40);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     MeasureParams params;
     params.minAmplitude = 20;
@@ -364,7 +373,7 @@ TEST_F(MeasurePosRectTest, EdgeSelectFirst) {
 TEST_F(MeasurePosRectTest, EdgeSelectLast) {
     auto img = CreateStripeImage(100, 100, 30, 40);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     MeasureParams params;
     params.minAmplitude = 20;
@@ -382,7 +391,7 @@ TEST_F(MeasurePosRectTest, EdgeSelectLast) {
 TEST_F(MeasurePosRectTest, PositiveTransitionOnly) {
     auto img = CreateStripeImage(100, 100, 30, 40);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     MeasureParams params;
     params.minAmplitude = 20;
@@ -400,7 +409,7 @@ TEST_F(MeasurePosRectTest, PositiveTransitionOnly) {
 TEST_F(MeasurePosRectTest, NegativeTransitionOnly) {
     auto img = CreateStripeImage(100, 100, 30, 40);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     MeasureParams params;
     params.minAmplitude = 20;
@@ -418,7 +427,7 @@ TEST_F(MeasurePosRectTest, NegativeTransitionOnly) {
 TEST_F(MeasurePosRectTest, EmptyImage) {
     QImage img;
 
-    auto handle = CreateMeasureRect(50, 50, 0, 40, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, 0, 20, 10);
 
     auto edges = MeasurePos(img, handle, MeasureParams());
 
@@ -430,7 +439,7 @@ TEST_F(MeasurePosRectTest, NoEdges) {
     QImage img(100, 100, PixelType::UInt8, ChannelType::Gray);
     std::memset(img.Data(), 128, 100 * 100);
 
-    auto handle = CreateMeasureRect(50, 50, 0, 40, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, 0, 20, 10);
 
     MeasureParams params;
     params.minAmplitude = 20;
@@ -453,7 +462,7 @@ TEST_F(MeasurePairsTest, SinglePair) {
     // Create stripe: edges at 30 and 70, width = 40
     auto img = CreateStripeImage(100, 100, 30, 40);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     PairParams params;
     params.minAmplitude = 20;
@@ -470,7 +479,7 @@ TEST_F(MeasurePairsTest, SinglePair) {
 TEST_F(MeasurePairsTest, WidthFilter) {
     auto img = CreateStripeImage(100, 100, 30, 40);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     PairParams params;
     params.minAmplitude = 20;
@@ -483,7 +492,7 @@ TEST_F(MeasurePairsTest, WidthFilter) {
 
 TEST_F(MeasurePairsTest, SelectWidest) {
     // This test requires multiple pairs
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     // Create two stripes
     QImage img(100, 100, PixelType::UInt8, ChannelType::Gray);
@@ -516,7 +525,7 @@ TEST_F(MeasurePairsTest, SelectWidest) {
 TEST_F(MeasurePairsTest, PairSymmetry) {
     auto img = CreateStripeImage(100, 100, 30, 40);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     PairParams params;
     params.minAmplitude = 20;
@@ -542,7 +551,7 @@ protected:
 TEST_F(FuzzyMeasureTest, FuzzyMeasureWithScores) {
     auto img = CreateVerticalEdgeImage(100, 100, 50);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 40, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 20, 10);
 
     FuzzyParams params;
     params.minAmplitude = 10;
@@ -566,7 +575,7 @@ TEST_F(FuzzyMeasureTest, FuzzyMeasureWithScores) {
 TEST_F(FuzzyMeasureTest, FuzzyMeasurePairs) {
     auto img = CreateStripeImage(100, 100, 30, 40);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 80, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 40, 10);
 
     FuzzyParams params;
     params.minAmplitude = 10;
@@ -595,7 +604,7 @@ TEST_F(MeasurePosArcTest, CircleEdge) {
     auto img = CreateCircleImage(100, 100, 50, 50, 40);
 
     // Measure along arc at radius 40
-    auto handle = CreateMeasureArc(50, 50, 40, 0, TEST_PI, 5, 10, 1.0);
+    auto handle = GenMeasureArc(50, 50, 40, 0, TEST_PI, 5);
 
     MeasureParams params;
     params.minAmplitude = 20;
@@ -622,7 +631,7 @@ TEST_F(MeasurePosConcentricTest, RadialEdge) {
     auto img = CreateCircleImage(100, 100, 50, 50, 40);
 
     // Measure radially from center outward
-    auto handle = CreateMeasureConcentric(50, 50, 20, 60, 0, 0.2, 5, 1.0);
+    auto handle = CreateMeasureConcentric(50, 50, 20, 60, 0, 0.2);
 
     MeasureParams params;
     params.minAmplitude = 20;
@@ -732,7 +741,7 @@ TEST_F(UtilityFunctionsTest, SortPairs) {
 }
 
 TEST_F(UtilityFunctionsTest, ProfileToImageRect) {
-    auto handle = CreateMeasureRect(100, 100, 0, 50, 10);
+    auto handle = GenMeasureRectangle2(100, 100, 0, 25, 5);
 
     // Start of profile
     Point2d p0 = ProfileToImage(handle, 0);
@@ -744,11 +753,11 @@ TEST_F(UtilityFunctionsTest, ProfileToImageRect) {
 }
 
 TEST_F(UtilityFunctionsTest, GetNumSamples) {
-    auto rect = CreateMeasureRect(100, 100, 0, 50, 10, 5, 2.0);
+    auto rect = GenMeasureRectangle2(100, 100, 0, 25, 5);
     int32_t n1 = GetNumSamples(rect);
     EXPECT_GT(n1, 50);  // 2 samples per pixel * 50 length + 1
 
-    auto arc = CreateMeasureArc(100, 100, 30, 0, TEST_PI, 0, 5, 1.0);
+    auto arc = GenMeasureArc(100, 100, 30, 0, TEST_PI, 0);
     int32_t n2 = GetNumSamples(arc);
     EXPECT_GT(n2, 30 * TEST_PI);  // Arc length + 1
 }
@@ -765,7 +774,7 @@ protected:
 TEST_F(ProfileExtractionTest, ExtractRectProfile) {
     auto img = CreateVerticalEdgeImage(100, 100, 50);
 
-    auto handle = CreateMeasureRect(50, 50, -TEST_PI/2, 40, 20, 10, 1.0);
+    auto handle = GenMeasureRectangle2(50, 50, -TEST_PI/2, 20, 10);
 
     auto profile = ExtractMeasureProfile(img, handle, ProfileInterpolation::Bilinear);
 
@@ -780,7 +789,7 @@ TEST_F(ProfileExtractionTest, ExtractRectProfile) {
 TEST_F(ProfileExtractionTest, ExtractArcProfile) {
     auto img = CreateCircleImage(100, 100, 50, 50, 40);
 
-    auto handle = CreateMeasureArc(50, 50, 40, 0, TEST_PI, 5, 10, 1.0);
+    auto handle = GenMeasureArc(50, 50, 40, 0, TEST_PI, 5);
 
     auto profile = ExtractMeasureProfile(img, handle, ProfileInterpolation::Bilinear);
 
@@ -790,7 +799,7 @@ TEST_F(ProfileExtractionTest, ExtractArcProfile) {
 TEST_F(ProfileExtractionTest, ExtractConcentricProfile) {
     auto img = CreateCircleImage(100, 100, 50, 50, 40);
 
-    auto handle = CreateMeasureConcentric(50, 50, 20, 60, 0, 0.2, 5, 1.0);
+    auto handle = CreateMeasureConcentric(50, 50, 20, 60, 0, 0.2);
 
     auto profile = ExtractMeasureProfile(img, handle, ProfileInterpolation::Bilinear);
 

@@ -334,6 +334,96 @@ bool QImage::SaveToFile(const std::string& path) const {
 }
 
 // =============================================================================
+// Pixel Type Conversion
+// =============================================================================
+
+QImage QImage::ConvertTo(PixelType targetType) const {
+    if (Empty()) return QImage();
+
+    // Same type - return clone
+    if (impl_->type_ == targetType) {
+        return Clone();
+    }
+
+    // Create output image
+    QImage result(impl_->width_, impl_->height_, targetType, impl_->channelType_);
+
+    int numChannels = Channels();
+    PixelType srcType = impl_->type_;
+
+    for (int32_t y = 0; y < impl_->height_; ++y) {
+        const uint8_t* srcRow = static_cast<const uint8_t*>(RowPtr(y));
+        uint8_t* dstRow = static_cast<uint8_t*>(result.RowPtr(y));
+
+        for (int32_t x = 0; x < impl_->width_; ++x) {
+            for (int c = 0; c < numChannels; ++c) {
+                // Read source value as double
+                double value = 0.0;
+
+                switch (srcType) {
+                    case PixelType::UInt8: {
+                        value = static_cast<double>(srcRow[x * numChannels + c]) / 255.0;
+                        break;
+                    }
+                    case PixelType::UInt16: {
+                        const uint16_t* src16 = reinterpret_cast<const uint16_t*>(srcRow);
+                        value = static_cast<double>(src16[x * numChannels + c]) / 65535.0;
+                        break;
+                    }
+                    case PixelType::Int16: {
+                        const int16_t* srcS16 = reinterpret_cast<const int16_t*>(srcRow);
+                        value = (static_cast<double>(srcS16[x * numChannels + c]) + 32768.0) / 65535.0;
+                        break;
+                    }
+                    case PixelType::Float32: {
+                        const float* srcF = reinterpret_cast<const float*>(srcRow);
+                        value = static_cast<double>(srcF[x * numChannels + c]);
+                        break;
+                    }
+                }
+
+                // Clamp to [0, 1]
+                value = std::max(0.0, std::min(1.0, value));
+
+                // Write to target
+                switch (targetType) {
+                    case PixelType::UInt8: {
+                        dstRow[x * numChannels + c] = static_cast<uint8_t>(value * 255.0 + 0.5);
+                        break;
+                    }
+                    case PixelType::UInt16: {
+                        uint16_t* dst16 = reinterpret_cast<uint16_t*>(dstRow);
+                        dst16[x * numChannels + c] = static_cast<uint16_t>(value * 65535.0 + 0.5);
+                        break;
+                    }
+                    case PixelType::Int16: {
+                        int16_t* dstS16 = reinterpret_cast<int16_t*>(dstRow);
+                        dstS16[x * numChannels + c] = static_cast<int16_t>(value * 65535.0 - 32768.0 + 0.5);
+                        break;
+                    }
+                    case PixelType::Float32: {
+                        float* dstF = reinterpret_cast<float*>(dstRow);
+                        dstF[x * numChannels + c] = static_cast<float>(value);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Copy metadata
+    result.impl_->pixelSizeX_ = impl_->pixelSizeX_;
+    result.impl_->pixelSizeY_ = impl_->pixelSizeY_;
+
+    // Copy domain if present
+    if (impl_->domain_) {
+        result.impl_->domain_ = std::make_shared<QRegion>(*impl_->domain_);
+    }
+
+    return result;
+}
+
+// =============================================================================
 // Color Conversion
 // =============================================================================
 

@@ -364,60 +364,31 @@ void FindShapeModel(
     // Build target pyramid (with timing)
     auto tPyramidStart = std::chrono::high_resolution_clock::now();
 
-    const bool useLinemod = impl->params_.useLinemod && !impl->linemodFeatures_.empty();
+    Internal::AnglePyramidParams pyramidParams;
+    pyramidParams.numLevels = static_cast<int32_t>(impl->levels_.size());
 
-    std::vector<MatchResult> results;
+    // Use same contrast as model creation to avoid detecting weak edges
+    double searchContrast = (impl->params_.minContrast > 0)
+        ? impl->params_.minContrast
+        : impl->params_.contrastHigh;
+    pyramidParams.minContrast = searchContrast;
+    pyramidParams.smoothSigma = 0.5;
+    pyramidParams.extractEdgePoints = false;
 
-    if (useLinemod) {
-        Internal::LinemodPyramidParams linemodParams;
-        linemodParams.numLevels = static_cast<int32_t>(impl->linemodFeatures_.size());
-        linemodParams.minMagnitude = static_cast<float>(impl->params_.contrastHigh);
-        linemodParams.spreadT = 4;
-        linemodParams.neighborThreshold = 5;
-        linemodParams.smoothSigma = 1.0;
-        linemodParams.extractFeatures = false;
-
-        Internal::LinemodPyramid targetPyramid;
-        if (!targetPyramid.Build(image, linemodParams)) {
-            return;
-        }
-
-        auto tPyramidEnd = std::chrono::high_resolution_clock::now();
-        auto tSearchStart = tPyramidEnd;
-
-        results = impl->SearchPyramidLinemod(targetPyramid, params);
-
-        auto tSearchEnd = std::chrono::high_resolution_clock::now();
-        fprintf(stderr, "[Find] Pyramid: %.1fms, Search: %.1fms\n",
-                std::chrono::duration<double, std::milli>(tPyramidEnd - tPyramidStart).count(),
-                std::chrono::duration<double, std::milli>(tSearchEnd - tSearchStart).count());
-    } else {
-        Internal::AnglePyramidParams pyramidParams;
-        pyramidParams.numLevels = static_cast<int32_t>(impl->levels_.size());
-
-        // Use same contrast as model creation to avoid detecting weak edges
-        double searchContrast = (impl->params_.minContrast > 0)
-            ? impl->params_.minContrast
-            : impl->params_.contrastHigh;
-        pyramidParams.minContrast = searchContrast;
-        pyramidParams.smoothSigma = 0.5;
-        pyramidParams.extractEdgePoints = false;
-
-        Internal::AnglePyramid targetPyramid;
-        if (!targetPyramid.Build(image, pyramidParams)) {
-            return;
-        }
-
-        auto tPyramidEnd = std::chrono::high_resolution_clock::now();
-        auto tSearchStart = tPyramidEnd;
-
-        results = impl->SearchPyramid(targetPyramid, params);
-
-        auto tSearchEnd = std::chrono::high_resolution_clock::now();
-        fprintf(stderr, "[Find] Pyramid: %.1fms, Search: %.1fms\n",
-                std::chrono::duration<double, std::milli>(tPyramidEnd - tPyramidStart).count(),
-                std::chrono::duration<double, std::milli>(tSearchEnd - tSearchStart).count());
+    Internal::AnglePyramid targetPyramid;
+    if (!targetPyramid.Build(image, pyramidParams)) {
+        return;
     }
+
+    auto tPyramidEnd = std::chrono::high_resolution_clock::now();
+    auto tSearchStart = tPyramidEnd;
+
+    std::vector<MatchResult> results = impl->SearchPyramid(targetPyramid, params);
+
+    auto tSearchEnd = std::chrono::high_resolution_clock::now();
+    fprintf(stderr, "[Find] Pyramid: %.1fms, Search: %.1fms\n",
+            std::chrono::duration<double, std::milli>(tPyramidEnd - tPyramidStart).count(),
+            std::chrono::duration<double, std::milli>(tSearchEnd - tSearchStart).count());
 
     // Convert results to output vectors
     rows.reserve(results.size());

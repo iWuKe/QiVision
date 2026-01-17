@@ -19,6 +19,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace Qi::Vision::Measure {
@@ -88,15 +89,18 @@ protected:
  * Defines a rotated rectangle for linear edge measurement.
  * Profile is extracted perpendicular to the rectangle's long axis.
  *
- * Geometry:
- * - center: Rectangle center (row, column)
- * - phi: Rotation angle of rectangle (radians, perpendicular to profile)
- * - length: Profile length (along measurement direction)
- * - width: Rectangle width (perpendicular extent for averaging)
+ * Geometry (Halcon compatible):
+ * - Row, Column: Rectangle center
+ * - Phi: Rotation angle of rectangle (radians, perpendicular to profile)
+ * - Length1: Half-length along measurement direction (profile half-length)
+ * - Length2: Half-length perpendicular to measurement (averaging half-width)
  *
  * Coordinate convention:
  * - Profile direction: angle = phi + PI/2
- * - Perpendicular lines are spread across 'width'
+ * - Profile total length = 2 * Length1
+ * - Rectangle total width = 2 * Length2
+ *
+ * Halcon equivalent: gen_measure_rectangle2
  */
 class MeasureRectangle2 : public MeasureHandle {
 public:
@@ -106,19 +110,20 @@ public:
     MeasureRectangle2();
 
     /**
-     * @brief Construct rectangle handle
-     * @param centerRow Center Y coordinate
-     * @param centerCol Center X coordinate
-     * @param phi Rectangle rotation angle (radians)
-     * @param length Profile length (measurement direction)
-     * @param width Rectangle width (averaging direction)
-     * @param numLines Number of perpendicular lines for averaging
-     * @param samplesPerPixel Sampling density along profile
+     * @brief Construct rectangle handle (Halcon compatible)
+     * @param row Center Y coordinate (Halcon: Row)
+     * @param column Center X coordinate (Halcon: Column)
+     * @param phi Rectangle rotation angle in radians (Halcon: Phi)
+     * @param length1 Half-length along measurement direction (Halcon: Length1)
+     * @param length2 Half-length perpendicular to measurement (Halcon: Length2)
+     * @param width Image width for interpolation (Halcon: Width), 0 = auto
+     * @param height Image height for interpolation (Halcon: Height), 0 = auto
+     * @param interpolation Interpolation method (Halcon: Interpolation)
      */
-    MeasureRectangle2(double centerRow, double centerCol,
-                      double phi, double length, double width,
-                      int32_t numLines = DEFAULT_NUM_LINES,
-                      double samplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL);
+    MeasureRectangle2(double row, double column,
+                      double phi, double length1, double length2,
+                      int32_t width = 0, int32_t height = 0,
+                      const std::string& interpolation = "bilinear");
 
     /// Create from RotatedRect2d
     static MeasureRectangle2 FromRotatedRect(const RotatedRect2d& rect,
@@ -132,17 +137,24 @@ public:
     // MeasureHandle interface
     HandleType Type() const override { return HandleType::Rectangle; }
     bool IsValid() const override;
-    double ProfileLength() const override { return length_; }
+    double ProfileLength() const override { return 2.0 * length1_; }
     double ProfileAngle() const override;
     Rect2d BoundingBox() const override;
     bool Contains(const Point2d& point) const override;
 
-    // Rectangle-specific accessors
-    double CenterRow() const { return centerRow_; }
-    double CenterCol() const { return centerCol_; }
+    // Rectangle-specific accessors (Halcon compatible names)
+    double Row() const { return row_; }
+    double Column() const { return column_; }
     double Phi() const { return phi_; }
-    double Length() const { return length_; }
-    double Width() const { return width_; }
+    double Length1() const { return length1_; }  ///< Half-length along profile
+    double Length2() const { return length2_; }  ///< Half-width perpendicular
+
+    // Legacy accessors (for compatibility)
+    double CenterRow() const { return row_; }
+    double CenterCol() const { return column_; }
+
+    /// Get interpolation method
+    const std::string& Interpolation() const { return interpolation_; }
 
     /// Get the rotated rectangle
     RotatedRect2d ToRotatedRect() const;
@@ -156,12 +168,21 @@ public:
     /// Get perpendicular line offsets
     const std::vector<double>& GetLineOffsets() const { return lineOffsets_; }
 
+    /// Translate the measurement region (Halcon: translate_measure)
+    void Translate(double deltaRow, double deltaCol);
+
+    /// Set center position
+    void SetPosition(double row, double column);
+
 private:
-    double centerRow_ = 0.0;
-    double centerCol_ = 0.0;
-    double phi_ = 0.0;        // Rectangle rotation (perpendicular to profile)
-    double length_ = 0.0;     // Profile length
-    double width_ = 0.0;      // Rectangle width
+    double row_ = 0.0;           ///< Center row (Halcon: Row)
+    double column_ = 0.0;        ///< Center column (Halcon: Column)
+    double phi_ = 0.0;           ///< Rotation angle (Halcon: Phi)
+    double length1_ = 0.0;       ///< Half-length along profile (Halcon: Length1)
+    double length2_ = 0.0;       ///< Half-width perpendicular (Halcon: Length2)
+    int32_t imageWidth_ = 0;     ///< Image width for interpolation (Halcon: Width)
+    int32_t imageHeight_ = 0;    ///< Image height for interpolation (Halcon: Height)
+    std::string interpolation_ = "bilinear";  ///< Interpolation method
 
     // Pre-computed geometry
     std::vector<double> lineOffsets_;  // Perpendicular offsets for averaging
@@ -179,12 +200,14 @@ private:
  * Defines a circular arc for curved edge measurement.
  * Profile is extracted along the arc, with optional radial averaging.
  *
- * Geometry:
- * - center: Arc center
- * - radius: Arc radius (for single arc) or center radius (for annular)
- * - angleStart: Start angle (radians)
- * - angleExtent: Arc extent (radians), positive = CCW
- * - annulusRadius: Half-width of annular region for averaging
+ * Geometry (Halcon compatible):
+ * - CenterRow, CenterCol: Arc center
+ * - Radius: Arc radius
+ * - AngleStart: Start angle (radians)
+ * - AngleExtent: Arc extent (radians), positive = CCW
+ * - AnnulusRadius: Half-width of annular region for averaging
+ *
+ * Halcon equivalent: gen_measure_arc
  */
 class MeasureArc : public MeasureHandle {
 public:
@@ -194,21 +217,22 @@ public:
     MeasureArc();
 
     /**
-     * @brief Construct arc handle
-     * @param centerRow Center Y coordinate
-     * @param centerCol Center X coordinate
-     * @param radius Arc radius
-     * @param angleStart Start angle (radians)
-     * @param angleExtent Arc extent (radians)
-     * @param annulusRadius Radial extent for averaging (0 = single line)
-     * @param numLines Number of radial lines for averaging
-     * @param samplesPerPixel Sampling density along arc
+     * @brief Construct arc handle (Halcon compatible)
+     * @param centerRow Center Y coordinate (Halcon: CenterRow)
+     * @param centerCol Center X coordinate (Halcon: CenterCol)
+     * @param radius Arc radius (Halcon: Radius)
+     * @param angleStart Start angle in radians (Halcon: AngleStart)
+     * @param angleExtent Arc extent in radians (Halcon: AngleExtent)
+     * @param annulusRadius Radial half-width for averaging (Halcon: AnnulusRadius)
+     * @param width Image width for interpolation (Halcon: Width), 0 = auto
+     * @param height Image height for interpolation (Halcon: Height), 0 = auto
+     * @param interpolation Interpolation method (Halcon: Interpolation)
      */
     MeasureArc(double centerRow, double centerCol,
                double radius, double angleStart, double angleExtent,
                double annulusRadius = 0.0,
-               int32_t numLines = DEFAULT_NUM_LINES,
-               double samplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL);
+               int32_t width = 0, int32_t height = 0,
+               const std::string& interpolation = "bilinear");
 
     /// Create from Arc2d
     static MeasureArc FromArc(const Arc2d& arc,
@@ -254,6 +278,12 @@ public:
 
     /// Get radial offsets for averaging
     const std::vector<double>& GetRadiusOffsets() const { return radiusOffsets_; }
+
+    /// Translate the measurement region (Halcon: translate_measure)
+    void Translate(double deltaRow, double deltaCol);
+
+    /// Set center position
+    void SetPosition(double centerRow, double centerCol);
 
 private:
     double centerRow_ = 0.0;
@@ -334,6 +364,12 @@ public:
     /// Get angular offsets for averaging
     const std::vector<double>& GetAngleOffsets() const { return angleOffsets_; }
 
+    /// Translate the measurement region (Halcon: translate_measure)
+    void Translate(double deltaRow, double deltaCol);
+
+    /// Set center position
+    void SetPosition(double centerRow, double centerCol);
+
 private:
     double centerRow_ = 0.0;
     double centerCol_ = 0.0;
@@ -348,25 +384,46 @@ private:
 };
 
 // =============================================================================
-// Factory Functions
+// Factory Functions (Halcon compatible)
 // =============================================================================
 
 /**
- * @brief Create rectangular measurement handle
+ * @brief Create rectangular measurement handle (Halcon: gen_measure_rectangle2)
+ *
+ * @param row Center Y coordinate
+ * @param column Center X coordinate
+ * @param phi Rotation angle (radians)
+ * @param length1 Half-length along measurement direction
+ * @param length2 Half-length perpendicular to measurement
+ * @param width Image width for interpolation (0 = auto)
+ * @param height Image height for interpolation (0 = auto)
+ * @param interpolation Interpolation method: "nearest", "bilinear", "bicubic"
+ * @return MeasureRectangle2 handle
  */
-MeasureRectangle2 CreateMeasureRect(double centerRow, double centerCol,
-                                     double phi, double length, double width,
-                                     int32_t numLines = DEFAULT_NUM_LINES,
-                                     double samplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL);
+MeasureRectangle2 GenMeasureRectangle2(double row, double column,
+                                        double phi, double length1, double length2,
+                                        int32_t width = 0, int32_t height = 0,
+                                        const std::string& interpolation = "bilinear");
 
 /**
- * @brief Create arc measurement handle
+ * @brief Create arc measurement handle (Halcon: gen_measure_arc)
+ *
+ * @param centerRow Center Y coordinate
+ * @param centerCol Center X coordinate
+ * @param radius Arc radius
+ * @param angleStart Start angle (radians)
+ * @param angleExtent Arc extent (radians)
+ * @param annulusRadius Radial half-width for averaging
+ * @param width Image width for interpolation (0 = auto)
+ * @param height Image height for interpolation (0 = auto)
+ * @param interpolation Interpolation method
+ * @return MeasureArc handle
  */
-MeasureArc CreateMeasureArc(double centerRow, double centerCol,
-                             double radius, double angleStart, double angleExtent,
-                             double annulusRadius = 0.0,
-                             int32_t numLines = DEFAULT_NUM_LINES,
-                             double samplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL);
+MeasureArc GenMeasureArc(double centerRow, double centerCol,
+                          double radius, double angleStart, double angleExtent,
+                          double annulusRadius = 0.0,
+                          int32_t width = 0, int32_t height = 0,
+                          const std::string& interpolation = "bilinear");
 
 /**
  * @brief Create concentric circles measurement handle
@@ -375,20 +432,46 @@ MeasureConcentricCircles CreateMeasureConcentric(double centerRow, double center
                                                    double innerRadius, double outerRadius,
                                                    double angle,
                                                    double angularWidth = 0.1,
-                                                   int32_t numLines = DEFAULT_NUM_LINES,
-                                                   double samplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL);
+                                                   int32_t width = 0, int32_t height = 0,
+                                                   const std::string& interpolation = "bilinear");
 
 /**
  * @brief Create a measure handle covering a line segment
  */
 MeasureRectangle2 CreateMeasureFromSegment(const Point2d& p1, const Point2d& p2,
-                                            double width = 10.0,
-                                            int32_t numLines = DEFAULT_NUM_LINES);
+                                            double halfWidth = 5.0);
 
 /**
  * @brief Create a measure handle covering a rotated rectangle
  */
-MeasureRectangle2 CreateMeasureFromRect(const RotatedRect2d& rect,
-                                         int32_t numLines = DEFAULT_NUM_LINES);
+MeasureRectangle2 CreateMeasureFromRect(const RotatedRect2d& rect);
+
+// =============================================================================
+// Handle Manipulation Functions (Halcon compatible)
+// =============================================================================
+
+/**
+ * @brief Translate a rectangular measurement handle (Halcon: translate_measure)
+ * @param handle Measurement handle to translate (modified in place)
+ * @param deltaRow Translation in row direction
+ * @param deltaCol Translation in column direction
+ */
+inline void TranslateMeasure(MeasureRectangle2& handle, double deltaRow, double deltaCol) {
+    handle.Translate(deltaRow, deltaCol);
+}
+
+/**
+ * @brief Translate an arc measurement handle (Halcon: translate_measure)
+ */
+inline void TranslateMeasure(MeasureArc& handle, double deltaRow, double deltaCol) {
+    handle.Translate(deltaRow, deltaCol);
+}
+
+/**
+ * @brief Translate a concentric circles measurement handle (Halcon: translate_measure)
+ */
+inline void TranslateMeasure(MeasureConcentricCircles& handle, double deltaRow, double deltaCol) {
+    handle.Translate(deltaRow, deltaCol);
+}
 
 } // namespace Qi::Vision::Measure

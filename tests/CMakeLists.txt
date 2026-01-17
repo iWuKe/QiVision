@@ -69,6 +69,7 @@ set(UNIT_TEST_SOURCES
     # Measure (Feature Layer)
     unit/measure/test_caliper.cpp
     unit/measure/test_caliper_array.cpp
+    unit/measure/test_metrology.cpp
 )
 
 add_executable(unit_test ${UNIT_TEST_SOURCES})

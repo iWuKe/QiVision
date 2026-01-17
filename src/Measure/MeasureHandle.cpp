@@ -35,25 +35,30 @@ namespace {
 
 MeasureRectangle2::MeasureRectangle2() = default;
 
-MeasureRectangle2::MeasureRectangle2(double centerRow, double centerCol,
-                                      double phi, double length, double width,
-                                      int32_t numLines, double samplesPerPixel)
-    : centerRow_(centerRow)
-    , centerCol_(centerCol)
+MeasureRectangle2::MeasureRectangle2(double row, double column,
+                                      double phi, double length1, double length2,
+                                      int32_t width, int32_t height,
+                                      const std::string& interpolation)
+    : row_(row)
+    , column_(column)
     , phi_(phi)
-    , length_(length)
-    , width_(width) {
-    numLines_ = std::max(1, numLines);
-    samplesPerPixel_ = std::max(0.1, samplesPerPixel);
+    , length1_(length1)
+    , length2_(length2)
+    , imageWidth_(width)
+    , imageHeight_(height)
+    , interpolation_(interpolation) {
+    // Compute numLines based on length2 (half-width)
+    numLines_ = std::max(1, static_cast<int32_t>(2.0 * length2_));
+    samplesPerPixel_ = 1.0;
     ComputeSamplingGeometry();
 }
 
 MeasureRectangle2 MeasureRectangle2::FromRotatedRect(const RotatedRect2d& rect,
-                                                      int32_t numLines) {
+                                                      int32_t /*numLines*/) {
     // RotatedRect: center, width, height, angle
     // Measurement direction is along the longer axis
-    double length = std::max(rect.width, rect.height);
-    double width = std::min(rect.width, rect.height);
+    double length1 = std::max(rect.width, rect.height) / 2.0;  // Half-length
+    double length2 = std::min(rect.width, rect.height) / 2.0;  // Half-width
     double phi = rect.angle;
 
     // If width is the longer dimension, rotate phi by 90 degrees
@@ -62,14 +67,14 @@ MeasureRectangle2 MeasureRectangle2::FromRotatedRect(const RotatedRect2d& rect,
     }
 
     return MeasureRectangle2(rect.center.y, rect.center.x,
-                              phi, length, width, numLines);
+                              phi, length1, length2);
 }
 
 MeasureRectangle2 MeasureRectangle2::FromPoints(const Point2d& p1, const Point2d& p2,
-                                                 double width, int32_t numLines) {
+                                                 double halfWidth, int32_t /*numLines*/) {
     double dx = p2.x - p1.x;
     double dy = p2.y - p1.y;
-    double length = std::sqrt(dx * dx + dy * dy);
+    double length1 = std::sqrt(dx * dx + dy * dy) / 2.0;  // Half-length
     double angle = std::atan2(dy, dx);
 
     // Center is midpoint
@@ -79,11 +84,11 @@ MeasureRectangle2 MeasureRectangle2::FromPoints(const Point2d& p1, const Point2d
     // phi is perpendicular to the line direction
     double phi = angle - PI / 2.0;
 
-    return MeasureRectangle2(centerRow, centerCol, phi, length, width, numLines);
+    return MeasureRectangle2(centerRow, centerCol, phi, length1, halfWidth);
 }
 
 bool MeasureRectangle2::IsValid() const {
-    return length_ > 0 && width_ >= 0 && numLines_ > 0;
+    return length1_ > 0 && length2_ >= 0 && numLines_ > 0;
 }
 
 double MeasureRectangle2::ProfileAngle() const {
@@ -96,39 +101,36 @@ Rect2d MeasureRectangle2::BoundingBox() const {
     double cosP = std::cos(phi_);
     double sinP = std::sin(phi_);
 
-    double halfL = length_ / 2.0;
-    double halfW = width_ / 2.0;
-
     // Profile direction (perpendicular to phi)
     double profileCos = std::cos(ProfileAngle());
     double profileSin = std::sin(ProfileAngle());
 
-    // Four corners
-    double dx1 = halfL * profileCos - halfW * cosP;
-    double dy1 = halfL * profileSin - halfW * sinP;
-    double dx2 = halfL * profileCos + halfW * cosP;
-    double dy2 = halfL * profileSin + halfW * sinP;
-    double dx3 = -halfL * profileCos - halfW * cosP;
-    double dy3 = -halfL * profileSin - halfW * sinP;
-    double dx4 = -halfL * profileCos + halfW * cosP;
-    double dy4 = -halfL * profileSin + halfW * sinP;
+    // Four corners (using half-lengths)
+    double dx1 = length1_ * profileCos - length2_ * cosP;
+    double dy1 = length1_ * profileSin - length2_ * sinP;
+    double dx2 = length1_ * profileCos + length2_ * cosP;
+    double dy2 = length1_ * profileSin + length2_ * sinP;
+    double dx3 = -length1_ * profileCos - length2_ * cosP;
+    double dy3 = -length1_ * profileSin - length2_ * sinP;
+    double dx4 = -length1_ * profileCos + length2_ * cosP;
+    double dy4 = -length1_ * profileSin + length2_ * sinP;
 
-    double minX = std::min({centerCol_ + dx1, centerCol_ + dx2,
-                           centerCol_ + dx3, centerCol_ + dx4});
-    double maxX = std::max({centerCol_ + dx1, centerCol_ + dx2,
-                           centerCol_ + dx3, centerCol_ + dx4});
-    double minY = std::min({centerRow_ + dy1, centerRow_ + dy2,
-                           centerRow_ + dy3, centerRow_ + dy4});
-    double maxY = std::max({centerRow_ + dy1, centerRow_ + dy2,
-                           centerRow_ + dy3, centerRow_ + dy4});
+    double minX = std::min({column_ + dx1, column_ + dx2,
+                           column_ + dx3, column_ + dx4});
+    double maxX = std::max({column_ + dx1, column_ + dx2,
+                           column_ + dx3, column_ + dx4});
+    double minY = std::min({row_ + dy1, row_ + dy2,
+                           row_ + dy3, row_ + dy4});
+    double maxY = std::max({row_ + dy1, row_ + dy2,
+                           row_ + dy3, row_ + dy4});
 
     return Rect2d{minX, minY, maxX - minX, maxY - minY};
 }
 
 bool MeasureRectangle2::Contains(const Point2d& point) const {
     // Transform point to rectangle-local coordinates
-    double dx = point.x - centerCol_;
-    double dy = point.y - centerRow_;
+    double dx = point.x - column_;
+    double dy = point.y - row_;
 
     double cosP = std::cos(phi_);
     double sinP = std::sin(phi_);
@@ -141,28 +143,27 @@ bool MeasureRectangle2::Contains(const Point2d& point) const {
     double projProfile = dx * profileCos + dy * profileSin;
     double projWidth = dx * cosP + dy * sinP;
 
-    return std::abs(projProfile) <= length_ / 2.0 &&
-           std::abs(projWidth) <= width_ / 2.0;
+    return std::abs(projProfile) <= length1_ &&
+           std::abs(projWidth) <= length2_;
 }
 
 RotatedRect2d MeasureRectangle2::ToRotatedRect() const {
     return RotatedRect2d(
-        Point2d{centerCol_, centerRow_},
-        width_,   // width
-        length_,  // height (length)
+        Point2d{column_, row_},
+        2.0 * length2_,   // width (full)
+        2.0 * length1_,   // height (full length)
         phi_
     );
 }
 
 void MeasureRectangle2::GetProfileEndpoints(Point2d& start, Point2d& end) const {
-    double halfL = length_ / 2.0;
     double profileCos = std::cos(ProfileAngle());
     double profileSin = std::sin(ProfileAngle());
 
-    start.x = centerCol_ - halfL * profileCos;
-    start.y = centerRow_ - halfL * profileSin;
-    end.x = centerCol_ + halfL * profileCos;
-    end.y = centerRow_ + halfL * profileSin;
+    start.x = column_ - length1_ * profileCos;
+    start.y = row_ - length1_ * profileSin;
+    end.x = column_ + length1_ * profileCos;
+    end.y = row_ + length1_ * profileSin;
 }
 
 std::vector<Segment2d> MeasureRectangle2::GetSamplingLines() const {
@@ -195,12 +196,23 @@ void MeasureRectangle2::ComputeSamplingGeometry() {
     if (numLines_ == 1) {
         lineOffsets_.push_back(0.0);
     } else {
-        double halfWidth = width_ / 2.0;
-        double step = width_ / (numLines_ - 1);
+        // Spread lines across full width (2 * length2_)
+        double step = 2.0 * length2_ / (numLines_ - 1);
         for (int32_t i = 0; i < numLines_; ++i) {
-            lineOffsets_.push_back(-halfWidth + i * step);
+            lineOffsets_.push_back(-length2_ + i * step);
         }
     }
+}
+
+void MeasureRectangle2::Translate(double deltaRow, double deltaCol) {
+    row_ += deltaRow;
+    column_ += deltaCol;
+    // No need to recompute sampling geometry - offsets are relative
+}
+
+void MeasureRectangle2::SetPosition(double row, double column) {
+    row_ = row;
+    column_ = column;
 }
 
 // =============================================================================
@@ -211,29 +223,34 @@ MeasureArc::MeasureArc() = default;
 
 MeasureArc::MeasureArc(double centerRow, double centerCol,
                         double radius, double angleStart, double angleExtent,
-                        double annulusRadius, int32_t numLines,
-                        double samplesPerPixel)
+                        double annulusRadius, int32_t width, int32_t height,
+                        const std::string& interpolation)
     : centerRow_(centerRow)
     , centerCol_(centerCol)
     , radius_(radius)
     , angleStart_(angleStart)
     , angleExtent_(angleExtent)
     , annulusRadius_(annulusRadius) {
-    numLines_ = std::max(1, numLines);
-    samplesPerPixel_ = std::max(0.1, samplesPerPixel);
+    (void)width;   // Reserved for future use
+    (void)height;
+    (void)interpolation;
+    // Compute numLines based on annulusRadius
+    numLines_ = std::max(1, static_cast<int32_t>(2.0 * annulusRadius_));
+    if (numLines_ < 1) numLines_ = 1;
+    samplesPerPixel_ = 1.0;
     ComputeSamplingGeometry();
 }
 
-MeasureArc MeasureArc::FromArc(const Arc2d& arc, double annulusRadius, int32_t numLines) {
+MeasureArc MeasureArc::FromArc(const Arc2d& arc, double annulusRadius, int32_t /*numLines*/) {
     return MeasureArc(arc.center.y, arc.center.x,
                        arc.radius, arc.startAngle, arc.sweepAngle,
-                       annulusRadius, numLines);
+                       annulusRadius);
 }
 
-MeasureArc MeasureArc::FromCircle(const Circle2d& circle, double annulusRadius, int32_t numLines) {
+MeasureArc MeasureArc::FromCircle(const Circle2d& circle, double annulusRadius, int32_t /*numLines*/) {
     return MeasureArc(circle.center.y, circle.center.x,
                        circle.radius, 0.0, TWO_PI,
-                       annulusRadius, numLines);
+                       annulusRadius);
 }
 
 bool MeasureArc::IsValid() const {
@@ -360,6 +377,16 @@ void MeasureArc::ComputeSamplingGeometry() {
     }
 }
 
+void MeasureArc::Translate(double deltaRow, double deltaCol) {
+    centerRow_ += deltaRow;
+    centerCol_ += deltaCol;
+}
+
+void MeasureArc::SetPosition(double centerRow, double centerCol) {
+    centerRow_ = centerRow;
+    centerCol_ = centerCol;
+}
+
 // =============================================================================
 // MeasureConcentricCircles Implementation
 // =============================================================================
@@ -376,8 +403,8 @@ MeasureConcentricCircles::MeasureConcentricCircles(double centerRow, double cent
     , outerRadius_(outerRadius)
     , angle_(angle)
     , angularWidth_(angularWidth) {
-    numLines_ = std::max(1, numLines);
-    samplesPerPixel_ = std::max(0.1, samplesPerPixel);
+    numLines_ = (numLines > 0) ? numLines : std::max(1, static_cast<int32_t>(angularWidth_ * 10));
+    samplesPerPixel_ = samplesPerPixel;
     ComputeSamplingGeometry();
 }
 
@@ -451,40 +478,56 @@ void MeasureConcentricCircles::ComputeSamplingGeometry() {
     }
 }
 
-// =============================================================================
-// Factory Functions
-// =============================================================================
-
-MeasureRectangle2 CreateMeasureRect(double centerRow, double centerCol,
-                                     double phi, double length, double width,
-                                     int32_t numLines, double samplesPerPixel) {
-    return MeasureRectangle2(centerRow, centerCol, phi, length, width,
-                              numLines, samplesPerPixel);
+void MeasureConcentricCircles::Translate(double deltaRow, double deltaCol) {
+    centerRow_ += deltaRow;
+    centerCol_ += deltaCol;
 }
 
-MeasureArc CreateMeasureArc(double centerRow, double centerCol,
-                             double radius, double angleStart, double angleExtent,
-                             double annulusRadius, int32_t numLines,
-                             double samplesPerPixel) {
+void MeasureConcentricCircles::SetPosition(double centerRow, double centerCol) {
+    centerRow_ = centerRow;
+    centerCol_ = centerCol;
+}
+
+// =============================================================================
+// Factory Functions (Halcon compatible)
+// =============================================================================
+
+MeasureRectangle2 GenMeasureRectangle2(double row, double column,
+                                        double phi, double length1, double length2,
+                                        int32_t width, int32_t height,
+                                        const std::string& interpolation) {
+    return MeasureRectangle2(row, column, phi, length1, length2,
+                              width, height, interpolation);
+}
+
+MeasureArc GenMeasureArc(double centerRow, double centerCol,
+                          double radius, double angleStart, double angleExtent,
+                          double annulusRadius, int32_t width, int32_t height,
+                          const std::string& interpolation) {
     return MeasureArc(centerRow, centerCol, radius, angleStart, angleExtent,
-                       annulusRadius, numLines, samplesPerPixel);
+                       annulusRadius, width, height, interpolation);
 }
 
 MeasureConcentricCircles CreateMeasureConcentric(double centerRow, double centerCol,
                                                    double innerRadius, double outerRadius,
                                                    double angle, double angularWidth,
-                                                   int32_t numLines, double samplesPerPixel) {
+                                                   int32_t width, int32_t height,
+                                                   const std::string& interpolation) {
+    // Note: width, height, interpolation are ignored for concentric circles
+    (void)width;
+    (void)height;
+    (void)interpolation;
     return MeasureConcentricCircles(centerRow, centerCol, innerRadius, outerRadius,
-                                     angle, angularWidth, numLines, samplesPerPixel);
+                                     angle, angularWidth);
 }
 
 MeasureRectangle2 CreateMeasureFromSegment(const Point2d& p1, const Point2d& p2,
-                                            double width, int32_t numLines) {
-    return MeasureRectangle2::FromPoints(p1, p2, width, numLines);
+                                            double halfWidth) {
+    return MeasureRectangle2::FromPoints(p1, p2, halfWidth, 0);
 }
 
-MeasureRectangle2 CreateMeasureFromRect(const RotatedRect2d& rect, int32_t numLines) {
-    return MeasureRectangle2::FromRotatedRect(rect, numLines);
+MeasureRectangle2 CreateMeasureFromRect(const RotatedRect2d& rect) {
+    return MeasureRectangle2::FromRotatedRect(rect, 0);
 }
 
 } // namespace Qi::Vision::Measure

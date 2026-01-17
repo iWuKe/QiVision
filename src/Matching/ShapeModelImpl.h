@@ -14,8 +14,6 @@
 #include <QiVision/Matching/ShapeModel.h>
 #include <QiVision/Matching/MatchTypes.h>
 #include <QiVision/Internal/AnglePyramid.h>
-#include <QiVision/Internal/ResponseMap.h>
-#include <QiVision/Internal/LinemodPyramid.h>
 #include <QiVision/Core/Types.h>
 #include <QiVision/Core/Constants.h>
 
@@ -45,12 +43,6 @@ using Qi::Vision::Internal::AnglePyramid;
 using Qi::Vision::Internal::AnglePyramidParams;
 using Qi::Vision::Internal::PyramidLevelData;
 using Qi::Vision::Internal::EdgePoint;
-using Qi::Vision::Internal::ResponseMap;
-using Qi::Vision::Internal::RotatedResponseModel;
-using Qi::Vision::Internal::LinemodPyramid;
-using Qi::Vision::Internal::LinemodPyramidParams;
-using Qi::Vision::Internal::LinemodFeature;
-using Qi::Vision::Internal::LinemodLevelData;
 
 // =============================================================================
 // LevelModel: Model data for a single pyramid level
@@ -207,9 +199,6 @@ public:
     std::vector<float> cosLUT_;
     int32_t numAngleBins_ = 0;
 
-    // LINEMOD mode data
-    std::vector<std::vector<LinemodFeature>> linemodFeatures_;  ///< Features per level
-
     // Pregenerated search data (Halcon pregeneration strategy)
     std::vector<SearchAngleData> searchAngleCache_;  ///< Precomputed angle data for search
     double searchAngleStart_ = 0.0;                  ///< Search angle range start
@@ -226,7 +215,6 @@ public:
 
     bool CreateModel(const QImage& image, const Rect2i& roi, const Point2d& origin);
     bool CreateModel(const QImage& image, const QRegion& region, const Point2d& origin);
-    bool CreateModelLinemod(const QImage& image, const Rect2i& roi, const Point2d& origin);
     void ExtractModelPointsXLD(const QImage& templateImg, const AnglePyramid& pyramid);
     void ExtractModelPointsXLDWithRegion(const QImage& templateImg, const AnglePyramid& pyramid,
                                           const QRegion& region);
@@ -244,15 +232,6 @@ public:
 
     std::vector<MatchResult> SearchPyramid(const AnglePyramid& targetPyramid,
                                             const SearchParams& params) const;
-
-    std::vector<MatchResult> SearchPyramidWithResponseMap(
-        const AnglePyramid& targetPyramid,
-        const ResponseMap& responseMap,
-        const SearchParams& params) const;
-
-    std::vector<MatchResult> SearchPyramidLinemod(
-        const LinemodPyramid& targetPyramid,
-        const SearchParams& params) const;
 
     std::vector<MatchResult> SearchLevel(const AnglePyramid& targetPyramid,
                                           int32_t level,

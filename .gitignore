@@ -43,3 +43,7 @@ Thumbs.db
 *.temp
 *.log
 .vs/
+
+# Large test data (download separately)
+tests/data/halcon_images/
+tests/data/matching/image2_result/

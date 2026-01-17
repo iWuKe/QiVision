@@ -14,6 +14,7 @@
 #include <QiVision/Core/Types.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace Qi::Vision::Measure {
@@ -204,16 +205,26 @@ struct EdgeResult {
 };
 
 /**
- * @brief Edge pair (width) measurement result
+ * @brief Edge pair (width) measurement result (Halcon compatible)
+ *
+ * Halcon output mapping:
+ * - RowEdgeFirst, ColEdgeFirst, AmplitudeFirst → first.row, first.column, first.amplitude
+ * - RowEdgeSecond, ColEdgeSecond, AmplitudeSecond → second.row, second.column, second.amplitude
+ * - IntraDistance → intraDistance (width between edges of this pair)
+ * - InterDistance → interDistance (distance to next pair)
  */
 struct PairResult {
     EdgeResult first;           ///< First edge of pair
     EdgeResult second;          ///< Second edge of pair
 
-    // Pair metrics
-    double width = 0.0;         ///< Distance between edges (pixels)
+    // Pair metrics (Halcon compatible names)
+    double intraDistance = 0.0; ///< Distance between edges of this pair (Halcon: IntraDistance)
+    double interDistance = 0.0; ///< Distance to next pair (Halcon: InterDistance)
     double centerRow = 0.0;     ///< Center Y coordinate
     double centerColumn = 0.0;  ///< Center X coordinate
+
+    // Legacy alias
+    double width = 0.0;         ///< Same as intraDistance (for compatibility)
 
     // Quality
     double score = 0.0;         ///< Combined pair score [0, 1]
@@ -221,7 +232,7 @@ struct PairResult {
 
     /// Check if result is valid
     bool IsValid() const {
-        return first.IsValid() && second.IsValid() && width > 0;
+        return first.IsValid() && second.IsValid() && intraDistance > 0;
     }
 
     /// Get center position
@@ -270,5 +281,47 @@ inline EdgeTransition FromEdgePolarity(EdgePolarity p) {
     }
     return EdgeTransition::All;
 }
+
+// =============================================================================
+// Halcon String Parameter Parsing
+// =============================================================================
+
+/**
+ * @brief Parse Halcon transition string to EdgeTransition
+ * @param transition "positive", "negative", "all" (case-insensitive)
+ * @return EdgeTransition enum value
+ */
+EdgeTransition ParseTransition(const std::string& transition);
+
+/**
+ * @brief Parse Halcon select string to EdgeSelectMode
+ * @param select "first", "last", "all" (case-insensitive)
+ * @return EdgeSelectMode enum value
+ */
+EdgeSelectMode ParseEdgeSelect(const std::string& select);
+
+/**
+ * @brief Parse Halcon select string to PairSelectMode
+ * @param select "first", "last", "all" (case-insensitive)
+ * @return PairSelectMode enum value
+ */
+PairSelectMode ParsePairSelect(const std::string& select);
+
+/**
+ * @brief Parse Halcon interpolation string
+ * @param interpolation "nearest", "bilinear", "bicubic" (case-insensitive)
+ * @return ProfileInterpolation enum value
+ */
+ProfileInterpolation ParseInterpolation(const std::string& interpolation);
+
+/**
+ * @brief Convert EdgeTransition to Halcon string
+ */
+std::string TransitionToString(EdgeTransition t);
+
+/**
+ * @brief Convert EdgeSelectMode to Halcon string
+ */
+std::string EdgeSelectToString(EdgeSelectMode m);
 
 } // namespace Qi::Vision::Measure

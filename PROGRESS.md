@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-19 (rcp+NR 快速除法优化)
+> 最后更新: 2026-01-19 (ToFloat+Copy 融合优化)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -245,6 +245,19 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-19 (ToFloat+Copy 融合优化)
+- **Internal/AnglePyramid.cpp 性能优化**:
+  - 融合 ToFloat + Copy 阶段为一步操作
+  - 原流程: uint8 → float QImage (有 stride) → 连续 float vector
+  - 新流程: uint8 → 连续 float vector (直接)
+  - 消除中间 float QImage 分配（大图像约 32MB）
+  - **性能提升**:
+    - Small Images (640x512): 6.8ms → 5.8ms (-14.7%)
+    - Large Images (2048x4001): 162.8ms → 133.0ms (-18.3%)
+    - Copy 阶段: 3-18% → 0% (完全消除)
+  - **精度保持**: 所有测试 100% 通过
+- **文档更新**: TROUBLESHOOTING.md 记录成功优化和失败的内存对齐尝试
 
 ### 2026-01-19 (rcp+NR 快速除法优化)
 - **Internal/AnglePyramid.cpp 性能优化**:

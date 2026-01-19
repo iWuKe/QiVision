@@ -1526,28 +1526,43 @@ bool AnglePyramid::Build(const QImage& image, const AnglePyramidParams& params) 
         return false;
     }
 
-    // Convert to float for processing (with AVX2 SIMD + OpenMP)
+    // Build Gaussian pyramid using the existing Pyramid module
+    PyramidParams pyramidParams;
+    pyramidParams.numLevels = impl_->params_.numLevels;
+    pyramidParams.sigma = std::max(1.0, params.smoothSigma);
+    pyramidParams.minDimension = 8;  // Minimum 8 pixels at coarsest level
+
+    // FUSED: Convert to float AND create contiguous buffer in ONE pass
+    // This eliminates: (1) intermediate float QImage allocation, (2) Copy step
     auto tToFloat = std::chrono::high_resolution_clock::now();
-    QImage floatImage;
+    int32_t w = grayImage.Width();
+    int32_t h = grayImage.Height();
+    std::vector<float> floatContiguous(static_cast<size_t>(w) * h);
+
     if (image.Type() == PixelType::Float32) {
-        floatImage = grayImage;
+        // Source is already float - just copy to contiguous (handle stride)
+        int32_t srcStride = grayImage.Stride() / sizeof(float);
+        const float* srcData = static_cast<const float*>(grayImage.Data());
+        if (srcStride == w) {
+            std::memcpy(floatContiguous.data(), srcData, static_cast<size_t>(w) * h * sizeof(float));
+        } else {
+            for (int32_t y = 0; y < h; ++y) {
+                std::memcpy(floatContiguous.data() + y * w, srcData + y * srcStride, w * sizeof(float));
+            }
+        }
     } else {
-        floatImage = QImage(grayImage.Width(), grayImage.Height(),
-                            PixelType::Float32, ChannelType::Gray);
+        // Convert uint8 directly to contiguous float (no intermediate QImage)
         const uint8_t* srcData = static_cast<const uint8_t*>(grayImage.Data());
-        float* dstData = static_cast<float*>(floatImage.Data());
+        float* dstData = floatContiguous.data();
         int32_t srcStride = grayImage.Stride();
-        int32_t dstStride = floatImage.Stride() / sizeof(float);
-        int32_t h = grayImage.Height();
-        int32_t w = grayImage.Width();
 
         const bool useParallel = ShouldUseOpenMP(w, h);
 
 #ifdef __AVX2__
-        // AVX2 optimized: convert 8 uint8 to 8 float at once
+        // AVX2 optimized: convert 8 uint8 to 8 float at once, output to contiguous buffer
         auto convertRowAVX2 = [&](int32_t y) {
             const uint8_t* srcRow = srcData + y * srcStride;
-            float* dstRow = dstData + y * dstStride;
+            float* dstRow = dstData + y * w;  // Contiguous output (no stride)
             int32_t x = 0;
             for (; x + 8 <= w; x += 8) {
                 __m128i v8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcRow + x));
@@ -1575,8 +1590,10 @@ bool AnglePyramid::Build(const QImage& image, const AnglePyramidParams& params) 
         if (useParallel) {
             #pragma omp parallel for schedule(static)
             for (int32_t y = 0; y < h; ++y) {
+                const uint8_t* srcRow = srcData + y * srcStride;
+                float* dstRow = dstData + y * w;
                 for (int32_t x = 0; x < w; ++x) {
-                    dstData[y * dstStride + x] = static_cast<float>(srcData[y * srcStride + x]);
+                    dstRow[x] = static_cast<float>(srcRow[x]);
                 }
             }
         } else
@@ -1584,8 +1601,10 @@ bool AnglePyramid::Build(const QImage& image, const AnglePyramidParams& params) 
         {
             (void)useParallel;
             for (int32_t y = 0; y < h; ++y) {
+                const uint8_t* srcRow = srcData + y * srcStride;
+                float* dstRow = dstData + y * w;
                 for (int32_t x = 0; x < w; ++x) {
-                    dstData[y * dstStride + x] = static_cast<float>(srcData[y * srcStride + x]);
+                    dstRow[x] = static_cast<float>(srcRow[x]);
                 }
             }
         }
@@ -1594,59 +1613,13 @@ bool AnglePyramid::Build(const QImage& image, const AnglePyramidParams& params) 
     if (params.enableTiming) {
         impl_->timing_.toFloatMs = std::chrono::duration<double, std::milli>(
             std::chrono::high_resolution_clock::now() - tToFloat).count();
-    }
-
-    // Build Gaussian pyramid using the existing Pyramid module
-    PyramidParams pyramidParams;
-    pyramidParams.numLevels = impl_->params_.numLevels;
-    pyramidParams.sigma = std::max(1.0, params.smoothSigma);
-    pyramidParams.minDimension = 8;  // Minimum 8 pixels at coarsest level
-
-    // Extract float data from the float QImage (handle stride correctly)
-    // Optimized: use memcpy instead of element-by-element copy
-    auto tCopy = std::chrono::high_resolution_clock::now();
-    int32_t floatWidth = floatImage.Width();
-    int32_t floatHeight = floatImage.Height();
-    int32_t floatStride = floatImage.Stride() / sizeof(float);
-    const float* floatSrcData = static_cast<const float*>(floatImage.Data());
-
-    std::vector<float> floatContiguous(floatWidth * floatHeight);
-
-    if (floatStride == floatWidth) {
-        // Contiguous memory: single memcpy for entire image
-        std::memcpy(floatContiguous.data(), floatSrcData,
-                    static_cast<size_t>(floatWidth) * floatHeight * sizeof(float));
-    } else {
-        // Strided memory: memcpy row by row
-        const bool useParallelCopy = ShouldUseOpenMP(floatWidth, floatHeight);
-#ifdef _OPENMP
-        if (useParallelCopy) {
-            #pragma omp parallel for schedule(static)
-            for (int32_t y = 0; y < floatHeight; ++y) {
-                std::memcpy(floatContiguous.data() + y * floatWidth,
-                            floatSrcData + y * floatStride,
-                            floatWidth * sizeof(float));
-            }
-        } else
-#endif
-        {
-            (void)useParallelCopy;
-            for (int32_t y = 0; y < floatHeight; ++y) {
-                std::memcpy(floatContiguous.data() + y * floatWidth,
-                            floatSrcData + y * floatStride,
-                            floatWidth * sizeof(float));
-            }
-        }
-    }
-    if (params.enableTiming) {
-        impl_->timing_.copyMs = std::chrono::duration<double, std::milli>(
-            std::chrono::high_resolution_clock::now() - tCopy).count();
+        impl_->timing_.copyMs = 0.0;  // Copy step eliminated - fused into ToFloat
     }
 
     // Use the float overload of BuildGaussianPyramid
     auto tGaussPyramid = std::chrono::high_resolution_clock::now();
     ImagePyramid gaussPyramid = BuildGaussianPyramid(floatContiguous.data(),
-                                                      floatWidth, floatHeight, pyramidParams);
+                                                      w, h, pyramidParams);
     if (params.enableTiming) {
         impl_->timing_.gaussPyramidMs = std::chrono::duration<double, std::milli>(
             std::chrono::high_resolution_clock::now() - tGaussPyramid).count();

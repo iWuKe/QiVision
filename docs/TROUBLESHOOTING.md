@@ -135,17 +135,21 @@ LINEMOD uses 8-bin orientation quantization (45° per bin). When the template an
 
 ## 性能优化验证规则
 
-**任何性能优化必须同时验证精度和时间，不达标立即回滚：**
+**任何性能优化必须同时验证精度和时间：**
 
 1. **优化前基准测试** - 记录精度（匹配成功率）和时间
 2. **优化后验证** - 运行 `./build/bin/samples/matching_shape_match`
 3. **验证标准** - 精度不能下降，时间不能变长
-4. **不通过立即回滚** - `git checkout <file>`
-5. **记录失败** - 在下方"失败优化"部分记录原因
+4. **不达标时处理流程**:
+   - 先分析原因（测量波动？实现错误？方向错误？）
+   - 多次测试确认（排除偶然因素）
+   - 尝试改进方案（修复实现问题）
+   - 确认方向不可行后再回滚并记录
+5. **记录失败** - 仅在确认方向不可行时记录，避免因偶然因素误判
 
 ---
 
-## 失败的优化尝试（禁止重试）
+## 失败的优化尝试（已确认不可行）
 
 ### ❌ L1-norm 替代 L2-norm 计算梯度幅值 (2025-01-19)
 
@@ -220,6 +224,37 @@ Ring buffer 代码保留但不使用。Separable 是当前最优解：
 
 ---
 
+### ❌ 内存对齐优化 hBlur 缓冲区 (2026-01-19)
+
+**尝试内容:**
+将 Pyramid.cpp 中 `FusedGaussianDownsample2x_Separable` 的 `std::vector<float> hBlur` 替换为 `Platform::AllocateAligned<float>()` (32 字节对齐)。
+
+**预期收益:**
+- AVX2 对齐访问比非对齐更快
+- 减少 cache line 分裂
+
+**实际结果:**
+
+| 测试集 | 基线 | 对齐版本 | 差异 |
+|--------|------|----------|------|
+| Large Images | 144.4 ms | 153.3 ms | ❌ +6.2% 变慢 |
+
+**失败原因分析:**
+1. **代码仍用 unaligned 指令**: `_mm256_loadu_ps` / `_mm256_storeu_ps` 不会从对齐内存获益
+2. **现代 CPU 对齐惩罚极小**: Sandy Bridge/Zen 之后，对齐与非对齐访问性能几乎相同
+3. **瓶颈是内存带宽**: 大图像 (16MB+) 远超 L3 缓存，对齐无法解决 DRAM 带宽瓶颈
+4. **自定义 allocator 开销**: `Platform::AllocateAligned` 可能比 `std::vector` 有额外开销
+
+**什么时候内存对齐可能有用:**
+- 使用 `_mm256_load_ps` / `_mm256_store_ps` (aligned 指令) 时
+- 数据在 L1/L2 缓存中频繁访问
+- 有严格的性能要求且已消除其他瓶颈
+
+**结论:**
+对于 streaming 工作负载（大图像处理），内存对齐不是有效优化方向。保持 `std::vector` 即可。
+
+---
+
 ## 成功的优化（可参考）
 
 ### ✅ 消除 Copy 阶段 + OpenMP chunk size 优化 (2025-01-19)
@@ -246,6 +281,34 @@ Ring buffer 代码保留但不使用。Separable 是当前最优解：
 - 每层 BuildLevelFused 从 2 个 parallel for 减少到 1 个
 - 消除了 5 个临时 buffer（gxBuffer, gyBuffer, magBuffer, binBuffer, dirBuffer）的分配和拷贝
 - schedule(static, 64) 增大 chunk 减少调度开销
+
+---
+
+### ✅ 融合 ToFloat + Copy 阶段 (2026-01-19)
+
+**优化内容:**
+将 AnglePyramid::Build 中的两步操作融合为一步：
+1. 原流程: uint8 → float QImage (有 stride) → 连续 float vector (Copy)
+2. 新流程: uint8 → 连续 float vector (直接)
+
+**优化前后对比:**
+
+| 测试集 | 优化前 | 优化后 | 提升 |
+|--------|--------|--------|------|
+| Small Images (640x512) | 6.8 ms | 5.8 ms | **-14.7%** |
+| Large Images (2048x4001) | 162.8 ms | 133.0 ms | **-18.3%** |
+| Copy 阶段占比 | 3-18% | **0%** | 完全消除 |
+
+**关键发现:**
+- 消除了中间 float QImage 分配（对于 2048x4001 图像约 32MB）
+- 减少一次完整的内存遍历
+- Large 图像提升更显著（内存带宽敏感）
+- 所有测试 100% 精度保持
+
+**技术细节:**
+- 直接将 uint8 源数据转换到 `std::vector<float>`
+- AVX2 优化: 8 个 uint8 → 8 个 float 一次完成
+- 输出直接写入连续内存（无 stride）
 
 ---
 

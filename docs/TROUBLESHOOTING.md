@@ -130,3 +130,77 @@ LINEMOD uses 8-bin orientation quantization (45° per bin). When the template an
 - Auto-calculated based on template size
 - Smaller templates → fewer levels
 - Manual override: set `numLevels` in `ModelParams`
+
+---
+
+## 性能优化验证规则
+
+**任何性能优化必须同时验证精度和时间，不达标立即回滚：**
+
+1. **优化前基准测试** - 记录精度（匹配成功率）和时间
+2. **优化后验证** - 运行 `./build/bin/samples/matching_shape_match`
+3. **验证标准** - 精度不能下降，时间不能变长
+4. **不通过立即回滚** - `git checkout <file>`
+5. **记录失败** - 在下方"失败优化"部分记录原因
+
+---
+
+## 失败的优化尝试（禁止重试）
+
+### ❌ L1-norm 替代 L2-norm 计算梯度幅值 (2025-01-19)
+
+**尝试内容:**
+将梯度幅值计算从 `sqrt(gx² + gy²)` (L2-norm) 改为 `|gx| + |gy|` (L1-norm)，理论上可节省 sqrt 计算开销。
+
+**预期收益:**
+- L1-norm 比 L2-norm 快约 40%
+- 对边缘检测"应该足够"
+
+**实际结果:**
+
+| 测试集 | L1-norm | L2-norm (原始) | 差异 |
+|--------|---------|----------------|------|
+| Small Images | 4/5, 9.7ms | 5/5, 7.8ms | ❌ 精度下降，时间变长 |
+| Large Images | 11/11, 216.4ms | 11/11, 212.5ms | ❌ 时间变长 |
+| Image3 | 66/66, 33.9ms | 66/66, 33.1ms | ❌ 时间变长 |
+| Image4 | 20/20, 36.8ms | 20/20, 35.1ms | ❌ 时间变长 |
+
+**失败原因分析:**
+1. **阈值失效**: L1-norm 的值域范围与 L2-norm 不同 (L1 ≥ L2)，导致固定阈值判断偏移
+2. **边缘点选取偏差**: 梯度幅值分布改变，影响边缘点提取质量
+3. **候选点增加**: 边缘质量下降导致粗搜索产生更多误候选，反而拖慢整体速度
+4. **精度损失**: 部分弱边缘被错误过滤，导致匹配失败
+
+**教训:**
+- 不能孤立优化单个计算步骤，需考虑对整个流水线的影响
+- 优化后必须立即验证**精度**和**时间**，不达标立即回滚
+- 改变数学公式（如范数类型）会影响下游所有依赖该值的逻辑
+
+---
+
+## 成功的优化（可参考）
+
+### ✅ 消除 Copy 阶段 + OpenMP chunk size 优化 (2025-01-19)
+
+**优化内容:**
+1. 创建 `FusedSobelGradMagBinDirect` - 直接写入 QImage（带 stride），消除中间 buffer 和 Copy 阶段
+2. 添加 `schedule(static, 64)` 减少 OpenMP 调度开销
+
+**优化前后对比 (1 线程):**
+
+| 测试集 | 优化前 | 优化后 | 提升 |
+|--------|--------|--------|------|
+| Small Images | 9.3 ms | 7.6 ms | -18% |
+| Large Images | 198.7 ms | 147.4 ms | **-26%** |
+| Medium | 31.1 ms | 28.9 ms | -7% |
+| Rotated | 33.0 ms | 35.3 ms | +7% |
+
+**关键发现:**
+- Large 图像提升最显著（内存操作减少效果明显）
+- 所有测试 100% 精度保持
+- 4 线程仍比 1 线程慢（内存带宽瓶颈）
+
+**技术细节:**
+- 每层 BuildLevelFused 从 2 个 parallel for 减少到 1 个
+- 消除了 5 个临时 buffer（gxBuffer, gyBuffer, magBuffer, binBuffer, dirBuffer）的分配和拷贝
+- schedule(static, 64) 增大 chunk 减少调度开销

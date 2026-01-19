@@ -82,28 +82,159 @@ Tests    █████████████████░░░ 87%   (261
 
 ### 环境要求
 
-- **编译器**: GCC 9+, Clang 10+, MSVC 2019+
-- **构建工具**: CMake 3.16+
-- **C++ 标准**: C++17
+| 平台 | 编译器 | CMake | 备注 |
+|------|--------|-------|------|
+| **Windows** | Visual Studio 2019+ | 3.16+ | 推荐 VS2022 |
+| **Linux** | GCC 9+ / Clang 10+ | 3.16+ | Ubuntu 20.04+ |
+| **macOS** | Clang 10+ | 3.16+ | Xcode 12+ |
 
-### 编译
+### Windows 构建指南
+
+#### 1. 安装工具
+
+**方法 A: 使用 Visual Studio (推荐新手)**
+
+1. 下载 [Visual Studio 2022 Community](https://visualstudio.microsoft.com/downloads/) (免费)
+2. 安装时勾选 **"使用 C++ 的桌面开发"** 工作负载
+3. CMake 已内置，无需单独安装
+
+**方法 B: 使用 CMake + 命令行**
+
+1. 下载 [CMake](https://cmake.org/download/) (选择 Windows x64 Installer)
+2. 安装时勾选 **"Add CMake to system PATH"**
+3. 确保已安装 Visual Studio 或 [Build Tools for Visual Studio](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)
+
+#### 2. 克隆并编译
+
+**使用 Visual Studio:**
+```powershell
+# 在 PowerShell 或 CMD 中
+git clone https://github.com/userqz1/QiVision.git
+cd QiVision
+
+# 打开 Visual Studio，选择 "打开本地文件夹"，选择 QiVision 目录
+# VS 会自动检测 CMakeLists.txt 并配置项目
+# 在工具栏选择 Release x64，然后 生成 -> 全部生成
+```
+
+**使用命令行:**
+```powershell
+git clone https://github.com/userqz1/QiVision.git
+cd QiVision
+
+# 配置 (生成 Visual Studio 解决方案)
+cmake -B build -G "Visual Studio 17 2022" -A x64
+
+# 编译 Release 版本
+cmake --build build --config Release --parallel
+
+# 或者使用 Ninja (更快，需要在 VS Developer Command Prompt 中运行)
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
+#### 3. 运行测试
+
+```powershell
+# 单元测试
+.\build\bin\Release\unit_test.exe
+
+# 形状匹配示例 (带 GUI 显示)
+.\build\bin\Release\samples\matching_shape_match.exe
+```
+
+---
+
+### Linux 构建指南
 
 ```bash
+# 安装依赖 (Ubuntu/Debian)
+sudo apt update
+sudo apt install build-essential cmake git
+
+# 克隆并编译
 git clone https://github.com/userqz1/QiVision.git
 cd QiVision
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
+
+# 运行测试
+./build/bin/unit_test
+./build/bin/samples/matching_shape_match
 ```
 
-### 运行测试
+---
+
+### macOS 构建指南
 
 ```bash
-# 单元测试
-./build/bin/unit_test
+# 安装 Xcode 命令行工具
+xcode-select --install
 
-# 形状匹配示例
-./build/bin/samples/08_shape_match_large
+# 安装 CMake (使用 Homebrew)
+brew install cmake
+
+# 克隆并编译
+git clone https://github.com/userqz1/QiVision.git
+cd QiVision
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+
+# 运行测试
+./build/bin/unit_test
 ```
+
+---
+
+### CMake 选项
+
+| 选项 | 默认值 | 说明 |
+|------|--------|------|
+| `QIVISION_ENABLE_SIMD` | ON | 启用 AVX2/SSE4 加速 |
+| `QIVISION_ENABLE_OPENMP` | ON | 启用多线程并行 |
+| `QIVISION_BUILD_TESTS` | ON | 构建单元测试 |
+| `QIVISION_BUILD_SAMPLES` | ON | 构建示例程序 |
+
+```bash
+# 示例：禁用 OpenMP
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DQIVISION_ENABLE_OPENMP=OFF
+```
+
+---
+
+### 常见问题
+
+<details>
+<summary><b>Q: Windows 上编译报错 "找不到编译器"</b></summary>
+
+确保在 **"Developer Command Prompt for VS"** 或 **"Developer PowerShell for VS"** 中运行命令，而不是普通的 CMD/PowerShell。
+
+或者指定编译器：
+```powershell
+cmake -B build -G "Visual Studio 17 2022" -A x64
+```
+</details>
+
+<details>
+<summary><b>Q: Linux 上报错 "CMake version too old"</b></summary>
+
+```bash
+# 安装最新 CMake
+sudo apt remove cmake
+pip3 install cmake --upgrade
+# 或从官网下载: https://cmake.org/download/
+```
+</details>
+
+<details>
+<summary><b>Q: 运行时报错 "找不到 DLL"</b></summary>
+
+确保运行的是 Release 目录下的可执行文件：
+```powershell
+.\build\bin\Release\unit_test.exe  # ✓ 正确
+.\build\bin\unit_test.exe          # ✗ 错误
+```
+</details>
 
 ---
 
@@ -298,10 +429,10 @@ target_link_libraries(your_app PRIVATE QiVision)
 
 | 测试集 | 图像尺寸 | 图像数 | 平均耗时 | 匹配率 |
 |--------|----------|--------|----------|--------|
-| Small | 640x512 | 5 | **9.5 ms** | 100% |
-| Large | 2048x4001 | 11 | **205 ms** | 100% |
-| Medium | 1280x1024 | 66 | **49 ms** | 100% |
-| Rotated | 888x702 | 20 | **34 ms** | 100% |
+| Small | 640x512 | 5 | **7.6 ms** | 100% |
+| Large | 2048x4001 | 11 | **147 ms** | 100% |
+| Medium | 1280x1024 | 66 | **29 ms** | 100% |
+| Rotated | 888x702 | 20 | **35 ms** | 100% |
 
 ### 精度目标
 

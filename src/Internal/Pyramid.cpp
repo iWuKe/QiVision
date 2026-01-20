@@ -755,6 +755,50 @@ ImagePyramid BuildGaussianPyramid(const float* src, int32_t width, int32_t heigh
     return pyramid;
 }
 
+ImagePyramid BuildGaussianPyramid(std::vector<float>&& src, int32_t width, int32_t height,
+                                   const PyramidParams& params) {
+    ImagePyramid pyramid;
+
+    if (src.empty() || width <= 0 || height <= 0) return pyramid;
+
+    int32_t numLevels = params.numLevels;
+    if (numLevels <= 0) {
+        numLevels = ComputeNumLevels(width, height, params.scaleFactor, params.minDimension);
+    }
+
+    // Move level 0 data directly (no copy!)
+    PyramidLevel level0;
+    level0.width = width;
+    level0.height = height;
+    level0.scale = 1.0;
+    level0.level = 0;
+    level0.data = std::move(src);  // Move instead of copy
+    pyramid.AddLevel(std::move(level0));
+
+    for (int32_t lvl = 1; lvl < numLevels; ++lvl) {
+        const PyramidLevel& prevLevel = pyramid.GetLevel(lvl - 1);
+
+        int32_t newWidth = prevLevel.width / 2;
+        int32_t newHeight = prevLevel.height / 2;
+
+        if (newWidth < params.minDimension || newHeight < params.minDimension) break;
+
+        PyramidLevel newLevel;
+        newLevel.width = newWidth;
+        newLevel.height = newHeight;
+        newLevel.scale = prevLevel.scale * params.scaleFactor;
+        newLevel.level = lvl;
+        newLevel.data.resize(static_cast<size_t>(newWidth) * newHeight);
+
+        DownsampleBy2(prevLevel.data.data(), prevLevel.width, prevLevel.height,
+                      newLevel.data.data(), params.sigma, params.downsample);
+
+        pyramid.AddLevel(std::move(newLevel));
+    }
+
+    return pyramid;
+}
+
 // =============================================================================
 // Laplacian 金字塔
 // =============================================================================

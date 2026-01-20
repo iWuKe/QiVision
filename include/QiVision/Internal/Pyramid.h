@@ -251,6 +251,21 @@ ImagePyramid BuildGaussianPyramid(const float* src, int32_t width, int32_t heigh
                                    const PyramidParams& params = PyramidParams());
 
 /**
+ * @brief Build Gaussian pyramid from float data (move version)
+ *
+ * Takes ownership of the input vector to avoid copying level 0.
+ * Use this when the source data is no longer needed after pyramid construction.
+ *
+ * @param src Source float data (will be moved)
+ * @param width Image width
+ * @param height Image height
+ * @param params Pyramid parameters
+ * @return Gaussian pyramid
+ */
+ImagePyramid BuildGaussianPyramid(std::vector<float>&& src, int32_t width, int32_t height,
+                                   const PyramidParams& params = PyramidParams());
+
+/**
  * @brief Downsample image by factor of 2
  *
  * @param src Source data

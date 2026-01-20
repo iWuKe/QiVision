@@ -218,7 +218,38 @@ rm -f shape_model_large.qism && ./build/bin/samples/08_shape_match_large
 
 ---
 
-**报告生成时间**: 2025-01-09
+## 2025-01-20 更新：金字塔构建优化
+
+### ✅ BuildGaussianPyramid move 优化
+
+**原理**: 使用 `std::move` 语义避免金字塔 level 0 的大数组拷贝
+
+**实现**:
+- 添加 `BuildGaussianPyramid(std::vector<float>&& src, ...)` 重载
+- AnglePyramid 构建时使用 `std::move(floatContiguous)` 传递数据
+- 避免了 32MB+ 的内存拷贝（对于 2048×4001 大图）
+
+**测试结果**:
+| 图像类型 | 优化前 | 优化后 | 提升 |
+|----------|--------|--------|------|
+| Small (640×512) | ~5.5 ms | **5.1 ms** | +8% |
+| Large (2048×4001) | ~132 ms | **104.7 ms** | **+21%** |
+
+**关键发现**:
+- 对大图效果显著，因为 level 0 数据量大
+- 无精度损失，纯内存优化
+- 与其他优化正交，可叠加使用
+
+### ❌ 未采纳的优化
+
+| 优化项 | 测试结果 | 原因 |
+|--------|----------|------|
+| cos/sin 递推 + 并行策略 | Large +13%, Small -50% | 小图性能回退严重 |
+| nth_element topK | Large +21% 变慢 | candidates 数量小，sort 更高效 |
+
+---
+
+**报告更新时间**: 2025-01-20
 **测试完成度**: 100% (所有Halcon对应优化均已测试)
-**推荐配置**: PointReductionHigh + greediness=0.8
-**下一步**: 评估是否需要GPU加速以达到50ms目标
+**推荐配置**: PointReductionHigh + greediness=0.8 + **move优化**
+**当前性能**: Large 图 ~105ms (原始 ~132ms，累计提升 20%+)

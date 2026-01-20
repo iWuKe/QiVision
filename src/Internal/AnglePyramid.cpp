@@ -1616,9 +1616,9 @@ bool AnglePyramid::Build(const QImage& image, const AnglePyramidParams& params) 
         impl_->timing_.copyMs = 0.0;  // Copy step eliminated - fused into ToFloat
     }
 
-    // Use the float overload of BuildGaussianPyramid
+    // Use the move overload of BuildGaussianPyramid (avoids copying level 0)
     auto tGaussPyramid = std::chrono::high_resolution_clock::now();
-    ImagePyramid gaussPyramid = BuildGaussianPyramid(floatContiguous.data(),
+    ImagePyramid gaussPyramid = BuildGaussianPyramid(std::move(floatContiguous),
                                                       w, h, pyramidParams);
     if (params.enableTiming) {
         impl_->timing_.gaussPyramidMs = std::chrono::duration<double, std::milli>(

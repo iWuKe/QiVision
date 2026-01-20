@@ -34,25 +34,37 @@ using namespace Qi::Vision::GUI;
 
 namespace fs = std::filesystem;
 
-// Draw edge points with colors based on weights (green=inlier, yellow=moderate, red=outlier)
+// Draw edge points with colors based on weights
+// Auto-detects binary (RANSAC/Tukey: 2 colors) vs continuous (Huber: 3 colors)
 void DrawEdgePointsWithWeights(QImage& image, const std::vector<Point2d>& points,
-                                const std::vector<double>& weights, int markerSize = 4)
+                                const std::vector<double>& weights, int markerSize = 3)
 {
+    if (points.empty()) return;
+
+    // Detect if weights are binary or continuous
+    bool isBinary = true;
+    for (double w : weights) {
+        if (w > 0.01 && w < 0.99) {
+            isBinary = false;
+            break;
+        }
+    }
+
     for (size_t i = 0; i < points.size(); ++i) {
         double w = (i < weights.size()) ? weights[i] : 1.0;
 
-        // Color based on weight
         Color color;
-        if (w >= 0.8) {
-            color = Color::Green();   // Inlier
-        } else if (w >= 0.5) {
-            color = Color::Yellow();  // Moderate
+        if (isBinary) {
+            // RANSAC/Tukey: green (inlier) or red (outlier)
+            color = (w >= 0.5) ? Color::Green() : Color::Red();
         } else {
-            color = Color::Red();     // Outlier
+            // Huber: green (strong), yellow (moderate), red (weak)
+            if (w >= 0.8) color = Color::Green();
+            else if (w >= 0.3) color = Color::Yellow();
+            else color = Color::Red();
         }
 
-        Draw::Cross(image, points[i], markerSize, color, 1);
-        Draw::FilledCircle(image, points[i], 2, color);
+        Draw::FilledCircle(image, points[i], markerSize, color);
     }
 }
 
@@ -91,7 +103,6 @@ int main(int argc, char* argv[]) {
     if (fs::exists(imageDir) && fs::is_directory(imageDir)) {
         for (const auto& entry : fs::directory_iterator(imageDir)) {
             std::string ext = entry.path().extension().string();
-            // Convert extension to lowercase
             std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
             if (ext == ".bmp" || ext == ".png" || ext == ".jpg" || ext == ".jpeg") {
                 imagePaths.push_back(entry.path().string());
@@ -123,20 +134,14 @@ int main(int argc, char* argv[]) {
     // =========================================================================
 
     MetrologyMeasureParams params;
-
-    // Key parameters (similar to Halcon)
-    params.measureLength1 = 30.0;       // Projection length (search range +/- 30 px)
-    params.measureLength2 = 10.0;       // Projection width (for averaging)
-    params.numMeasures = 36;            // Number of calipers around the circle
-    params.measureSigma = 1.5;          // Gaussian smoothing sigma
-    params.measureThreshold = 10.0;     // Edge amplitude threshold (lowered to detect more edges)
-    params.measureTransition = EdgeTransition::All;  // Detect all edges
-    params.numInstances = 1;            // Find 1 circle
-    params.minScore = 0.5;              // Minimum score threshold
-
-    // Threshold mode:
-    // - params.SetThreshold(10.0);     // Manual: use specified value
-    // - params.SetThreshold("auto");   // Auto: compute per profile region
+    params.measureLength1 = 30.0;
+    params.measureLength2 = 10.0;
+    params.numMeasures = 36;
+    params.measureSigma = 1.5;
+    params.measureThreshold = 10.0;
+    params.measureTransition = EdgeTransition::All;
+    params.numInstances = 1;
+    params.minScore = 0.5;
     params.SetThreshold("auto");
 
     PrintParams(params);
@@ -145,9 +150,9 @@ int main(int argc, char* argv[]) {
     // Fixed circle parameters (adjust based on your image)
     // =========================================================================
 
-    double centerCol = 650.0;           // Center X
-    double centerRow = 500.0;           // Center Y (user's original setting)
-    double radius = 220.0;              // Radius
+    double centerCol = 650.0;
+    double centerRow = 500.0;
+    double radius = 220.0;
 
     std::cout << "\n=== Fixed Circle Parameters ===\n";
     std::cout << "  Center: (" << centerCol << ", " << centerRow << ")\n";
@@ -161,11 +166,9 @@ int main(int argc, char* argv[]) {
     win.SetAutoResize(true, 1400, 900);
     win.EnableZoomPan(true);
 
-    // Mouse callback to display coordinates
     std::string currentTitle;
     win.SetMouseCallback([&](const MouseEvent& evt) {
         if (evt.type == MouseEventType::Move) {
-            // Update window title with coordinates
             char coordStr[128];
             snprintf(coordStr, sizeof(coordStr), " | X:%.1f Y:%.1f", evt.imageX, evt.imageY);
             win.SetTitle(currentTitle + coordStr);
@@ -176,7 +179,6 @@ int main(int argc, char* argv[]) {
     std::cout << "  Left drag: Pan image\n";
     std::cout << "  Scroll wheel: Zoom in/out\n";
     std::cout << "  Right click: Reset view\n";
-    std::cout << "  Mouse move: Show X,Y coordinates in title\n";
     std::cout << "  Any key: Next image\n";
     std::cout << "  'q': Quit\n\n";
 
@@ -186,8 +188,6 @@ int main(int argc, char* argv[]) {
 
     int successCount = 0;
     int totalCount = 0;
-
-    // Process all images
     int maxImages = static_cast<int>(imagePaths.size());
 
     std::cout << "=== Processing " << maxImages << " images ===\n";
@@ -198,7 +198,6 @@ int main(int argc, char* argv[]) {
 
         std::cout << "\n--- Image " << (i+1) << "/" << maxImages << ": " << filename << " ---\n";
 
-        // Load image and convert to grayscale
         QImage image = QImage::FromFile(path);
         if (!image.IsValid()) {
             std::cerr << "Failed to load: " << filename << "\n";
@@ -218,21 +217,13 @@ int main(int argc, char* argv[]) {
         int circleIdx = model.AddCircleMeasure(centerRow, centerCol, radius, params);
 
         std::string title;
-
-        // Prepare display image (convert to RGB for colored drawing)
         QImage display = Draw::PrepareForDrawing(image);
 
         if (model.Apply(image)) {
             auto edgePoints = model.GetMeasuredPoints(circleIdx);
             auto result = model.GetCircleResult(circleIdx);
 
-            std::cout << "Detected " << edgePoints.size() << " edge points:\n";
-            for (size_t j = 0; j < edgePoints.size() && j < 10; ++j) {
-                double dist = std::sqrt(std::pow(edgePoints[j].x - centerCol, 2) +
-                                       std::pow(edgePoints[j].y - centerRow, 2));
-                std::cout << "  [" << j << "] (" << edgePoints[j].x << ", " << edgePoints[j].y
-                          << ") dist=" << dist << " (expected " << radius << ")\n";
-            }
+            std::cout << "Detected " << edgePoints.size() << " edge points\n";
 
             if (result.IsValid()) {
                 successCount++;
@@ -242,7 +233,6 @@ int main(int argc, char* argv[]) {
                 std::cout << "  Points used: " << result.numUsed << "/" << params.numMeasures << "\n";
                 std::cout << "  RMS Error: " << result.rmsError << " px\n";
                 std::cout << "  Score: " << result.score << "\n";
-
                 title = filename + " - OK (" + std::to_string(edgePoints.size()) + " pts)";
             } else {
                 std::cout << "Measurement failed - no valid circle found\n";
@@ -253,41 +243,38 @@ int main(int argc, char* argv[]) {
             // Visualization using Draw module
             // =========================================================================
 
-            // 1. Draw initial/reference circle (green, thin)
-            Draw::Circle(display, Point2d{centerCol, centerRow}, radius, Color::Green(), 1);
-            Draw::Cross(display, Point2d{centerCol, centerRow}, 8, Color::Green(), 1);
-
-            // 2. Draw calipers (cyan) - using new MeasureRects function
+            // 1. Draw calipers (cyan) - each caliper is an independent rectangle
             const MetrologyObject* obj = model.GetObject(circleIdx);
             if (obj) {
                 auto calipers = obj->GetCalipers();
+                std::cout << "  Drawing " << calipers.size() << " calipers\n";
+                std::cout << "  Caliper params: Length1=" << params.measureLength1
+                          << ", Length2=" << params.measureLength2 << "\n";
                 Draw::MeasureRects(display, calipers, Color::Cyan(), 1);
             }
 
-            // 3. Draw edge points with weight-based coloring
+            // 2. Draw edge points with weight-based coloring (green=inlier, red=outlier)
             auto pointWeights = model.GetPointWeights(circleIdx);
-            DrawEdgePointsWithWeights(display, edgePoints, pointWeights, 4);
-
-            // 4. Draw fitted circle result (red, thick) - only if valid
-            if (result.IsValid() &&
-                result.column > -500 && result.column < 2000 &&
-                result.row > -500 && result.row < 2000 &&
-                result.radius < 1000) {
-                Draw::Circle(display, Point2d{result.column, result.row}, result.radius,
-                            Color::Red(), 2);
-                Draw::Cross(display, Point2d{result.column, result.row}, 10, Color::Red(), 2);
+            std::cout << "  Edge points: " << edgePoints.size()
+                      << ", weights: " << pointWeights.size() << "\n";
+            if (!pointWeights.empty()) {
+                int inliers = 0, outliers = 0;
+                for (double w : pointWeights) {
+                    if (w >= 0.8) inliers++;
+                    else if (w < 0.5) outliers++;
+                }
+                std::cout << "  Inliers: " << inliers << ", Outliers: " << outliers << "\n";
             }
+            DrawEdgePointsWithWeights(display, edgePoints, pointWeights, 3);
         } else {
             std::cout << "Apply failed\n";
             title = filename + " - Apply failed";
         }
 
-        // Display result
         currentTitle = title;
         win.SetTitle(title);
         win.DispImage(display);
 
-        // Wait for key
         int key = win.WaitKey(0);
         if (key == 'q' || key == 'Q') {
             std::cout << "Quit requested.\n";
@@ -307,7 +294,6 @@ int main(int argc, char* argv[]) {
     std::cout << "  - If noisy: increase measureSigma or measureLength2\n";
     std::cout << "  - If missing parts: increase measureLength1 (search range)\n";
     std::cout << "  - For better accuracy: increase numMeasures\n";
-    std::cout << "  - Adjust centerRow, centerCol, radius to match your object\n";
 
     return 0;
 }

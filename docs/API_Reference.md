@@ -2457,7 +2457,93 @@ void DispEdgeResult(
 
 ---
 
-### 7.10 图像转换工具
+### 7.10 Metrology 可视化
+
+**头文件**: `<QiVision/Core/Draw.h>`
+
+```cpp
+// 绘制卡尺矩形（Halcon 风格）
+void MeasureRect(
+    QImage& image,
+    const MeasureRectangle2& handle,    // 卡尺句柄
+    const Color& color = Color::Cyan(),
+    int32_t thickness = 1
+);
+
+// 绘制多个卡尺（含连接曲线）
+void MeasureRects(
+    QImage& image,
+    const std::vector<MeasureRectangle2>& handles,
+    const Color& color = Color::Cyan(),
+    int32_t thickness = 1
+);
+
+// 绘制带权重的边缘点（自动检测权重类型）
+// - 二值权重 (RANSAC/Tukey): 绿色（内点）、红色（离群点）
+// - 连续权重 (Huber): 绿色（≥0.8）、黄色（0.3~0.8）、红色（<0.3）
+void EdgePointsWeighted(
+    QImage& image,
+    const std::vector<Point2d>& points,
+    const std::vector<double>& weights,
+    int32_t markerSize = 3
+);
+
+// 绘制测量结果
+void MetrologyLine(QImage& image, const MetrologyLineResult& result,
+                   const Color& color = Color::Green(), int32_t thickness = 2);
+void MetrologyCircle(QImage& image, const MetrologyCircleResult& result,
+                     const Color& color = Color::Green(), int32_t thickness = 2);
+void MetrologyEllipse(QImage& image, const MetrologyEllipseResult& result,
+                      const Color& color = Color::Green(), int32_t thickness = 2);
+void MetrologyRectangle(QImage& image, const MetrologyRectangle2Result& result,
+                        const Color& color = Color::Green(), int32_t thickness = 2);
+
+// 一键绘制完整测量模型（卡尺 + 边缘点 + 拟合结果）
+void MetrologyModelResult(
+    QImage& image,
+    const MetrologyModel& model,
+    const Color& objectColor = Color::Yellow(),   // 卡尺颜色
+    const Color& resultColor = Color::Green(),    // 结果颜色
+    const Color& pointColor = Color::Red(),       // 点颜色（fallback）
+    bool drawCalipers = true,
+    bool drawPoints = true
+);
+```
+
+**示例**:
+```cpp
+#include <QiVision/Core/Draw.h>
+#include <QiVision/Measure/Metrology.h>
+
+// 创建测量模型
+MetrologyModel model;
+MetrologyMeasureParams params;
+params.SetFitMethod("ransac");  // RANSAC: 二值权重，绿/红两色
+
+int circleIdx = model.AddCircleMeasure(500, 650, 220, params);
+model.Apply(image);
+
+// 绘制
+QImage display = Draw::PrepareForDrawing(image);
+
+// 方式1: 分步绘制
+auto calipers = model.GetObject(circleIdx)->GetCalipers();
+Draw::MeasureRects(display, calipers, Color::Cyan(), 1);
+
+auto points = model.GetMeasuredPoints(circleIdx);
+auto weights = model.GetPointWeights(circleIdx);
+Draw::EdgePointsWeighted(display, points, weights, 3);
+
+auto result = model.GetCircleResult(circleIdx);
+Draw::MetrologyCircle(display, result, Color::Green(), 2);
+
+// 方式2: 一键绘制
+Draw::MetrologyModelResult(display, model);
+```
+
+---
+
+### 7.11 图像转换工具
 
 ```cpp
 // 灰度转 RGB（用于彩色绘图）

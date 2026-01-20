@@ -15,37 +15,49 @@ namespace Qi::Vision {
 // Line Drawing (Bresenham with thickness)
 // =============================================================================
 
-void Draw::Line(QImage& image, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
-                const Color& color, int32_t thickness) {
+// Helper: draw single-pixel Bresenham line
+static void BresenhamLine(QImage& image, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
+                          const Color& color) {
     int32_t dx = std::abs(x2 - x1);
     int32_t dy = std::abs(y2 - y1);
     int32_t sx = (x1 < x2) ? 1 : -1;
     int32_t sy = (y1 < y2) ? 1 : -1;
     int32_t err = dx - dy;
 
-    int32_t halfThick = thickness / 2;
-
     while (true) {
-        if (thickness <= 1) {
-            Pixel(image, x1, y1, color);
-        } else {
-            for (int32_t ty = -halfThick; ty <= halfThick; ++ty) {
-                for (int32_t tx = -halfThick; tx <= halfThick; ++tx) {
-                    Pixel(image, x1 + tx, y1 + ty, color);
-                }
-            }
-        }
-
+        Draw::Pixel(image, x1, y1, color);
         if (x1 == x2 && y1 == y2) break;
 
         int32_t e2 = 2 * err;
-        if (e2 > -dy) {
-            err -= dy;
-            x1 += sx;
+        if (e2 > -dy) { err -= dy; x1 += sx; }
+        if (e2 < dx) { err += dx; y1 += sy; }
+    }
+}
+
+void Draw::Line(QImage& image, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
+                const Color& color, int32_t thickness) {
+    if (thickness <= 1) {
+        BresenhamLine(image, x1, y1, x2, y2, color);
+    } else {
+        // Thick line: draw multiple parallel Bresenham lines
+        double dx = x2 - x1;
+        double dy = y2 - y1;
+        double len = std::sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) {
+            FilledCircle(image, x1, y1, thickness / 2, color);
+            return;
         }
-        if (e2 < dx) {
-            err += dx;
-            y1 += sy;
+
+        // Perpendicular unit vector
+        double perpX = -dy / len;
+        double perpY = dx / len;
+
+        // Draw parallel lines offset from center
+        int32_t halfT = thickness / 2;
+        for (int32_t offset = -halfT; offset <= halfT; ++offset) {
+            int32_t ox = static_cast<int32_t>(std::round(offset * perpX));
+            int32_t oy = static_cast<int32_t>(std::round(offset * perpY));
+            BresenhamLine(image, x1 + ox, y1 + oy, x2 + ox, y2 + oy, color);
         }
     }
 }
@@ -147,54 +159,36 @@ void Draw::FilledRectangle(QImage& image, const Rect2i& rect, const Color& color
 }
 
 // =============================================================================
-// Circle (Midpoint algorithm)
+// Circle (Parametric method for smooth drawing)
 // =============================================================================
 
 void Draw::Circle(QImage& image, int32_t cx, int32_t cy, int32_t radius,
                   const Color& color, int32_t thickness) {
     if (radius <= 0) return;
 
-    int32_t x = radius;
-    int32_t y = 0;
-    int32_t err = 0;
+    // Use parametric method: connect points with lines for smooth result
+    // Number of segments based on circumference
+    int numSegments = std::max(36, static_cast<int>(2.0 * M_PI * radius));
 
-    auto drawCirclePoints = [&](int32_t px, int32_t py) {
-        if (thickness <= 1) {
-            Pixel(image, cx + px, cy + py, color);
-            Pixel(image, cx - px, cy + py, color);
-            Pixel(image, cx + px, cy - py, color);
-            Pixel(image, cx - px, cy - py, color);
-            Pixel(image, cx + py, cy + px, color);
-            Pixel(image, cx - py, cy + px, color);
-            Pixel(image, cx + py, cy - px, color);
-            Pixel(image, cx - py, cy - px, color);
-        } else {
-            int32_t halfThick = thickness / 2;
-            for (int32_t ty = -halfThick; ty <= halfThick; ++ty) {
-                for (int32_t tx = -halfThick; tx <= halfThick; ++tx) {
-                    Pixel(image, cx + px + tx, cy + py + ty, color);
-                    Pixel(image, cx - px + tx, cy + py + ty, color);
-                    Pixel(image, cx + px + tx, cy - py + ty, color);
-                    Pixel(image, cx - px + tx, cy - py + ty, color);
-                    Pixel(image, cx + py + tx, cy + px + ty, color);
-                    Pixel(image, cx - py + tx, cy + px + ty, color);
-                    Pixel(image, cx + py + tx, cy - px + ty, color);
-                    Pixel(image, cx - py + tx, cy - px + ty, color);
-                }
-            }
-        }
-    };
+    double angleStep = 2.0 * M_PI / numSegments;
 
-    while (x >= y) {
-        drawCirclePoints(x, y);
-        y++;
-        if (err <= 0) {
-            err += 2 * y + 1;
-        }
-        if (err > 0) {
-            x--;
-            err -= 2 * x + 1;
-        }
+    // First point
+    double prevX = cx + radius;
+    double prevY = cy;
+
+    for (int i = 1; i <= numSegments; ++i) {
+        double angle = i * angleStep;
+        double currX = cx + radius * std::cos(angle);
+        double currY = cy + radius * std::sin(angle);
+
+        // Draw line segment between consecutive points
+        Line(image,
+             static_cast<int32_t>(prevX + 0.5), static_cast<int32_t>(prevY + 0.5),
+             static_cast<int32_t>(currX + 0.5), static_cast<int32_t>(currY + 0.5),
+             color, thickness);
+
+        prevX = currX;
+        prevY = currY;
     }
 }
 
@@ -211,7 +205,7 @@ void Draw::FilledCircle(QImage& image, int32_t cx, int32_t cy, int32_t radius,
 }
 
 // =============================================================================
-// Ellipse
+// Ellipse (Parametric method for smooth drawing)
 // =============================================================================
 
 void Draw::Ellipse(QImage& image, int32_t cx, int32_t cy,
@@ -219,89 +213,65 @@ void Draw::Ellipse(QImage& image, int32_t cx, int32_t cy,
                    const Color& color, int32_t thickness) {
     if (radiusX <= 0 || radiusY <= 0) return;
 
-    // Midpoint ellipse algorithm
-    int64_t rx2 = static_cast<int64_t>(radiusX) * radiusX;
-    int64_t ry2 = static_cast<int64_t>(radiusY) * radiusY;
-    int64_t twoRx2 = 2 * rx2;
-    int64_t twoRy2 = 2 * ry2;
+    // Use parametric method with enough segments for smooth result
+    int maxRadius = std::max(radiusX, radiusY);
+    int numSegments = std::max(72, static_cast<int>(2.0 * M_PI * maxRadius));
 
-    int32_t x = 0;
-    int32_t y = radiusY;
-    int64_t px = 0;
-    int64_t py = twoRx2 * y;
+    double angleStep = 2.0 * M_PI / numSegments;
 
-    auto plot4 = [&](int32_t px, int32_t py) {
-        if (thickness <= 1) {
-            Pixel(image, cx + px, cy + py, color);
-            Pixel(image, cx - px, cy + py, color);
-            Pixel(image, cx + px, cy - py, color);
-            Pixel(image, cx - px, cy - py, color);
-        } else {
-            int32_t ht = thickness / 2;
-            for (int32_t ty = -ht; ty <= ht; ++ty) {
-                for (int32_t tx = -ht; tx <= ht; ++tx) {
-                    Pixel(image, cx + px + tx, cy + py + ty, color);
-                    Pixel(image, cx - px + tx, cy + py + ty, color);
-                    Pixel(image, cx + px + tx, cy - py + ty, color);
-                    Pixel(image, cx - px + tx, cy - py + ty, color);
-                }
-            }
-        }
-    };
+    double prevX = cx + radiusX;
+    double prevY = cy;
 
-    // Region 1
-    int64_t p = ry2 - rx2 * radiusY + rx2 / 4;
-    while (px < py) {
-        plot4(x, y);
-        x++;
-        px += twoRy2;
-        if (p < 0) {
-            p += ry2 + px;
-        } else {
-            y--;
-            py -= twoRx2;
-            p += ry2 + px - py;
-        }
-    }
+    for (int i = 1; i <= numSegments; ++i) {
+        double t = i * angleStep;
+        double currX = cx + radiusX * std::cos(t);
+        double currY = cy + radiusY * std::sin(t);
 
-    // Region 2
-    p = ry2 * (x * 2 + 1) * (x * 2 + 1) / 4 + rx2 * (y - 1) * (y - 1) - rx2 * ry2;
-    while (y >= 0) {
-        plot4(x, y);
-        y--;
-        py -= twoRx2;
-        if (p > 0) {
-            p += rx2 - py;
-        } else {
-            x++;
-            px += twoRy2;
-            p += rx2 - py + px;
-        }
+        Line(image,
+             static_cast<int32_t>(prevX + 0.5), static_cast<int32_t>(prevY + 0.5),
+             static_cast<int32_t>(currX + 0.5), static_cast<int32_t>(currY + 0.5),
+             color, thickness);
+
+        prevX = currX;
+        prevY = currY;
     }
 }
 
 void Draw::Ellipse(QImage& image, const Point2d& center,
                    double radiusX, double radiusY, double angle,
                    const Color& color, int32_t thickness) {
-    // Draw rotated ellipse using parametric form
+    if (radiusX <= 0 || radiusY <= 0) return;
+
+    // Use parametric method with rotation
     double cosA = std::cos(angle);
     double sinA = std::sin(angle);
 
-    constexpr int32_t numPoints = 72;  // 5 degree steps
-    std::vector<Point2d> points;
-    points.reserve(numPoints);
+    int maxRadius = static_cast<int>(std::max(radiusX, radiusY));
+    int numSegments = std::max(72, static_cast<int>(2.0 * M_PI * maxRadius));
 
-    for (int32_t i = 0; i < numPoints; ++i) {
-        double t = 2.0 * 3.14159265358979323846 * i / numPoints;
-        double x = radiusX * std::cos(t);
-        double y = radiusY * std::sin(t);
-        // Rotate
-        double rx = x * cosA - y * sinA;
-        double ry = x * sinA + y * cosA;
-        points.push_back({center.x + rx, center.y + ry});
+    double angleStep = 2.0 * M_PI / numSegments;
+
+    // First point
+    double x0 = radiusX;
+    double y0 = 0;
+    double prevX = center.x + x0 * cosA - y0 * sinA;
+    double prevY = center.y + x0 * sinA + y0 * cosA;
+
+    for (int i = 1; i <= numSegments; ++i) {
+        double t = i * angleStep;
+        double ex = radiusX * std::cos(t);
+        double ey = radiusY * std::sin(t);
+        double currX = center.x + ex * cosA - ey * sinA;
+        double currY = center.y + ex * sinA + ey * cosA;
+
+        Line(image,
+             static_cast<int32_t>(prevX + 0.5), static_cast<int32_t>(prevY + 0.5),
+             static_cast<int32_t>(currX + 0.5), static_cast<int32_t>(currY + 0.5),
+             color, thickness);
+
+        prevX = currX;
+        prevY = currY;
     }
-
-    Polyline(image, points, color, thickness, true);
 }
 
 void Draw::FilledEllipse(QImage& image, int32_t cx, int32_t cy,
@@ -798,18 +768,60 @@ namespace Qi::Vision {
 
 void Draw::MeasureRect(QImage& image, const Measure::MeasureRectangle2& handle,
                        const Color& color, int32_t thickness) {
-    // MeasureRectangle2 uses (row, column) = (y, x) convention
-    Point2d center{handle.Column(), handle.Row()};
-    // Length1 is along profile direction (phi), Length2 is perpendicular
-    double width = 2.0 * handle.Length1();   // Along phi direction
-    double height = 2.0 * handle.Length2();  // Perpendicular to phi
+    // MeasureRectangle2 geometry (Halcon compatible):
+    // - Row, Column: Rectangle center
+    // - Phi: Edge direction (perpendicular to profile/measurement direction)
+    // - Length1: Half-length along profile direction (phi + PI/2)
+    // - Length2: Half-length along phi direction (edge direction)
 
-    RotatedRectangle(image, center, width, height, handle.Phi(), color, thickness);
+    double cx = handle.Column();
+    double cy = handle.Row();
+    double phi = handle.Phi();
+    double len1 = handle.Length1();  // Along profile direction (phi + PI/2)
+    double len2 = handle.Length2();  // Along phi direction (edge direction)
+
+    // Profile direction = phi + PI/2 (measurement/search direction)
+    double profileAngle = phi + M_PI / 2.0;
+
+    // Direction vectors
+    double profileDirX = std::cos(profileAngle);  // Profile direction: extends ±len1
+    double profileDirY = std::sin(profileAngle);
+    double edgeDirX = std::cos(phi);              // Edge direction (phi): extends ±len2
+    double edgeDirY = std::sin(phi);
+
+    // Four corners: center ± len1*profileDir ± len2*edgeDir
+    double x1 = cx - len1 * profileDirX - len2 * edgeDirX;
+    double y1 = cy - len1 * profileDirY - len2 * edgeDirY;
+    double x2 = cx - len1 * profileDirX + len2 * edgeDirX;
+    double y2 = cy - len1 * profileDirY + len2 * edgeDirY;
+    double x3 = cx + len1 * profileDirX + len2 * edgeDirX;
+    double y3 = cy + len1 * profileDirY + len2 * edgeDirY;
+    double x4 = cx + len1 * profileDirX - len2 * edgeDirX;
+    double y4 = cy + len1 * profileDirY - len2 * edgeDirY;
+
+    // Draw four edges (closed rectangle)
+    Line(image, Point2d{x1, y1}, Point2d{x2, y2}, color, thickness);
+    Line(image, Point2d{x2, y2}, Point2d{x3, y3}, color, thickness);
+    Line(image, Point2d{x3, y3}, Point2d{x4, y4}, color, thickness);
+    Line(image, Point2d{x4, y4}, Point2d{x1, y1}, color, thickness);
 }
 
 void Draw::MeasureRects(QImage& image,
                         const std::vector<Measure::MeasureRectangle2>& handles,
                         const Color& color, int32_t thickness) {
+    if (handles.empty()) return;
+
+    // 1. Draw curve connecting caliper centers
+    if (handles.size() >= 2) {
+        for (size_t i = 0; i < handles.size(); ++i) {
+            size_t j = (i + 1) % handles.size();  // Connect last to first for closed contour
+            Point2d p1{handles[i].Column(), handles[i].Row()};
+            Point2d p2{handles[j].Column(), handles[j].Row()};
+            Line(image, p1, p2, color, thickness);
+        }
+    }
+
+    // 2. Draw each caliper rectangle
     for (const auto& handle : handles) {
         MeasureRect(image, handle, color, thickness);
     }
@@ -876,6 +888,41 @@ void Draw::MetrologyRectangle(QImage& image, const Measure::MetrologyRectangle2R
     RotatedRectangle(image, center, width, height, result.phi, color, thickness);
 }
 
+void Draw::EdgePointsWeighted(QImage& image, const std::vector<Point2d>& points,
+                               const std::vector<double>& weights, int32_t markerSize) {
+    if (points.empty()) return;
+
+    // Detect if weights are binary (RANSAC/Tukey) or continuous (Huber)
+    bool isBinary = true;
+    for (double w : weights) {
+        if (w > 0.01 && w < 0.99) {  // Has intermediate values
+            isBinary = false;
+            break;
+        }
+    }
+
+    for (size_t i = 0; i < points.size(); ++i) {
+        double w = (i < weights.size()) ? weights[i] : 1.0;
+
+        Color color;
+        if (isBinary) {
+            // Binary weights (RANSAC/Tukey): two colors
+            color = (w >= 0.5) ? Color::Green() : Color::Red();
+        } else {
+            // Continuous weights (Huber): three colors
+            if (w >= 0.8) {
+                color = Color::Green();   // Strong inlier
+            } else if (w >= 0.3) {
+                color = Color::Yellow();  // Moderate weight
+            } else {
+                color = Color::Red();     // Weak/outlier
+            }
+        }
+
+        FilledCircle(image, points[i], markerSize, color);
+    }
+}
+
 void Draw::MetrologyModelResult(QImage& image, const Measure::MetrologyModel& model,
                                 const Color& objectColor,
                                 const Color& resultColor,
@@ -890,16 +937,21 @@ void Draw::MetrologyModelResult(QImage& image, const Measure::MetrologyModel& mo
         const MetrologyObject* obj = model.GetObject(idx);
         if (!obj) continue;
 
-        // Draw calipers
+        // Draw calipers (rectangles + connecting curve)
         if (drawCalipers) {
             auto calipers = obj->GetCalipers();
             MeasureRects(image, calipers, objectColor, 1);
         }
 
-        // Draw edge points
+        // Draw edge points with weight-based coloring
         if (drawPoints) {
             auto points = model.GetMeasuredPoints(idx);
-            EdgePoints(image, points, pointColor, 3);
+            auto weights = model.GetPointWeights(idx);
+            if (!weights.empty()) {
+                EdgePointsWeighted(image, points, weights, 3);
+            } else {
+                EdgePoints(image, points, pointColor, 3);
+            }
         }
 
         // Draw result based on object type

@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-20 (Ellipse/Rectangle2 鲁棒拟合)
+> 最后更新: 2026-01-20 (Draw 模块 Metrology 可视化)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -245,6 +245,29 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-20 (Draw 模块 Metrology 可视化)
+
+- **Core/Draw 模块增强**
+  - **新增 MeasureRect/MeasureRects**: Halcon 风格卡尺矩形绘制
+    - 修复 Phi 参数理解：Phi 是边缘方向，投影方向 = Phi + π/2
+    - Length1 沿投影方向（径向），Length2 沿边缘方向（切向）
+    - MeasureRects 自动连接各卡尺中心形成测量轮廓线
+  - **新增 EdgePointsWeighted**: 根据权重自动着色边缘点
+    - 自动检测权重类型（二值 vs 连续）
+    - RANSAC/Tukey（二值）：绿色（内点）、红色（离群点）
+    - Huber（连续）：绿色（≥0.8）、黄色（0.3~0.8）、红色（<0.3）
+  - **改进 Line 绘制**: 粗线使用平行 Bresenham 线实现，边缘更锐利
+  - **改进 Circle/Ellipse 绘制**: 参数化方法 + 线段连接，曲线更平滑
+  - **新增 MetrologyLine/Circle/Ellipse/Rectangle**: 绘制测量结果
+  - **新增 MetrologyModelResult**: 一键绘制完整测量模型
+
+- **Measure/Metrology 模块**
+  - 启用 `computeInlierMask = true`，所有拟合方法返回内点掩码
+  - 支持离群点可视化
+
+- **示例更新**
+  - `samples/measure/circle_measure.cpp`: 使用 Draw 模块绘制卡尺和边缘点
 
 ### 2026-01-20 (Ellipse/Rectangle2 鲁棒拟合)
 

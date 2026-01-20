@@ -248,6 +248,18 @@ public:
                            const Color& color, int32_t markerSize = 5);
 
     /**
+     * @brief Draw edge points with weight-based coloring (auto-detects weight type)
+     * @param image Target image
+     * @param points Edge points to draw
+     * @param weights Point weights
+     *   - Binary (RANSAC/Tukey): green (inlier >=0.5), red (outlier <0.5)
+     *   - Continuous (Huber): green (>=0.8), yellow (0.3-0.8), red (<0.3)
+     * @param markerSize Filled circle marker size
+     */
+    static void EdgePointsWeighted(QImage& image, const std::vector<Point2d>& points,
+                                   const std::vector<double>& weights, int32_t markerSize = 3);
+
+    /**
      * @brief Draw Metrology line result
      * @param image Target image
      * @param result Line measurement result

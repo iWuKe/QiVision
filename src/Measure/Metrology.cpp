@@ -636,6 +636,7 @@ bool MetrologyModel::Apply(const QImage& image) {
         // Setup fit params
         Internal::FitParams fitParams;
         fitParams.computeResiduals = true;
+        fitParams.computeInlierMask = true;  // For outlier visualization
 
         // Fit geometric primitive based on object type
         switch (obj.Type()) {

@@ -152,6 +152,29 @@ struct MatchResult {
     }
 };
 
+/**
+ * @brief Contour point with match quality (for visualization)
+ *
+ * Used by GetShapeModelContoursWithQuality to return contour points
+ * with their match status for Halcon-style visualization.
+ */
+struct MatchedContourPoint {
+    double x = 0.0;              ///< X position in image coordinates
+    double y = 0.0;              ///< Y position in image coordinates
+    double quality = 0.0;        ///< Match quality [0, 1]
+    bool matched = false;        ///< Whether this point matched (quality >= threshold)
+};
+
+/**
+ * @brief XLD contour with match quality for each point
+ */
+struct MatchedContour {
+    std::vector<MatchedContourPoint> points;
+
+    size_t Size() const { return points.size(); }
+    bool Empty() const { return points.empty(); }
+};
+
 // =============================================================================
 // Search Parameters
 // =============================================================================

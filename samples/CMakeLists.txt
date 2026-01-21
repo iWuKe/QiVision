@@ -12,18 +12,10 @@ function(add_sample name source_file)
     )
 endfunction()
 
-# Core - Basic image operations
-add_sample(core_basic_image core/basic_image.cpp)
-
 # Matching - Shape matching
 add_sample(matching_shape_match matching/shape_match.cpp)
 
-# Matching - Interactive shape matching with ROI drawing
-add_sample(matching_interactive matching/interactive_match.cpp)
-
 # Build all samples
 add_custom_target(samples DEPENDS
-    core_basic_image
     matching_shape_match
-    matching_interactive
 )

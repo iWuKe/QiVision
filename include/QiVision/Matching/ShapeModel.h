@@ -20,6 +20,7 @@
 
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/QRegion.h>
+#include <QiVision/Core/QContourArray.h>
 #include <QiVision/Core/Types.h>
 
 #include <cstdint>
@@ -319,6 +320,23 @@ void GetShapeModelContours(
     int32_t level,
     std::vector<double>& contourRows,
     std::vector<double>& contourCols
+);
+
+/**
+ * @brief Get the XLD contour representation of a shape model
+ *
+ * Returns the model contours as an XLD contour array, preserving topology
+ * (individual contours are kept separate).
+ *
+ * Equivalent to Halcon's get_shape_model_contours with XLD output.
+ *
+ * @param model         Shape model handle
+ * @param level         Pyramid level (1 = highest resolution)
+ * @return QContourArray containing model contours
+ */
+QContourArray GetShapeModelXLD(
+    const ShapeModel& model,
+    int32_t level
 );
 
 /**

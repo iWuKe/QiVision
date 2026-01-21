@@ -7,6 +7,7 @@
  */
 
 #include "ShapeModelImpl.h"
+#include <QiVision/Core/QContourArray.h>
 #include <QiVision/Platform/FileIO.h>
 
 #include <algorithm>

@@ -4,6 +4,7 @@
  */
 
 #include <QiVision/Core/Draw.h>
+#include <QiVision/Core/QContourArray.h>
 #include <QiVision/Matching/ShapeModel.h>
 #include <QiVision/Matching/MatchTypes.h>
 

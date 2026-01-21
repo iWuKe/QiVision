@@ -229,10 +229,6 @@ ShapeModel CreateShapeModel(
 
     model.Impl()->params_ = params;
 
-    // Enable detailed timing output
-    model.Impl()->timingParams_.enableTiming = true;
-    model.Impl()->timingParams_.printTiming = true;
-
     // Create model
     Point2d origin{0, 0};
     if (!model.Impl()->CreateModel(templateImage, roi, origin)) {
@@ -270,10 +266,6 @@ ShapeModel CreateShapeModel(
     params.minContrast = minContrast;
 
     model.Impl()->params_ = params;
-
-    // Enable detailed timing output
-    model.Impl()->timingParams_.enableTiming = true;
-    model.Impl()->timingParams_.printTiming = true;
 
     // Create model with QRegion
     Point2d origin{0, 0};
@@ -384,7 +376,6 @@ void FindShapeModel(
     pyramidParams.smoothSigma = 0.5;
     pyramidParams.extractEdgePoints = false;
     pyramidParams.storeDirection = false;  // Search mode: skip storing gradDir
-    pyramidParams.enableTiming = true;  // Enable detailed timing
 
     Internal::AnglePyramid targetPyramid;
     if (!targetPyramid.Build(image, pyramidParams)) {

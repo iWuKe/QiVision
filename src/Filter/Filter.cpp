@@ -11,6 +11,7 @@
 #include <QiVision/Internal/Gradient.h>
 #include <QiVision/Internal/Gaussian.h>
 #include <QiVision/Internal/MorphGray.h>
+#include <QiVision/Internal/Histogram.h>
 
 #include <algorithm>
 #include <cmath>
@@ -1341,6 +1342,75 @@ void EntropyImage(const QImage& image, QImage& output,
             dstRow[x] = static_cast<float>(entropy);
         }
     }
+}
+
+// =============================================================================
+// Histogram Enhancement
+// =============================================================================
+
+void HistogramEqualize(const QImage& image, QImage& output) {
+    output = Internal::HistogramEqualize(image);
+}
+
+QImage HistogramEqualize(const QImage& image) {
+    return Internal::HistogramEqualize(image);
+}
+
+void ApplyCLAHE(const QImage& image, QImage& output,
+                int32_t tileSize, double clipLimit) {
+    Internal::CLAHEParams params;
+    params.tileGridSizeX = tileSize;
+    params.tileGridSizeY = tileSize;
+    params.clipLimit = clipLimit;
+    output = Internal::ApplyCLAHE(image, params);
+}
+
+QImage ApplyCLAHE(const QImage& image, int32_t tileSize, double clipLimit) {
+    Internal::CLAHEParams params;
+    params.tileGridSizeX = tileSize;
+    params.tileGridSizeY = tileSize;
+    params.clipLimit = clipLimit;
+    return Internal::ApplyCLAHE(image, params);
+}
+
+void ContrastStretch(const QImage& image, QImage& output,
+                     double lowPercentile, double highPercentile,
+                     double outputMin, double outputMax) {
+    output = Internal::ContrastStretch(image, lowPercentile, highPercentile,
+                                       outputMin, outputMax);
+}
+
+QImage ContrastStretch(const QImage& image,
+                       double lowPercentile, double highPercentile,
+                       double outputMin, double outputMax) {
+    return Internal::ContrastStretch(image, lowPercentile, highPercentile,
+                                     outputMin, outputMax);
+}
+
+void AutoContrast(const QImage& image, QImage& output) {
+    output = Internal::AutoContrast(image);
+}
+
+QImage AutoContrast(const QImage& image) {
+    return Internal::AutoContrast(image);
+}
+
+void NormalizeImage(const QImage& image, QImage& output,
+                    double outputMin, double outputMax) {
+    output = Internal::NormalizeImage(image, outputMin, outputMax);
+}
+
+QImage NormalizeImage(const QImage& image, double outputMin, double outputMax) {
+    return Internal::NormalizeImage(image, outputMin, outputMax);
+}
+
+void HistogramMatch(const QImage& image, QImage& output,
+                    const QImage& reference) {
+    output = Internal::HistogramMatchToImage(image, reference);
+}
+
+QImage HistogramMatch(const QImage& image, const QImage& reference) {
+    return Internal::HistogramMatchToImage(image, reference);
 }
 
 } // namespace Qi::Vision::Filter

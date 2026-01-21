@@ -19,12 +19,21 @@
 // Core data structures
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/QRegion.h>
-// #include <QiVision/Core/QContour.h>
-// #include <QiVision/Core/QMatrix.h>
+#include <QiVision/Core/QContour.h>
+#include <QiVision/Core/QContourArray.h>
+#include <QiVision/Core/QMatrix.h>
 
 // Platform abstraction
 #include <QiVision/Platform/Memory.h>
 #include <QiVision/Platform/SIMD.h>
+
+// Feature modules
+#include <QiVision/IO/ImageIO.h>
+#include <QiVision/Filter/Filter.h>
+#include <QiVision/Segment/Segment.h>
+#include <QiVision/Color/ColorConvert.h>
+#include <QiVision/Display/Display.h>
+#include <QiVision/Display/Draw.h>
 
 namespace Qi::Vision {
 

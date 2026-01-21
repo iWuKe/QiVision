@@ -79,6 +79,8 @@ set(QIVISION_SOURCES
     Filter/Filter.cpp
     # Blob (Feature Layer)
     Blob/Blob.cpp
+    # Segment (Feature Layer)
+    Segment/Segment.cpp
     # Display (Feature Layer)
     Display/Display.cpp
     Display/Draw.cpp
@@ -169,6 +171,8 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Filter/Filter.h
     # Blob (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Blob/Blob.h
+    # Segment (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Segment/Segment.h
     # Display (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Display/Display.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Display/Draw.h

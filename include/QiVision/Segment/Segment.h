@@ -1,0 +1,568 @@
+#pragma once
+
+/**
+ * @file Segment.h
+ * @brief Image segmentation and thresholding (Halcon-style API)
+ *
+ * Provides:
+ * - Global thresholding (binary, truncate, to-zero)
+ * - Auto thresholding (Otsu, Triangle, MinError, Isodata)
+ * - Adaptive thresholding (Mean, Gaussian, Sauvola, Niblack)
+ * - Dynamic thresholding (compare with reference)
+ * - Threshold to region conversion
+ *
+ * Halcon reference operators:
+ * - threshold, auto_threshold, binary_threshold
+ * - dyn_threshold, var_threshold, char_threshold
+ * - dual_threshold, hysteresis_threshold
+ *
+ * API Style: QRegion Func(const QImage& image, params...)
+ *            void Func(const QImage& src, QImage& dst, params...)
+ */
+
+#include <QiVision/Core/QImage.h>
+#include <QiVision/Core/QRegion.h>
+#include <QiVision/Core/Types.h>
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace Qi::Vision::Segment {
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+/**
+ * @brief Threshold operation types
+ */
+enum class ThresholdType {
+    Binary,         ///< dst = (src > thresh) ? maxVal : 0
+    BinaryInv,      ///< dst = (src > thresh) ? 0 : maxVal
+    Truncate,       ///< dst = (src > thresh) ? thresh : src
+    ToZero,         ///< dst = (src > thresh) ? src : 0
+    ToZeroInv       ///< dst = (src > thresh) ? 0 : src
+};
+
+/**
+ * @brief Auto threshold method
+ */
+enum class AutoMethod {
+    Otsu,           ///< Otsu's method (maximizes between-class variance)
+    Triangle,       ///< Triangle algorithm (Zack method)
+    MinError,       ///< Minimum error method (Kittler-Illingworth)
+    Isodata,        ///< Iterative isodata method
+    Median          ///< Simple median-based threshold
+};
+
+/**
+ * @brief Adaptive threshold methods
+ */
+enum class AdaptiveMethod {
+    Mean,           ///< T(x,y) = mean(blockSize) - C
+    Gaussian,       ///< T(x,y) = Gaussian-weighted mean - C
+    Sauvola,        ///< T(x,y) = mean * (1 + k * (stddev/R - 1))
+    Niblack,        ///< T(x,y) = mean + k * stddev
+    Wolf            ///< T(x,y) = mean - k * (1 - stddev/max_stddev) * (mean - min_val)
+};
+
+/**
+ * @brief Light/Dark mode for dynamic threshold
+ */
+enum class LightDark {
+    Light,          ///< Select pixels brighter than reference
+    Dark,           ///< Select pixels darker than reference
+    Equal,          ///< Select pixels equal to reference (within offset)
+    NotEqual        ///< Select pixels different from reference
+};
+
+// =============================================================================
+// Parameters
+// =============================================================================
+
+/**
+ * @brief Adaptive threshold parameters
+ */
+struct AdaptiveParams {
+    AdaptiveMethod method = AdaptiveMethod::Mean;
+    int32_t blockSize = 11;     ///< Block size (must be odd)
+    double C = 2.0;             ///< Constant to subtract
+    double k = 0.5;             ///< k for Sauvola/Niblack
+    double R = 128.0;           ///< R for Sauvola
+    double maxValue = 255.0;    ///< Max value for binary output
+
+    /// Factory for mean adaptive threshold
+    static AdaptiveParams Mean(int32_t blockSz = 11, double c = 2.0) {
+        AdaptiveParams p;
+        p.method = AdaptiveMethod::Mean;
+        p.blockSize = blockSz;
+        p.C = c;
+        return p;
+    }
+
+    /// Factory for Gaussian adaptive threshold
+    static AdaptiveParams Gaussian(int32_t blockSz = 11, double c = 2.0) {
+        AdaptiveParams p;
+        p.method = AdaptiveMethod::Gaussian;
+        p.blockSize = blockSz;
+        p.C = c;
+        return p;
+    }
+
+    /// Factory for Sauvola threshold
+    static AdaptiveParams Sauvola(int32_t blockSz = 11, double k = 0.5, double R = 128.0) {
+        AdaptiveParams p;
+        p.method = AdaptiveMethod::Sauvola;
+        p.blockSize = blockSz;
+        p.k = k;
+        p.R = R;
+        return p;
+    }
+
+    /// Factory for Niblack threshold
+    static AdaptiveParams Niblack(int32_t blockSz = 11, double k = -0.2) {
+        AdaptiveParams p;
+        p.method = AdaptiveMethod::Niblack;
+        p.blockSize = blockSz;
+        p.k = k;
+        return p;
+    }
+};
+
+/**
+ * @brief Result of dual threshold operation
+ */
+struct DualThresholdResult {
+    QRegion lightRegion;        ///< Pixels > highThreshold
+    QRegion darkRegion;         ///< Pixels < lowThreshold
+    QRegion middleRegion;       ///< Pixels in [lowThreshold, highThreshold]
+    double lowThreshold = 0;    ///< Used low threshold
+    double highThreshold = 0;   ///< Used high threshold
+};
+
+// =============================================================================
+// Global Thresholding
+// =============================================================================
+
+/**
+ * @brief Apply global threshold to image
+ *
+ * Equivalent to Halcon's threshold operator.
+ *
+ * @param src Input image (grayscale)
+ * @param dst Output image (same size as src)
+ * @param threshold Threshold value
+ * @param maxValue Maximum value for binary output
+ * @param type Threshold operation type
+ *
+ * @code
+ * QImage binary;
+ * Threshold(image, binary, 128);  // Binary threshold at 128
+ * @endcode
+ */
+void Threshold(const QImage& src, QImage& dst,
+               double threshold, double maxValue = 255.0,
+               ThresholdType type = ThresholdType::Binary);
+
+/**
+ * @brief Apply global threshold (return version)
+ */
+QImage Threshold(const QImage& src, double threshold,
+                 double maxValue = 255.0,
+                 ThresholdType type = ThresholdType::Binary);
+
+/**
+ * @brief Range thresholding
+ *
+ * Pixels in [low, high] become maxValue, others become 0.
+ *
+ * @param src Input image
+ * @param dst Output binary image
+ * @param low Lower threshold (inclusive)
+ * @param high Upper threshold (inclusive)
+ * @param maxValue Output value for in-range pixels
+ *
+ * @code
+ * QImage binary;
+ * ThresholdRange(image, binary, 100, 200);  // Keep pixels in [100, 200]
+ * @endcode
+ */
+void ThresholdRange(const QImage& src, QImage& dst,
+                    double low, double high, double maxValue = 255.0);
+
+/**
+ * @brief Range thresholding (return version)
+ */
+QImage ThresholdRange(const QImage& src, double low, double high,
+                      double maxValue = 255.0);
+
+// =============================================================================
+// Auto Thresholding
+// =============================================================================
+
+/**
+ * @brief Automatic thresholding using selected method
+ *
+ * Equivalent to Halcon's auto_threshold / binary_threshold operator.
+ *
+ * @param src Input image
+ * @param dst Output binary image
+ * @param method Auto threshold method
+ * @param maxValue Max output value
+ * @param computedThreshold Output: computed threshold value (optional)
+ *
+ * @code
+ * QImage binary;
+ * double thresh;
+ * ThresholdAuto(image, binary, AutoMethod::Otsu, 255.0, &thresh);
+ * @endcode
+ */
+void ThresholdAuto(const QImage& src, QImage& dst,
+                   AutoMethod method = AutoMethod::Otsu,
+                   double maxValue = 255.0,
+                   double* computedThreshold = nullptr);
+
+/**
+ * @brief Otsu auto-threshold (convenience)
+ */
+void ThresholdOtsu(const QImage& src, QImage& dst,
+                   double maxValue = 255.0,
+                   double* computedThreshold = nullptr);
+
+/**
+ * @brief Triangle auto-threshold (convenience)
+ */
+void ThresholdTriangle(const QImage& src, QImage& dst,
+                       double maxValue = 255.0,
+                       double* computedThreshold = nullptr);
+
+/**
+ * @brief Otsu threshold (return version)
+ */
+QImage ThresholdOtsu(const QImage& src, double maxValue = 255.0);
+
+/**
+ * @brief Triangle threshold (return version)
+ */
+QImage ThresholdTriangle(const QImage& src, double maxValue = 255.0);
+
+/**
+ * @brief Compute auto threshold value without applying
+ *
+ * @param src Input image
+ * @param method Auto threshold method
+ * @return Computed threshold value
+ */
+double ComputeAutoThreshold(const QImage& src, AutoMethod method = AutoMethod::Otsu);
+
+// =============================================================================
+// Adaptive Thresholding
+// =============================================================================
+
+/**
+ * @brief Apply adaptive threshold to image
+ *
+ * For each pixel, computes local threshold based on neighborhood.
+ *
+ * @param src Input grayscale image
+ * @param dst Output binary image
+ * @param params Adaptive threshold parameters
+ *
+ * @code
+ * QImage binary;
+ * ThresholdAdaptive(image, binary, AdaptiveParams::Sauvola(15, 0.3));
+ * @endcode
+ */
+void ThresholdAdaptive(const QImage& src, QImage& dst,
+                       const AdaptiveParams& params);
+
+/**
+ * @brief Apply adaptive threshold (return version)
+ */
+QImage ThresholdAdaptive(const QImage& src,
+                         const AdaptiveParams& params);
+
+/**
+ * @brief Adaptive threshold with simple parameters
+ *
+ * @param src Input image
+ * @param dst Output image
+ * @param method Adaptive method
+ * @param blockSize Block size (odd number)
+ * @param C Constant to subtract from mean
+ */
+void ThresholdAdaptive(const QImage& src, QImage& dst,
+                       AdaptiveMethod method, int32_t blockSize, double C);
+
+// =============================================================================
+// Multi-level Thresholding
+// =============================================================================
+
+/**
+ * @brief Apply multi-level thresholding
+ *
+ * Segments image into (N+1) levels using N thresholds.
+ *
+ * @param src Input image
+ * @param dst Output labeled image
+ * @param thresholds Sorted threshold values
+ *
+ * @code
+ * QImage labeled;
+ * ThresholdMultiLevel(image, labeled, {85, 170});  // 3 levels
+ * @endcode
+ */
+void ThresholdMultiLevel(const QImage& src, QImage& dst,
+                         const std::vector<double>& thresholds);
+
+/**
+ * @brief Multi-level threshold with custom output values
+ *
+ * @param src Input image
+ * @param dst Output labeled image
+ * @param thresholds N threshold values
+ * @param outputValues N+1 output values
+ */
+void ThresholdMultiLevel(const QImage& src, QImage& dst,
+                         const std::vector<double>& thresholds,
+                         const std::vector<double>& outputValues);
+
+// =============================================================================
+// Threshold to Region
+// =============================================================================
+
+/**
+ * @brief Create region from thresholding
+ *
+ * Equivalent to Halcon's threshold operator returning region.
+ *
+ * @param src Input image
+ * @param low Lower threshold (inclusive)
+ * @param high Upper threshold (inclusive)
+ * @return Region containing pixels in range [low, high]
+ *
+ * @code
+ * QRegion region = ThresholdToRegion(image, 100, 255);
+ * @endcode
+ */
+QRegion ThresholdToRegion(const QImage& src, double low, double high);
+
+/**
+ * @brief Create region from binary threshold
+ *
+ * @param src Input image
+ * @param threshold Threshold value
+ * @param above If true, region contains pixels > threshold; else pixels < threshold
+ * @return Region
+ */
+QRegion ThresholdToRegion(const QImage& src, double threshold, bool above = true);
+
+/**
+ * @brief Create region from auto-threshold
+ *
+ * @param src Input image
+ * @param method Auto threshold method
+ * @param above If true, region contains pixels > threshold
+ * @param computedThreshold Output: computed threshold value
+ * @return Region
+ */
+QRegion ThresholdAutoToRegion(const QImage& src,
+                               AutoMethod method = AutoMethod::Otsu,
+                               bool above = true,
+                               double* computedThreshold = nullptr);
+
+// =============================================================================
+// Halcon-style Dynamic Threshold
+// =============================================================================
+
+/**
+ * @brief Dynamic threshold (compare with reference image)
+ *
+ * Equivalent to Halcon's dyn_threshold operator.
+ * Compares original image with a reference to handle uneven illumination.
+ *
+ * @param image Original image
+ * @param reference Reference/smoothed image
+ * @param offset Offset value for comparison
+ * @param lightDark Selection mode
+ * @return Region of selected pixels
+ *
+ * @code
+ * QImage smooth;
+ * GaussFilter(image, smooth, 15.0);
+ * QRegion defects = DynThreshold(image, smooth, 10, LightDark::Dark);
+ * @endcode
+ */
+QRegion DynThreshold(const QImage& image, const QImage& reference,
+                     double offset, LightDark lightDark = LightDark::Light);
+
+/**
+ * @brief Dynamic threshold with auto-generated reference
+ *
+ * Convenience function that automatically computes Gaussian blur.
+ *
+ * @param image Input image
+ * @param filterSize Size of Gaussian filter for smoothing
+ * @param offset Offset value
+ * @param lightDark Selection mode
+ * @return Region of selected pixels
+ */
+QRegion DynThreshold(const QImage& image, int32_t filterSize,
+                     double offset, LightDark lightDark = LightDark::Light);
+
+/**
+ * @brief Dual threshold - separate light and dark regions
+ *
+ * Equivalent to Halcon's dual_threshold operator.
+ *
+ * @param image Input image
+ * @param lowThreshold Low threshold value
+ * @param highThreshold High threshold value
+ * @return DualThresholdResult containing light, dark, and middle regions
+ */
+DualThresholdResult DualThreshold(const QImage& image,
+                                   double lowThreshold, double highThreshold);
+
+/**
+ * @brief Variance-based threshold
+ *
+ * Equivalent to Halcon's var_threshold operator.
+ *
+ * @param image Input image
+ * @param windowSize Window size for variance computation
+ * @param varianceThreshold Variance threshold
+ * @param lightDark Selection mode (Light = high variance, Dark = low variance)
+ * @return Region of selected pixels
+ */
+QRegion VarThreshold(const QImage& image, int32_t windowSize,
+                     double varianceThreshold, LightDark lightDark = LightDark::Light);
+
+/**
+ * @brief Character threshold (optimized for text/documents)
+ *
+ * Equivalent to Halcon's char_threshold operator.
+ *
+ * @param image Input image
+ * @param sigma Smoothing sigma (typical: 1-3)
+ * @param percent Percentile for dark pixels (typical: 90-99)
+ * @param lightDark "light" for dark text on light background
+ * @return Region containing text
+ */
+QRegion CharThreshold(const QImage& image, double sigma = 2.0,
+                      double percent = 95.0, LightDark lightDark = LightDark::Dark);
+
+/**
+ * @brief Hysteresis threshold
+ *
+ * Dual threshold with connectivity constraint.
+ *
+ * @param image Input image
+ * @param lowThreshold Low threshold
+ * @param highThreshold High threshold
+ * @return Region with hysteresis-filtered foreground
+ */
+QRegion HysteresisThreshold(const QImage& image,
+                            double lowThreshold, double highThreshold);
+
+// =============================================================================
+// Domain-aware Threshold Operations
+// =============================================================================
+
+/**
+ * @brief Threshold with Domain support
+ *
+ * Only processes pixels within the image's Domain.
+ *
+ * @param image Input image with Domain
+ * @param low Lower threshold
+ * @param high Upper threshold
+ * @return Region containing thresholded pixels within Domain
+ */
+QRegion ThresholdWithDomain(const QImage& image, double low, double high);
+
+/**
+ * @brief Dynamic threshold with Domain support
+ */
+QRegion DynThresholdWithDomain(const QImage& image, const QImage& reference,
+                                double offset, LightDark lightDark = LightDark::Light);
+
+/**
+ * @brief Adaptive threshold to region with Domain support
+ */
+QRegion ThresholdAdaptiveToRegion(const QImage& image,
+                                   const AdaptiveParams& params);
+
+// =============================================================================
+// Binary Image Operations
+// =============================================================================
+
+/**
+ * @brief Invert binary image
+ */
+void BinaryInvert(const QImage& src, QImage& dst, double maxValue = 255.0);
+
+/**
+ * @brief Binary AND of two images
+ */
+void BinaryAnd(const QImage& src1, const QImage& src2, QImage& dst,
+               double maxValue = 255.0);
+
+/**
+ * @brief Binary OR of two images
+ */
+void BinaryOr(const QImage& src1, const QImage& src2, QImage& dst,
+              double maxValue = 255.0);
+
+/**
+ * @brief Binary XOR of two images
+ */
+void BinaryXor(const QImage& src1, const QImage& src2, QImage& dst,
+               double maxValue = 255.0);
+
+/**
+ * @brief Binary difference (src1 AND NOT src2)
+ */
+void BinaryDiff(const QImage& src1, const QImage& src2, QImage& dst,
+                double maxValue = 255.0);
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+/**
+ * @brief Check if image appears to be binary
+ */
+bool IsBinaryImage(const QImage& image, double tolerance = 1.0);
+
+/**
+ * @brief Count non-zero pixels in image
+ */
+uint64_t CountNonZero(const QImage& image);
+
+/**
+ * @brief Count pixels in range
+ */
+uint64_t CountInRange(const QImage& image, double low, double high);
+
+/**
+ * @brief Compute percentage of foreground pixels
+ */
+double ComputeForegroundRatio(const QImage& image);
+
+/**
+ * @brief Apply mask to image
+ */
+void ApplyMask(const QImage& src, const QImage& mask, QImage& dst);
+
+/**
+ * @brief Create mask from region
+ */
+void RegionToMask(const QRegion& region, QImage& mask);
+
+/**
+ * @brief Create region from mask
+ */
+QRegion MaskToRegion(const QImage& mask, double threshold = 0);
+
+} // namespace Qi::Vision::Segment

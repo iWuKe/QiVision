@@ -180,7 +180,8 @@ Tests    █████████████████░░░ 87%
 |------|:----:|:----:|:----:|:--------:|:----:|:------:|------|
 | **IO/ImageIO.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像读写 (PNG/JPEG/BMP/RAW) |
 | **Color/ColorConvert.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 颜色转换 (RGB/HSV/Lab/YCrCb) |
-| **Filter/Filter.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 图像滤波 (Gauss/Mean/Median/Sobel) |
+| **Filter/Filter.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 滤波+增强 (Gauss/Median/Sobel/CLAHE/HistogramEq) |
+| **Segment/Segment.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 图像分割 (Threshold/Otsu/Adaptive/DynThreshold) |
 | **Display/Display.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像显示与绘制 (Halcon 风格 API) |
 | **GUI/Window.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 窗口调试 (Win32/X11, macOS/Android stub, AutoResize) |
 | **Blob/Blob.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P0** | Blob 分析 (Connection, SelectShape, InnerCircle, FillUp, CountHoles等) |
@@ -262,10 +263,27 @@ Tests    █████████████████░░░ 87%
     - code-reviewer: 代码审查、精度验证
     - git-sync: Git 同步
 
-- **待处理架构问题** (记录备查)
-  - Internal/Histogram.h: 直方图增强功能应提升到 Filter 模块
-  - Internal/Threshold.h: 阈值功能应创建 Segment 模块或扩展 Blob 模块
-  - 原因: 根据架构规则 Internal 层不应导出给用户直接使用
+- **新增 Segment 模块** (Feature 层)
+  - 从 Internal/Threshold.h 提升阈值功能到公开 API
+  - 全局阈值: Threshold, ThresholdRange
+  - 自动阈值: ThresholdOtsu, ThresholdTriangle, ThresholdAuto
+  - 自适应阈值: ThresholdAdaptive (Mean/Gaussian/Sauvola/Niblack)
+  - 动态阈值: DynThreshold, VarThreshold, CharThreshold
+  - 阈值转区域: ThresholdToRegion, ThresholdAutoToRegion
+  - 二值操作: BinaryAnd/Or/Xor/Diff/Invert
+
+- **扩展 Filter 模块** (直方图增强)
+  - 从 Internal/Histogram.h 提升增强功能到公开 API
+  - HistogramEqualize - 直方图均衡化
+  - ApplyCLAHE - 自适应直方图均衡
+  - ContrastStretch - 对比度拉伸
+  - AutoContrast - 自动对比度
+  - NormalizeImage - 图像归一化
+  - HistogramMatch - 直方图匹配
+
+- **更新 QiVision.h**
+  - 添加所有 Feature 层主要头文件的 include
+  - 启用 QContour, QContourArray, QMatrix 的 include
 
 ### 2026-01-20 (Draw 模块 Metrology 可视化)
 

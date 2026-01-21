@@ -518,4 +518,129 @@ std::vector<double> GenGaussDerivKernel(double sigma, int32_t order, int32_t siz
  */
 int32_t OptimalKernelSize(double sigma);
 
+// =============================================================================
+// Histogram Enhancement
+// =============================================================================
+
+/**
+ * @brief Apply histogram equalization
+ *
+ * Equivalent to Halcon's equ_histo_image operator.
+ * Spreads intensity values across full range for improved contrast.
+ *
+ * @param image Input image
+ * @param output Output equalized image
+ *
+ * @code
+ * QImage enhanced;
+ * HistogramEqualize(image, enhanced);
+ * @endcode
+ */
+void HistogramEqualize(const QImage& image, QImage& output);
+
+/**
+ * @brief Apply histogram equalization (return version)
+ */
+QImage HistogramEqualize(const QImage& image);
+
+/**
+ * @brief Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+ *
+ * Equivalent to Halcon's emphasize operator with local processing.
+ * Better than global equalization for images with varying illumination.
+ *
+ * @param image Input image
+ * @param output Output enhanced image
+ * @param tileSize Grid tile size (default: 8)
+ * @param clipLimit Contrast limit (default: 40.0)
+ *
+ * @code
+ * QImage enhanced;
+ * ApplyCLAHE(image, enhanced, 8, 40.0);
+ * @endcode
+ */
+void ApplyCLAHE(const QImage& image, QImage& output,
+                int32_t tileSize = 8, double clipLimit = 40.0);
+
+/**
+ * @brief Apply CLAHE (return version)
+ */
+QImage ApplyCLAHE(const QImage& image,
+                  int32_t tileSize = 8, double clipLimit = 40.0);
+
+/**
+ * @brief Linear contrast stretching
+ *
+ * Stretches intensity range using percentile clipping.
+ *
+ * @param image Input image
+ * @param output Output stretched image
+ * @param lowPercentile Lower percentile for clipping (default: 1.0)
+ * @param highPercentile Upper percentile for clipping (default: 99.0)
+ * @param outputMin Output minimum value (default: 0)
+ * @param outputMax Output maximum value (default: 255)
+ *
+ * @code
+ * QImage enhanced;
+ * ContrastStretch(image, enhanced, 2.0, 98.0);  // 2% clip on each end
+ * @endcode
+ */
+void ContrastStretch(const QImage& image, QImage& output,
+                     double lowPercentile = 1.0, double highPercentile = 99.0,
+                     double outputMin = 0, double outputMax = 255);
+
+/**
+ * @brief Linear contrast stretching (return version)
+ */
+QImage ContrastStretch(const QImage& image,
+                       double lowPercentile = 1.0, double highPercentile = 99.0,
+                       double outputMin = 0, double outputMax = 255);
+
+/**
+ * @brief Auto contrast (full range stretch)
+ *
+ * Stretches image to use full [0, 255] range.
+ *
+ * @param image Input image
+ * @param output Output enhanced image
+ */
+void AutoContrast(const QImage& image, QImage& output);
+
+/**
+ * @brief Auto contrast (return version)
+ */
+QImage AutoContrast(const QImage& image);
+
+/**
+ * @brief Normalize image to specified range
+ *
+ * @param image Input image
+ * @param output Output normalized image
+ * @param outputMin Output minimum value
+ * @param outputMax Output maximum value
+ */
+void NormalizeImage(const QImage& image, QImage& output,
+                    double outputMin = 0, double outputMax = 255);
+
+/**
+ * @brief Normalize image (return version)
+ */
+QImage NormalizeImage(const QImage& image,
+                      double outputMin = 0, double outputMax = 255);
+
+/**
+ * @brief Match image histogram to reference
+ *
+ * @param image Input image
+ * @param output Output image with matched histogram
+ * @param reference Reference image
+ */
+void HistogramMatch(const QImage& image, QImage& output,
+                    const QImage& reference);
+
+/**
+ * @brief Match histogram (return version)
+ */
+QImage HistogramMatch(const QImage& image, const QImage& reference);
+
 } // namespace Qi::Vision::Filter

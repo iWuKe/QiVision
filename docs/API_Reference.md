@@ -220,29 +220,63 @@ for (size_t i = 0; i < rows.size(); ++i) {
 
 ### 1.5 FindScaledShapeModel
 
-查找带缩放的模板。
+查找带缩放的模板。支持在指定缩放范围内搜索目标。
+
+> **状态**: 🟡 实验性功能，精度问题待优化
 
 ```cpp
 void FindScaledShapeModel(
     const QImage& image,
     const ShapeModel& model,
-    double angleStart,
-    double angleExtent,
-    double scaleMin,                // 搜索最小缩放
-    double scaleMax,                // 搜索最大缩放
-    double minScore,
-    int32_t numMatches,
-    double maxOverlap,
-    const std::string& subPixel,
-    int32_t numLevels,
-    double greediness,
-    std::vector<double>& rows,
-    std::vector<double>& cols,
-    std::vector<double>& angles,
-    std::vector<double>& scales,    // [out] 匹配缩放比例
-    std::vector<double>& scores
+    double angleStart,              // 搜索起始角度 [rad]
+    double angleExtent,             // 搜索角度范围 [rad]
+    double scaleMin,                // 搜索最小缩放 (如 0.8)
+    double scaleMax,                // 搜索最大缩放 (如 1.2)
+    double minScore,                // 最小匹配分数 (0-1)
+    int32_t numMatches,             // 最大匹配数（0=全部）
+    double maxOverlap,              // 最大重叠率 (0-1)
+    const std::string& subPixel,    // 亚像素精度
+    int32_t numLevels,              // 金字塔层数（0=全部）
+    double greediness,              // 贪婪度 (0-1)
+    std::vector<double>& rows,      // [out] Y坐标
+    std::vector<double>& cols,      // [out] X坐标
+    std::vector<double>& angles,    // [out] 角度 [rad]
+    std::vector<double>& scales,    // [out] 缩放比例
+    std::vector<double>& scores     // [out] 匹配分数
 );
 ```
+
+**使用示例**:
+
+```cpp
+// 在 0.8x ~ 1.2x 缩放范围内搜索
+std::vector<double> rows, cols, angles, scales, scores;
+
+FindScaledShapeModel(
+    searchImg, model,
+    0.0, RAD(360),          // 搜索全角度
+    0.8, 1.2,               // 缩放范围 80% ~ 120%
+    0.6,                    // 最小分数 60%
+    10,                     // 最多返回 10 个匹配
+    0.5,                    // 最大重叠 50%
+    "least_squares",        // 亚像素精化
+    0,                      // 使用全部金字塔层
+    0.9,                    // 高贪婪度
+    rows, cols, angles, scales, scores
+);
+
+// 输出结果
+for (size_t i = 0; i < scores.size(); ++i) {
+    std::cout << "Match " << i << ": pos=(" << cols[i] << "," << rows[i]
+              << ") angle=" << DEG(angles[i]) << "° scale=" << scales[i]
+              << " score=" << scores[i] << std::endl;
+}
+```
+
+**注意**:
+- 缩放搜索比普通搜索慢（每个 scale 需要单独搜索）
+- scale step 自动计算：`step = max(0.01, (max-min)/10)`
+- 建议缩放范围不超过 ±30%（如 0.7~1.3）
 
 ---
 

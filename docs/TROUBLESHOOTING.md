@@ -360,3 +360,39 @@ __m256 result = _mm256_mul_ps(a, rcp);
 **修改的函数:**
 - `fast_quantize_bin_avx2()` - 计算 t = min/max 比值
 - `atan2_avx2()` - 计算 t = num/den 比值
+
+---
+
+## Scaled Shape Matching (FindScaledShapeModel)
+
+### 🔴 Issue: Incorrect matches with scaled search (2026-01-22)
+
+**状态**: 未解决
+
+**症状:**
+- 使用 `FindScaledShapeModel` 时匹配到形状完全不同的物体
+- 绘制的模型轮廓与实际匹配位置的物体形状不一致
+- 相同图像使用 `FindShapeModel`（不缩放）效果正常
+
+**可能原因:**
+1. 评分函数中 scale 参数的使用可能有问题
+2. 跨 scale 的 NMS 抑制不够严格
+3. 不同 scale 产生的候选太多，导致低质量匹配通过
+
+**已排除的原因:**
+- ✅ 搜索边界已修正（根据 scale 调整 bounds）
+
+**待调试步骤:**
+1. 对比 scale=1.0 时 FindScaledShapeModel 和 FindShapeModel 的结果
+2. 检查单个 scale 值（如 scale=0.9）的匹配质量
+3. 验证 `ComputeScoreAtPosition` 中 scale 变换是否正确
+4. 检查 NMS 的距离阈值计算
+
+**临时解决方案:**
+- 使用 `FindShapeModel` 代替（不支持缩放搜索）
+- 或手动缩放图像后用 `FindShapeModel` 搜索
+
+**相关代码:**
+- `src/Matching/ShapeModel.cpp`: FindScaledShapeModel 实现
+- `src/Matching/ShapeModelSearch.cpp`: SearchPyramidScaled
+- `src/Matching/ShapeModelScore.cpp`: ComputeScoreAtPosition (scale 参数)

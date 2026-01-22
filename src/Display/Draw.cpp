@@ -909,6 +909,12 @@ void Draw::MetrologyModelResult(QImage& image, const Measure::MetrologyModel& mo
         if (drawCalipers) {
             auto calipers = obj->GetCalipers();
             MeasureRects(image, calipers, objectColor, 1);
+
+            // Draw geometric center for objects that have one
+            if (obj->HasCenter()) {
+                Point2d center = obj->GetCenter();
+                Cross(image, center, 10, 0, objectColor, 1);
+            }
         }
 
         // Draw edge points with weight-based coloring

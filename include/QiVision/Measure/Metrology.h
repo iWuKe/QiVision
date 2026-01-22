@@ -260,6 +260,12 @@ public:
     /// Get the reference geometry contour
     virtual QContour GetContour() const = 0;
 
+    /// Check if this object has a geometric center (circles, ellipses, rectangles have center; lines don't)
+    virtual bool HasCenter() const = 0;
+
+    /// Get geometric center (only valid when HasCenter() returns true)
+    virtual Point2d GetCenter() const = 0;
+
     /// Apply transformation (for alignment)
     virtual void Transform(double rowOffset, double colOffset, double phi = 0.0) = 0;
 
@@ -293,6 +299,8 @@ public:
     MetrologyObjectType Type() const override { return MetrologyObjectType::Line; }
     std::vector<MeasureRectangle2> GetCalipers() const override;
     QContour GetContour() const override;
+    bool HasCenter() const override { return false; }
+    Point2d GetCenter() const override { return {0, 0}; }
     void Transform(double rowOffset, double colOffset, double phi = 0.0) override;
 
     // Line-specific accessors
@@ -338,6 +346,8 @@ public:
     MetrologyObjectType Type() const override { return MetrologyObjectType::Circle; }
     std::vector<MeasureRectangle2> GetCalipers() const override;
     QContour GetContour() const override;
+    bool HasCenter() const override { return true; }
+    Point2d GetCenter() const override { return {column_, row_}; }
     void Transform(double rowOffset, double colOffset, double phi = 0.0) override;
 
     // Circle-specific accessors
@@ -375,6 +385,8 @@ public:
     MetrologyObjectType Type() const override { return MetrologyObjectType::Ellipse; }
     std::vector<MeasureRectangle2> GetCalipers() const override;
     QContour GetContour() const override;
+    bool HasCenter() const override { return true; }
+    Point2d GetCenter() const override { return {column_, row_}; }
     void Transform(double rowOffset, double colOffset, double phi = 0.0) override;
 
     // Ellipse-specific accessors
@@ -409,6 +421,8 @@ public:
     MetrologyObjectType Type() const override { return MetrologyObjectType::Rectangle2; }
     std::vector<MeasureRectangle2> GetCalipers() const override;
     QContour GetContour() const override;
+    bool HasCenter() const override { return true; }
+    Point2d GetCenter() const override { return {column_, row_}; }
     void Transform(double rowOffset, double colOffset, double phi = 0.0) override;
 
     // Rectangle-specific accessors

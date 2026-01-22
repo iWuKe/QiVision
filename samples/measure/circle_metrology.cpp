@@ -22,9 +22,12 @@ using namespace Qi::Vision::GUI;
 int main() {
     std::string imagePath = "tests/data/halcon_images/circle_plate.png";
 
-    // 预设要测量的圆 (cx, cy, radius)
+    // 预设要测量的圆 (cx, cy, radius) - 注意 API 使用 (row, col) 即 (cy, cx)
     std::vector<std::tuple<double, double, double>> circles = {
-        {200, 420, 70},    // 用户指定的圆
+        {210, 420, 60},
+        {500, 420, 60},
+        {790, 420, 60},
+        {1077, 420, 110},
     };
 
     QImage image = QImage::FromFile(imagePath);
@@ -40,9 +43,9 @@ int main() {
 
     // 测量参数
     MetrologyMeasureParams params;
-    params.numMeasures = 36;
+    params.numMeasures = 20;
     params.measureLength1 = 20.0;
-    params.measureLength2 = 3.0;
+    params.measureLength2 = 5.0;
     params.thresholdMode = ThresholdMode::Auto;
     params.fitMethod = MetrologyFitMethod::RANSAC;
 
@@ -65,9 +68,13 @@ int main() {
         auto result = model.GetCircleResult(i);
         auto points = model.GetMeasuredPoints(i);
 
+        // 使用统一接口获取几何中心
+        const auto* obj = model.GetObject(i);
+        auto center = obj->GetCenter();  // 返回 Point2d(x, y) = (column, row)
+
         std::cout << "\nCircle " << (i+1) << ":" << std::endl;
-        std::cout << "  Input:  (" << cx << ", " << cy << ") r=" << r << std::endl;
-        std::cout << "  Fitted: (" << std::fixed << std::setprecision(2)
+        std::cout << "  Initial center: (" << center.x << ", " << center.y << ") r=" << r << std::endl;
+        std::cout << "  Fitted center:  (" << std::fixed << std::setprecision(2)
                   << result.column << ", " << result.row << ") r=" << result.radius << std::endl;
         std::cout << "  Points: " << result.numUsed << "/" << points.size()
                   << "  RMS: " << std::setprecision(3) << result.rmsError << " px" << std::endl;

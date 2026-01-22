@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <cstring>
+#include <sstream>
 
 // =============================================================================
 // Platform detection
@@ -128,12 +129,16 @@ public:
     int32_t displayOffsetY_ = 0;
     double displayScale_ = 1.0;
 
+    // Pixel info display
+    bool pixelInfoEnabled_ = false;
+    std::string baseTitle_;
+
     // Store the original image for redraw
     QImage currentImage_;
     ScaleMode currentScaleMode_ = ScaleMode::Fit;
 
     Impl(const std::string& title, int32_t width, int32_t height)
-        : width_(width), height_(height), title_(title) {
+        : width_(width), height_(height), title_(title), baseTitle_(title) {
 
         display_ = XOpenDisplay(nullptr);
         if (!display_) {
@@ -516,6 +521,30 @@ public:
                         mouseX_, mouseY_, MouseButton::None, event.xmotion.state);
                     mouseCallback_(mouseEvt);
                 }
+
+                // Update pixel info in title
+                if (pixelInfoEnabled_ && currentImage_.Width() > 0) {
+                    double imgX, imgY;
+                    if (WindowToImageCoords(mouseX_, mouseY_, imgX, imgY)) {
+                        int ix = static_cast<int>(imgX);
+                        int iy = static_cast<int>(imgY);
+                        if (ix >= 0 && ix < currentImage_.Width() &&
+                            iy >= 0 && iy < currentImage_.Height()) {
+                            std::ostringstream oss;
+                            oss << baseTitle_ << " - (" << ix << ", " << iy << ")";
+                            if (currentImage_.Channels() == 1) {
+                                int val = currentImage_.At(ix, iy);
+                                oss << " = " << val;
+                            } else if (currentImage_.Channels() >= 3) {
+                                const uint8_t* row = static_cast<const uint8_t*>(currentImage_.RowPtr(iy));
+                                const uint8_t* p = row + ix * currentImage_.Channels();
+                                oss << " = (" << (int)p[0] << "," << (int)p[1] << "," << (int)p[2] << ")";
+                            }
+                            XStoreName(display_, window_, oss.str().c_str());
+                            XFlush(display_);
+                        }
+                    }
+                }
                 break;
 
             case ButtonPress: {
@@ -779,6 +808,16 @@ public:
         iy = imgY;
         return inImage;
     }
+
+    // Pixel info display
+    void EnablePixelInfo(bool enable) {
+        pixelInfoEnabled_ = enable;
+        if (!enable && display_ && window_) {
+            XStoreName(display_, window_, baseTitle_.c_str());
+            XFlush(display_);
+        }
+    }
+    bool IsPixelInfoEnabled() const { return pixelInfoEnabled_; }
 
     // Zoom and pan
     void EnableZoomPan(bool enable) {
@@ -1184,6 +1223,10 @@ public:
     int32_t displayOffsetX_ = 0;
     int32_t displayOffsetY_ = 0;
     double displayScale_ = 1.0;
+
+    // Pixel info display
+    bool pixelInfoEnabled_ = false;
+    std::string baseTitle_;
 
     // Store the original image for redraw
     QImage currentImage_;
@@ -1709,6 +1752,15 @@ public:
         return inImage;
     }
 
+    // Pixel info display
+    void EnablePixelInfo(bool enable) {
+        pixelInfoEnabled_ = enable;
+        if (!enable && hwnd_) {
+            SetWindowTextA(hwnd_, baseTitle_.c_str());
+        }
+    }
+    bool IsPixelInfoEnabled() const { return pixelInfoEnabled_; }
+
     // Zoom and pan
     void EnableZoomPan(bool enable) {
         zoomPanEnabled_ = enable;
@@ -1851,6 +1903,10 @@ public:
     bool GetMousePosition(int32_t& x, int32_t& y) const { x = y = 0; return false; }
     bool GetMouseImagePosition(double& ix, double& iy) const { ix = iy = 0; return false; }
 
+    // Stub implementations for pixel info
+    void EnablePixelInfo(bool) {}
+    bool IsPixelInfoEnabled() const { return false; }
+
     // Stub implementations for zoom/pan
     void EnableZoomPan(bool) {}
     bool IsZoomPanEnabled() const { return false; }
@@ -1946,6 +2002,15 @@ bool Window::GetMousePosition(int32_t& x, int32_t& y) const {
 
 bool Window::GetMouseImagePosition(double& imageX, double& imageY) const {
     return impl_ ? impl_->GetMouseImagePosition(imageX, imageY) : false;
+}
+
+// Pixel info display
+void Window::EnablePixelInfo(bool enable) {
+    if (impl_) impl_->EnablePixelInfo(enable);
+}
+
+bool Window::IsPixelInfoEnabled() const {
+    return impl_ ? impl_->IsPixelInfoEnabled() : false;
 }
 
 // Zoom and pan

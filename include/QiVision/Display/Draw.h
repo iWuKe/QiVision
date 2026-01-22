@@ -380,7 +380,7 @@ public:
      * @param drawPoints Whether to draw edge points
      */
     static void MetrologyModelResult(QImage& image, const Measure::MetrologyModel& model,
-                                     const Scalar& objectColor = Scalar::Yellow(),
+                                     const Scalar& objectColor = Scalar::Cyan(),
                                      const Scalar& resultColor = Scalar::Green(),
                                      const Scalar& pointColor = Scalar::Red(),
                                      bool drawCalipers = true,

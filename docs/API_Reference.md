@@ -2636,7 +2636,7 @@ void MetrologyRectangle(QImage& image, const MetrologyRectangle2Result& result,
 void MetrologyModelResult(
     QImage& image,
     const MetrologyModel& model,
-    const Scalar& objectColor = Scalar::Yellow(),   // 卡尺颜色
+    const Scalar& objectColor = Scalar::Cyan(),     // 卡尺颜色
     const Scalar& resultColor = Scalar::Green(),    // 结果颜色
     const Scalar& pointColor = Scalar::Red(),       // 点颜色（fallback）
     bool drawCalipers = true,

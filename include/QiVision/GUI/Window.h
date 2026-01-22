@@ -324,6 +324,19 @@ public:
     void ResetZoom();
 
     /**
+     * @brief Enable/disable pixel info display in title bar
+     * @param enable If true, shows mouse position and pixel value in title
+     *
+     * When enabled, window title shows: "Title - (x, y) = value"
+     */
+    void EnablePixelInfo(bool enable);
+
+    /**
+     * @brief Check if pixel info display is enabled
+     */
+    bool IsPixelInfoEnabled() const;
+
+    /**
      * @brief Zoom to show specific image region
      * @param row1 Top row
      * @param col1 Left column

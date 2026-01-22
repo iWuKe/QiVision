@@ -37,7 +37,7 @@ namespace fs = std::filesystem;
 // Display interval in milliseconds
 constexpr int32_t DISPLAY_INTERVAL_MS = 1000;
 
-// Get all image files in a directory (excluding result_* files)
+// Get all image files in a directory
 std::vector<std::string> GetImageFiles(const std::string& dir) {
     std::vector<std::string> files;
 
@@ -45,10 +45,6 @@ std::vector<std::string> GetImageFiles(const std::string& dir) {
         if (!entry.is_regular_file()) continue;
 
         std::string filename = entry.path().filename().string();
-
-        // Skip result files
-        if (filename.rfind("result_", 0) == 0) continue;
-
         std::string ext = entry.path().extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 

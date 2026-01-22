@@ -1015,6 +1015,180 @@ void ShapeModelImpl::ExtractModelPointsXLD(const QImage& templateImg, const Angl
     double contrastMax = params_.contrastMax;
     bool useHysteresis = (params_.contrastLow > 0 && params_.contrastLow < params_.contrastHigh);
 
+    // ==========================================================================
+    // HALCON Strategy: Extract edges only at level 0, then scale to other levels
+    // ==========================================================================
+
+    const auto& level0Data = pyramid.GetLevel(0);
+    const auto& level0EdgePoints = pyramid.GetEdgePoints(0);
+
+    // Use original threshold values (not scaled) for level 0
+    double level0ContrastHigh = contrastHigh;
+    double level0ContrastLow = contrastLow;
+    double level0ContrastMax = contrastMax;
+
+    // Debug: pre-hysteresis point count
+    size_t preHysteresisCount = 0;
+    for (const auto& ep : level0EdgePoints) {
+        if (ep.magnitude >= level0ContrastLow && ep.magnitude <= level0ContrastMax) {
+            preHysteresisCount++;
+        }
+    }
+
+    // Step 1: Filter edge points using hysteresis thresholding (at level 0)
+    std::vector<Qi::Vision::Internal::EdgePoint> filteredPoints;
+    filteredPoints.reserve(level0EdgePoints.size());
+
+    if (useHysteresis) {
+        // Build edge map for BFS
+        const double gridSize = 1.5;
+        const double gridSizeSq = gridSize * gridSize;
+
+        std::vector<int32_t> strongIndices;
+        std::vector<int32_t> weakIndices;
+
+        for (size_t i = 0; i < level0EdgePoints.size(); ++i) {
+            const auto& ep = level0EdgePoints[i];
+            if (ep.magnitude > level0ContrastMax) continue;
+
+            if (ep.magnitude >= level0ContrastHigh) {
+                strongIndices.push_back(static_cast<int32_t>(i));
+            } else if (ep.magnitude >= level0ContrastLow) {
+                weakIndices.push_back(static_cast<int32_t>(i));
+            }
+        }
+
+        std::vector<int8_t> keepFlag(level0EdgePoints.size(), 0);
+        for (int32_t idx : strongIndices) {
+            keepFlag[idx] = 1;
+        }
+
+        // Spatial hash for weak points
+        std::unordered_map<int64_t, std::vector<int32_t>> weakGrid;
+        auto toGridKey = [gridSize](double x, double y) -> int64_t {
+            int32_t gx = static_cast<int32_t>(std::floor(x / gridSize));
+            int32_t gy = static_cast<int32_t>(std::floor(y / gridSize));
+            return (static_cast<int64_t>(gx) << 32) | static_cast<uint32_t>(gy);
+        };
+
+        for (int32_t idx : weakIndices) {
+            int64_t key = toGridKey(level0EdgePoints[idx].x, level0EdgePoints[idx].y);
+            weakGrid[key].push_back(idx);
+        }
+
+        // BFS propagation
+        std::queue<int32_t> bfsQueue;
+        for (int32_t idx : strongIndices) {
+            bfsQueue.push(idx);
+        }
+
+        while (!bfsQueue.empty()) {
+            int32_t currentIdx = bfsQueue.front();
+            bfsQueue.pop();
+
+            const auto& currentPt = level0EdgePoints[currentIdx];
+            int32_t gx = static_cast<int32_t>(std::floor(currentPt.x / gridSize));
+            int32_t gy = static_cast<int32_t>(std::floor(currentPt.y / gridSize));
+
+            for (int32_t dy = -1; dy <= 1; ++dy) {
+                for (int32_t dx = -1; dx <= 1; ++dx) {
+                    int64_t neighborKey = (static_cast<int64_t>(gx + dx) << 32) |
+                                           static_cast<uint32_t>(gy + dy);
+
+                    auto it = weakGrid.find(neighborKey);
+                    if (it == weakGrid.end()) continue;
+
+                    for (int32_t weakIdx : it->second) {
+                        if (keepFlag[weakIdx] != 0) continue;
+
+                        double ddx = level0EdgePoints[weakIdx].x - currentPt.x;
+                        double ddy = level0EdgePoints[weakIdx].y - currentPt.y;
+                        if (ddx * ddx + ddy * ddy <= gridSizeSq) {
+                            keepFlag[weakIdx] = 1;
+                            bfsQueue.push(weakIdx);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (size_t i = 0; i < level0EdgePoints.size(); ++i) {
+            if (keepFlag[i] == 1) {
+                filteredPoints.push_back(level0EdgePoints[i]);
+            }
+        }
+    } else {
+        // Simple threshold
+        for (const auto& ep : level0EdgePoints) {
+            if (ep.magnitude >= level0ContrastHigh && ep.magnitude <= level0ContrastMax) {
+                filteredPoints.push_back(ep);
+            }
+        }
+    }
+
+    // Debug: post-hysteresis point count
+    size_t postHysteresisCount = filteredPoints.size();
+
+    // Step 1.5: Component size filtering at level 0 (using original minComponentSize)
+    if (params_.minComponentSize > 1) {
+        filteredPoints = FilterByComponentSize(
+            filteredPoints, level0Data.width, level0Data.height, params_.minComponentSize);
+    }
+
+    // Debug: post-minSize point count
+    size_t postMinSizeCount = filteredPoints.size();
+
+    // Debug output for level 0
+    if (timingParams_.debugCreateModel) {
+        std::printf("[CreateModel] Level 0 (scale=1.000): ");
+        std::printf("thresholds=[%.1f, %.1f], ",
+                    level0ContrastLow, level0ContrastHigh);
+        std::printf("points: pre-hyst=%zu -> post-hyst=%zu -> post-minSize=%zu\n",
+                    preHysteresisCount, postHysteresisCount, postMinSizeCount);
+    }
+
+    // Step 2: Trace into ordered contours (at level 0)
+    auto contours = TraceContoursXLD(filteredPoints, level0Data.width, level0Data.height, MIN_CONTOUR_POINTS);
+
+    // Step 3: Resample and collect points at level 0 (relative to level 0 origin)
+    std::vector<ModelPoint> level0Points;
+    level0Points.reserve(filteredPoints.size());
+
+    std::vector<int32_t> level0ContourStarts;
+    std::vector<bool> level0ContourClosed;
+    level0ContourStarts.reserve(contours.size() + 1);
+    level0ContourClosed.reserve(contours.size());
+
+    double level0OriginX = origin_.x;
+    double level0OriginY = origin_.y;
+
+    for (const auto& contour : contours) {
+        auto resampled = ResampleContourXLD(contour, RESAMPLE_SPACING);
+
+        // Skip short contours after resampling
+        if (static_cast<int32_t>(resampled.Size()) < MIN_CONTOUR_POINTS) continue;
+
+        // Record contour start index
+        level0ContourStarts.push_back(static_cast<int32_t>(level0Points.size()));
+        level0ContourClosed.push_back(resampled.isClosed);
+
+        // Convert to ModelPoints (relative to origin at level 0)
+        for (size_t i = 0; i < resampled.Size(); ++i) {
+            double relX = resampled.x[i] - level0OriginX;
+            double relY = resampled.y[i] - level0OriginY;
+            level0Points.emplace_back(relX, relY, resampled.angles[i],
+                                      resampled.magnitudes[i], resampled.angleBins[i], 1.0);
+        }
+    }
+
+    // Add sentinel value
+    level0ContourStarts.push_back(static_cast<int32_t>(level0Points.size()));
+
+    // ==========================================================================
+    // Step 4: Scale level 0 points to each pyramid level
+    // HALCON strategy: coordinates are scaled, angles remain unchanged
+    // ==========================================================================
+
     for (int32_t level = 0; level < pyramid.NumLevels(); ++level) {
         const auto& levelData = pyramid.GetLevel(level);
         auto& levelModel = levels_[level];
@@ -1023,190 +1197,37 @@ void ShapeModelImpl::ExtractModelPointsXLD(const QImage& templateImg, const Angl
         levelModel.height = levelData.height;
         levelModel.scale = levelData.scale;
 
-        double levelOriginX = origin_.x * levelData.scale;
-        double levelOriginY = origin_.y * levelData.scale;
+        // Scale level 0 points to this level
+        std::vector<ModelPoint> scaledPoints;
+        scaledPoints.reserve(level0Points.size());
 
-        const auto& edgePoints = pyramid.GetEdgePoints(level);
-
-        // Compute level thresholds with fixed floors (HALCON-compatible)
-        constexpr double FLOOR_LOW = 1.0;
-        constexpr double FLOOR_HIGH = 2.0;
-        double levelContrastHigh = std::max(FLOOR_HIGH, contrastHigh * levelData.scale);
-        double levelContrastLow = std::max(FLOOR_LOW, contrastLow * levelData.scale);
-        double levelContrastMax = contrastMax * levelData.scale;
-
-        // Ensure High >= Low (HALCON requirement)
-        if (levelContrastHigh < levelContrastLow) {
-            levelContrastHigh = levelContrastLow;
+        for (const auto& pt : level0Points) {
+            // Coordinates are scaled (relative coordinates scale with image)
+            // Angles remain unchanged
+            // Magnitude scales with image (gradient magnitude decreases with blur)
+            scaledPoints.emplace_back(
+                pt.x * levelData.scale,           // x scaled
+                pt.y * levelData.scale,           // y scaled
+                pt.angle,                          // angle unchanged
+                pt.magnitude * levelData.scale,    // magnitude scaled
+                pt.angleBin,                       // angleBin unchanged
+                pt.weight                          // weight unchanged
+            );
         }
 
-        // Debug: pre-hysteresis point count
-        size_t preHysteresisCount = 0;
-        for (const auto& ep : edgePoints) {
-            if (ep.magnitude >= levelContrastLow && ep.magnitude <= levelContrastMax) {
-                preHysteresisCount++;
-            }
-        }
+        levelModel.points = std::move(scaledPoints);
 
-        // Step 1: Filter edge points using hysteresis thresholding
-        std::vector<Qi::Vision::Internal::EdgePoint> filteredPoints;
-        filteredPoints.reserve(edgePoints.size());
+        // Contour topology is the same for all levels (just indices)
+        levelModel.contourStarts = level0ContourStarts;
+        levelModel.contourClosed = level0ContourClosed;
 
-        if (useHysteresis) {
-            // Build edge map for BFS
-            const double gridSize = 1.5;
-            const double gridSizeSq = gridSize * gridSize;
-
-            std::vector<int32_t> strongIndices;
-            std::vector<int32_t> weakIndices;
-
-            for (size_t i = 0; i < edgePoints.size(); ++i) {
-                const auto& ep = edgePoints[i];
-                if (ep.magnitude > levelContrastMax) continue;
-
-                if (ep.magnitude >= levelContrastHigh) {
-                    strongIndices.push_back(static_cast<int32_t>(i));
-                } else if (ep.magnitude >= levelContrastLow) {
-                    weakIndices.push_back(static_cast<int32_t>(i));
-                }
-            }
-
-            std::vector<int8_t> keepFlag(edgePoints.size(), 0);
-            for (int32_t idx : strongIndices) {
-                keepFlag[idx] = 1;
-            }
-
-            // Spatial hash for weak points
-            std::unordered_map<int64_t, std::vector<int32_t>> weakGrid;
-            auto toGridKey = [gridSize](double x, double y) -> int64_t {
-                int32_t gx = static_cast<int32_t>(std::floor(x / gridSize));
-                int32_t gy = static_cast<int32_t>(std::floor(y / gridSize));
-                return (static_cast<int64_t>(gx) << 32) | static_cast<uint32_t>(gy);
-            };
-
-            for (int32_t idx : weakIndices) {
-                int64_t key = toGridKey(edgePoints[idx].x, edgePoints[idx].y);
-                weakGrid[key].push_back(idx);
-            }
-
-            // BFS propagation
-            std::queue<int32_t> bfsQueue;
-            for (int32_t idx : strongIndices) {
-                bfsQueue.push(idx);
-            }
-
-            while (!bfsQueue.empty()) {
-                int32_t currentIdx = bfsQueue.front();
-                bfsQueue.pop();
-
-                const auto& currentPt = edgePoints[currentIdx];
-                int32_t gx = static_cast<int32_t>(std::floor(currentPt.x / gridSize));
-                int32_t gy = static_cast<int32_t>(std::floor(currentPt.y / gridSize));
-
-                for (int32_t dy = -1; dy <= 1; ++dy) {
-                    for (int32_t dx = -1; dx <= 1; ++dx) {
-                        int64_t neighborKey = (static_cast<int64_t>(gx + dx) << 32) |
-                                               static_cast<uint32_t>(gy + dy);
-
-                        auto it = weakGrid.find(neighborKey);
-                        if (it == weakGrid.end()) continue;
-
-                        for (int32_t weakIdx : it->second) {
-                            if (keepFlag[weakIdx] != 0) continue;
-
-                            double ddx = edgePoints[weakIdx].x - currentPt.x;
-                            double ddy = edgePoints[weakIdx].y - currentPt.y;
-                            if (ddx * ddx + ddy * ddy <= gridSizeSq) {
-                                keepFlag[weakIdx] = 1;
-                                bfsQueue.push(weakIdx);
-                            }
-                        }
-                    }
-                }
-            }
-
-            for (size_t i = 0; i < edgePoints.size(); ++i) {
-                if (keepFlag[i] == 1) {
-                    filteredPoints.push_back(edgePoints[i]);
-                }
-            }
-        } else {
-            // Simple threshold
-            for (const auto& ep : edgePoints) {
-                if (ep.magnitude >= levelContrastHigh && ep.magnitude <= levelContrastMax) {
-                    filteredPoints.push_back(ep);
-                }
-            }
-        }
-
-        // Debug: post-hysteresis point count
-        size_t postHysteresisCount = filteredPoints.size();
-
-        // Step 1.5: Component size filtering (HALCON min_size)
-        // minSize is scaled per level: minSizeLevel = ceil(minSize * scale)
-        if (params_.minComponentSize > 1) {
-            int32_t levelMinSize = static_cast<int32_t>(std::ceil(
-                static_cast<double>(params_.minComponentSize) * levelData.scale));
-            levelMinSize = std::max(1, levelMinSize);
-
-            filteredPoints = FilterByComponentSize(
-                filteredPoints, levelData.width, levelData.height, levelMinSize);
-        }
-
-        // Debug: post-minSize point count
-        size_t postMinSizeCount = filteredPoints.size();
-
-        // Debug output (HALCON inspect_shape_model style)
-        if (timingParams_.debugCreateModel) {
+        // Debug output for higher levels
+        if (timingParams_.debugCreateModel && level > 0) {
             std::printf("[CreateModel] Level %d (scale=%.3f): ", level, levelData.scale);
-            std::printf("thresholds=[%.1f, %.1f], ",
-                        levelContrastLow, levelContrastHigh);
-            std::printf("points: pre-hyst=%zu -> post-hyst=%zu -> post-minSize=%zu\n",
-                        preHysteresisCount, postHysteresisCount, postMinSizeCount);
+            std::printf("scaled from level 0, points=%zu\n", levelModel.points.size());
         }
 
-        // Step 2: Trace into ordered contours
-        auto contours = TraceContoursXLD(filteredPoints, levelData.width, levelData.height, MIN_CONTOUR_POINTS);
-
-        // Step 3: Resample and collect points WITH contour topology
-        std::vector<ModelPoint> allPoints;
-        allPoints.reserve(filteredPoints.size());
-
-        std::vector<int32_t> contourStarts;
-        std::vector<bool> contourClosed;
-        contourStarts.reserve(contours.size() + 1);
-        contourClosed.reserve(contours.size());
-
-        for (const auto& contour : contours) {
-            auto resampled = ResampleContourXLD(contour, RESAMPLE_SPACING);
-
-            // Skip short contours after resampling
-            if (static_cast<int32_t>(resampled.Size()) < MIN_CONTOUR_POINTS) continue;
-
-            // Record contour start index
-            contourStarts.push_back(static_cast<int32_t>(allPoints.size()));
-            contourClosed.push_back(resampled.isClosed);
-
-            // Convert to ModelPoints (relative to origin)
-            for (size_t i = 0; i < resampled.Size(); ++i) {
-                double relX = resampled.x[i] - levelOriginX;
-                double relY = resampled.y[i] - levelOriginY;
-                allPoints.emplace_back(relX, relY, resampled.angles[i],
-                                       resampled.magnitudes[i], resampled.angleBins[i], 1.0);
-            }
-        }
-
-        // Add sentinel value for easy iteration
-        contourStarts.push_back(static_cast<int32_t>(allPoints.size()));
-
-        // NO maxPoints limit - let natural contour structure determine count
-        // This matches Halcon behavior where point counts naturally reduce with pyramid
-
-        levelModel.points = std::move(allPoints);
-        levelModel.contourStarts = std::move(contourStarts);
-        levelModel.contourClosed = std::move(contourClosed);
-
-        // Generate grid points (unique integer coordinates)
+        // Generate grid points (unique integer coordinates at this scale)
         std::set<std::pair<int32_t, int32_t>> uniqueGridCoords;
         std::vector<ModelPoint> gridPts;
         gridPts.reserve(levelModel.points.size());
@@ -1253,6 +1274,186 @@ void ShapeModelImpl::ExtractModelPointsXLDWithRegion(const QImage& templateImg, 
     double contrastMax = params_.contrastMax;
     bool useHysteresis = (params_.contrastLow > 0 && params_.contrastLow < params_.contrastHigh);
 
+    // ==========================================================================
+    // HALCON Strategy: Extract edges only at level 0, then scale to other levels
+    // ==========================================================================
+
+    const auto& level0Data = pyramid.GetLevel(0);
+
+    // Extract all edge points at level 0 with original region (not scaled)
+    constexpr double MINIMAL_THRESHOLD = 0.5;
+    auto allEdgePoints = pyramid.ExtractEdgePoints(0, region, MINIMAL_THRESHOLD);
+
+    // Use original threshold values (not scaled) for level 0
+    double level0ContrastHigh = contrastHigh;
+    double level0ContrastLow = contrastLow;
+    double level0ContrastMax = contrastMax;
+
+    // Filter edge points by low threshold
+    std::vector<Qi::Vision::Internal::EdgePoint> edgePoints;
+    edgePoints.reserve(allEdgePoints.size());
+    for (const auto& ep : allEdgePoints) {
+        if (ep.magnitude >= level0ContrastLow) {
+            edgePoints.push_back(ep);
+        }
+    }
+
+    // Debug: pre-hysteresis point count
+    size_t preHysteresisCount = 0;
+    for (const auto& ep : edgePoints) {
+        if (ep.magnitude >= level0ContrastLow && ep.magnitude <= level0ContrastMax) {
+            preHysteresisCount++;
+        }
+    }
+
+    // Step 1: Filter edge points using hysteresis thresholding (at level 0)
+    std::vector<Qi::Vision::Internal::EdgePoint> filteredPoints;
+    filteredPoints.reserve(edgePoints.size());
+
+    if (useHysteresis) {
+        const double gridSize = 1.5;
+        const double gridSizeSq = gridSize * gridSize;
+
+        std::vector<int32_t> strongIndices;
+        std::vector<int32_t> weakIndices;
+
+        for (size_t i = 0; i < edgePoints.size(); ++i) {
+            const auto& ep = edgePoints[i];
+            if (ep.magnitude > level0ContrastMax) continue;
+
+            if (ep.magnitude >= level0ContrastHigh) {
+                strongIndices.push_back(static_cast<int32_t>(i));
+            } else if (ep.magnitude >= level0ContrastLow) {
+                weakIndices.push_back(static_cast<int32_t>(i));
+            }
+        }
+
+        std::vector<int8_t> keepFlag(edgePoints.size(), 0);
+        for (int32_t idx : strongIndices) {
+            keepFlag[idx] = 1;
+        }
+
+        std::unordered_map<int64_t, std::vector<int32_t>> weakGrid;
+        auto toGridKey = [gridSize](double x, double y) -> int64_t {
+            int32_t gx = static_cast<int32_t>(std::floor(x / gridSize));
+            int32_t gy = static_cast<int32_t>(std::floor(y / gridSize));
+            return (static_cast<int64_t>(gx) << 32) | static_cast<uint32_t>(gy);
+        };
+
+        for (int32_t idx : weakIndices) {
+            int64_t key = toGridKey(edgePoints[idx].x, edgePoints[idx].y);
+            weakGrid[key].push_back(idx);
+        }
+
+        std::queue<int32_t> bfsQueue;
+        for (int32_t idx : strongIndices) {
+            bfsQueue.push(idx);
+        }
+
+        while (!bfsQueue.empty()) {
+            int32_t currentIdx = bfsQueue.front();
+            bfsQueue.pop();
+
+            const auto& currentPt = edgePoints[currentIdx];
+            int32_t gx = static_cast<int32_t>(std::floor(currentPt.x / gridSize));
+            int32_t gy = static_cast<int32_t>(std::floor(currentPt.y / gridSize));
+
+            for (int32_t dy = -1; dy <= 1; ++dy) {
+                for (int32_t dx = -1; dx <= 1; ++dx) {
+                    int64_t neighborKey = (static_cast<int64_t>(gx + dx) << 32) |
+                                           static_cast<uint32_t>(gy + dy);
+
+                    auto it = weakGrid.find(neighborKey);
+                    if (it == weakGrid.end()) continue;
+
+                    for (int32_t weakIdx : it->second) {
+                        if (keepFlag[weakIdx] != 0) continue;
+
+                        double ddx = edgePoints[weakIdx].x - currentPt.x;
+                        double ddy = edgePoints[weakIdx].y - currentPt.y;
+                        if (ddx * ddx + ddy * ddy <= gridSizeSq) {
+                            keepFlag[weakIdx] = 1;
+                            bfsQueue.push(weakIdx);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (size_t i = 0; i < edgePoints.size(); ++i) {
+            if (keepFlag[i] == 1) {
+                filteredPoints.push_back(edgePoints[i]);
+            }
+        }
+    } else {
+        for (const auto& ep : edgePoints) {
+            if (ep.magnitude >= level0ContrastHigh && ep.magnitude <= level0ContrastMax) {
+                filteredPoints.push_back(ep);
+            }
+        }
+    }
+
+    // Debug: post-hysteresis point count
+    size_t postHysteresisCount = filteredPoints.size();
+
+    // Step 1.5: Component size filtering at level 0 (using original minComponentSize)
+    if (params_.minComponentSize > 1) {
+        filteredPoints = FilterByComponentSize(
+            filteredPoints, level0Data.width, level0Data.height, params_.minComponentSize);
+    }
+
+    // Debug: post-minSize point count
+    size_t postMinSizeCount = filteredPoints.size();
+
+    // Debug output for level 0
+    if (timingParams_.debugCreateModel) {
+        std::printf("[CreateModel] Level 0 (scale=1.000): ");
+        std::printf("thresholds=[%.1f, %.1f], ",
+                    level0ContrastLow, level0ContrastHigh);
+        std::printf("points: pre-hyst=%zu -> post-hyst=%zu -> post-minSize=%zu\n",
+                    preHysteresisCount, postHysteresisCount, postMinSizeCount);
+    }
+
+    // Step 2: Trace into ordered contours (at level 0)
+    auto contours = TraceContoursXLD(filteredPoints, level0Data.width, level0Data.height, MIN_CONTOUR_POINTS);
+
+    // Step 3: Resample and collect points at level 0 (relative to level 0 origin)
+    std::vector<ModelPoint> level0Points;
+    level0Points.reserve(filteredPoints.size());
+
+    std::vector<int32_t> level0ContourStarts;
+    std::vector<bool> level0ContourClosed;
+    level0ContourStarts.reserve(contours.size() + 1);
+    level0ContourClosed.reserve(contours.size());
+
+    double level0OriginX = origin_.x;
+    double level0OriginY = origin_.y;
+
+    for (const auto& contour : contours) {
+        auto resampled = ResampleContourXLD(contour, RESAMPLE_SPACING);
+
+        if (static_cast<int32_t>(resampled.Size()) < MIN_CONTOUR_POINTS) continue;
+
+        // Record contour start index
+        level0ContourStarts.push_back(static_cast<int32_t>(level0Points.size()));
+        level0ContourClosed.push_back(resampled.isClosed);
+
+        for (size_t i = 0; i < resampled.Size(); ++i) {
+            double relX = resampled.x[i] - level0OriginX;
+            double relY = resampled.y[i] - level0OriginY;
+            level0Points.emplace_back(relX, relY, resampled.angles[i],
+                                      resampled.magnitudes[i], resampled.angleBins[i], 1.0);
+        }
+    }
+
+    // Add sentinel value
+    level0ContourStarts.push_back(static_cast<int32_t>(level0Points.size()));
+
+    // ==========================================================================
+    // Step 4: Scale level 0 points to each pyramid level
+    // HALCON strategy: coordinates are scaled, angles remain unchanged
+    // ==========================================================================
+
     for (int32_t level = 0; level < pyramid.NumLevels(); ++level) {
         const auto& levelData = pyramid.GetLevel(level);
         auto& levelModel = levels_[level];
@@ -1261,193 +1462,32 @@ void ShapeModelImpl::ExtractModelPointsXLDWithRegion(const QImage& templateImg, 
         levelModel.height = levelData.height;
         levelModel.scale = levelData.scale;
 
-        double levelOriginX = origin_.x * levelData.scale;
-        double levelOriginY = origin_.y * levelData.scale;
+        // Scale level 0 points to this level
+        std::vector<ModelPoint> scaledPoints;
+        scaledPoints.reserve(level0Points.size());
 
-        // Scale region for this pyramid level
-        QRegion scaledRegion = region.Scale(levelData.scale, levelData.scale);
-
-        // Extract all edge points with minimal threshold for noise estimation
-        constexpr double MINIMAL_THRESHOLD = 0.5;
-        auto allEdgePoints = pyramid.ExtractEdgePoints(level, scaledRegion, MINIMAL_THRESHOLD);
-
-        // Compute level thresholds with fixed floors (HALCON-compatible)
-        constexpr double FLOOR_LOW = 1.0;
-        constexpr double FLOOR_HIGH = 2.0;
-        double levelContrastHigh = std::max(FLOOR_HIGH, contrastHigh * levelData.scale);
-        double levelContrastLow = std::max(FLOOR_LOW, contrastLow * levelData.scale);
-        double levelContrastMax = contrastMax * levelData.scale;
-
-        // Ensure High >= Low (HALCON requirement)
-        if (levelContrastHigh < levelContrastLow) {
-            levelContrastHigh = levelContrastLow;
+        for (const auto& pt : level0Points) {
+            scaledPoints.emplace_back(
+                pt.x * levelData.scale,           // x scaled
+                pt.y * levelData.scale,           // y scaled
+                pt.angle,                          // angle unchanged
+                pt.magnitude * levelData.scale,    // magnitude scaled
+                pt.angleBin,                       // angleBin unchanged
+                pt.weight                          // weight unchanged
+            );
         }
 
-        // Filter edge points by low threshold
-        std::vector<Qi::Vision::Internal::EdgePoint> edgePoints;
-        edgePoints.reserve(allEdgePoints.size());
-        for (const auto& ep : allEdgePoints) {
-            if (ep.magnitude >= levelContrastLow) {
-                edgePoints.push_back(ep);
-            }
-        }
+        levelModel.points = std::move(scaledPoints);
 
-        // Debug: pre-hysteresis point count
-        size_t preHysteresisCount = 0;
-        for (const auto& ep : edgePoints) {
-            if (ep.magnitude >= levelContrastLow && ep.magnitude <= levelContrastMax) {
-                preHysteresisCount++;
-            }
-        }
+        // Contour topology is the same for all levels
+        levelModel.contourStarts = level0ContourStarts;
+        levelModel.contourClosed = level0ContourClosed;
 
-        // Step 1: Filter edge points using hysteresis thresholding
-        std::vector<Qi::Vision::Internal::EdgePoint> filteredPoints;
-        filteredPoints.reserve(edgePoints.size());
-
-        if (useHysteresis) {
-            const double gridSize = 1.5;
-            const double gridSizeSq = gridSize * gridSize;
-
-            std::vector<int32_t> strongIndices;
-            std::vector<int32_t> weakIndices;
-
-            for (size_t i = 0; i < edgePoints.size(); ++i) {
-                const auto& ep = edgePoints[i];
-                if (ep.magnitude > levelContrastMax) continue;
-
-                if (ep.magnitude >= levelContrastHigh) {
-                    strongIndices.push_back(static_cast<int32_t>(i));
-                } else if (ep.magnitude >= levelContrastLow) {
-                    weakIndices.push_back(static_cast<int32_t>(i));
-                }
-            }
-
-            std::vector<int8_t> keepFlag(edgePoints.size(), 0);
-            for (int32_t idx : strongIndices) {
-                keepFlag[idx] = 1;
-            }
-
-            std::unordered_map<int64_t, std::vector<int32_t>> weakGrid;
-            auto toGridKey = [gridSize](double x, double y) -> int64_t {
-                int32_t gx = static_cast<int32_t>(std::floor(x / gridSize));
-                int32_t gy = static_cast<int32_t>(std::floor(y / gridSize));
-                return (static_cast<int64_t>(gx) << 32) | static_cast<uint32_t>(gy);
-            };
-
-            for (int32_t idx : weakIndices) {
-                int64_t key = toGridKey(edgePoints[idx].x, edgePoints[idx].y);
-                weakGrid[key].push_back(idx);
-            }
-
-            std::queue<int32_t> bfsQueue;
-            for (int32_t idx : strongIndices) {
-                bfsQueue.push(idx);
-            }
-
-            while (!bfsQueue.empty()) {
-                int32_t currentIdx = bfsQueue.front();
-                bfsQueue.pop();
-
-                const auto& currentPt = edgePoints[currentIdx];
-                int32_t gx = static_cast<int32_t>(std::floor(currentPt.x / gridSize));
-                int32_t gy = static_cast<int32_t>(std::floor(currentPt.y / gridSize));
-
-                for (int32_t dy = -1; dy <= 1; ++dy) {
-                    for (int32_t dx = -1; dx <= 1; ++dx) {
-                        int64_t neighborKey = (static_cast<int64_t>(gx + dx) << 32) |
-                                               static_cast<uint32_t>(gy + dy);
-
-                        auto it = weakGrid.find(neighborKey);
-                        if (it == weakGrid.end()) continue;
-
-                        for (int32_t weakIdx : it->second) {
-                            if (keepFlag[weakIdx] != 0) continue;
-
-                            double ddx = edgePoints[weakIdx].x - currentPt.x;
-                            double ddy = edgePoints[weakIdx].y - currentPt.y;
-                            if (ddx * ddx + ddy * ddy <= gridSizeSq) {
-                                keepFlag[weakIdx] = 1;
-                                bfsQueue.push(weakIdx);
-                            }
-                        }
-                    }
-                }
-            }
-
-            for (size_t i = 0; i < edgePoints.size(); ++i) {
-                if (keepFlag[i] == 1) {
-                    filteredPoints.push_back(edgePoints[i]);
-                }
-            }
-        } else {
-            for (const auto& ep : edgePoints) {
-                if (ep.magnitude >= levelContrastHigh && ep.magnitude <= levelContrastMax) {
-                    filteredPoints.push_back(ep);
-                }
-            }
-        }
-
-        // Debug: post-hysteresis point count
-        size_t postHysteresisCount = filteredPoints.size();
-
-        // Step 1.5: Component size filtering (HALCON min_size)
-        // minSize is scaled per level: minSizeLevel = ceil(minSize * scale)
-        if (params_.minComponentSize > 1) {
-            int32_t levelMinSize = static_cast<int32_t>(std::ceil(
-                static_cast<double>(params_.minComponentSize) * levelData.scale));
-            levelMinSize = std::max(1, levelMinSize);
-
-            filteredPoints = FilterByComponentSize(
-                filteredPoints, levelData.width, levelData.height, levelMinSize);
-        }
-
-        // Debug: post-minSize point count
-        size_t postMinSizeCount = filteredPoints.size();
-
-        // Debug output (HALCON inspect_shape_model style)
-        if (timingParams_.debugCreateModel) {
+        // Debug output for higher levels
+        if (timingParams_.debugCreateModel && level > 0) {
             std::printf("[CreateModel] Level %d (scale=%.3f): ", level, levelData.scale);
-            std::printf("thresholds=[%.1f, %.1f], ",
-                        levelContrastLow, levelContrastHigh);
-            std::printf("points: pre-hyst=%zu -> post-hyst=%zu -> post-minSize=%zu\n",
-                        preHysteresisCount, postHysteresisCount, postMinSizeCount);
+            std::printf("scaled from level 0, points=%zu\n", levelModel.points.size());
         }
-
-        // Step 2: Trace into ordered contours
-        auto contours = TraceContoursXLD(filteredPoints, levelData.width, levelData.height, MIN_CONTOUR_POINTS);
-
-        // Step 3: Resample and collect points WITH contour topology
-        std::vector<ModelPoint> allPoints;
-        allPoints.reserve(filteredPoints.size());
-
-        std::vector<int32_t> contourStarts;
-        std::vector<bool> contourClosed;
-        contourStarts.reserve(contours.size() + 1);
-        contourClosed.reserve(contours.size());
-
-        for (const auto& contour : contours) {
-            auto resampled = ResampleContourXLD(contour, RESAMPLE_SPACING);
-
-            if (static_cast<int32_t>(resampled.Size()) < MIN_CONTOUR_POINTS) continue;
-
-            // Record contour start index
-            contourStarts.push_back(static_cast<int32_t>(allPoints.size()));
-            contourClosed.push_back(resampled.isClosed);
-
-            for (size_t i = 0; i < resampled.Size(); ++i) {
-                double relX = resampled.x[i] - levelOriginX;
-                double relY = resampled.y[i] - levelOriginY;
-                allPoints.emplace_back(relX, relY, resampled.angles[i],
-                                       resampled.magnitudes[i], resampled.angleBins[i], 1.0);
-            }
-        }
-
-        // Add sentinel value for easy iteration
-        contourStarts.push_back(static_cast<int32_t>(allPoints.size()));
-
-        levelModel.points = std::move(allPoints);
-        levelModel.contourStarts = std::move(contourStarts);
-        levelModel.contourClosed = std::move(contourClosed);
 
         // Generate grid points
         std::set<std::pair<int32_t, int32_t>> uniqueGridCoords;

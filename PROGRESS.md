@@ -247,6 +247,23 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-01-23 (Draw Region API 和 Blob 示例)
+
+- **Draw 模块新增 Region 绘制 API**
+  - `Draw::Region`: 填充绘制 QRegion
+  - `Draw::RegionContour`: 绘制区域轮廓（边界像素）
+  - `Draw::RegionAlpha`: 半透明填充区域
+  - 支持 RGB 和灰度图像
+
+- **新增 Blob 分析示例程序**
+  - `samples/blob/blob_analysis.cpp`: Blob 分析演示
+  - 功能: 阈值分割、连通组件、形状特征、区域筛选、排序
+  - 可视化: 半透明填充、轮廓绘制、圆形检测、孔洞检测
+  - 键盘交互: Q/A/W/S 调整阈值, P 打印特征, ESC 退出
+
+- **文档更新**
+  - `docs/API_Reference.md`: 添加 7.9 Region 绘制小节
+
 ### 2026-01-22 (缩放匹配功能)
 
 - **FindScaledShapeModel 实现** ✅

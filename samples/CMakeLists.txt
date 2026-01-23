@@ -20,10 +20,14 @@ add_sample(matching_test_scaled_match matching/test_scaled_match.cpp)
 # Measure - Metrology
 add_sample(measure_circle_metrology measure/circle_metrology.cpp)
 
+# Blob - Blob analysis
+add_sample(blob_analysis blob/blob_analysis.cpp)
+
 # Build all samples
 add_custom_target(samples DEPENDS
     matching_shape_match
     matching_test_create_model
     matching_test_scaled_match
     measure_circle_metrology
+    blob_analysis
 )

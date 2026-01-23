@@ -11,6 +11,7 @@
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/Types.h>
 #include <QiVision/Core/QContour.h>
+#include <QiVision/Core/QRegion.h>
 #include <QiVision/Matching/MatchTypes.h>
 
 #include <cmath>
@@ -299,6 +300,47 @@ public:
      */
     static void Contour(QImage& image, const QContour& contour,
                         const Scalar& color, int32_t thickness = 1);
+
+    // =========================================================================
+    // Region Drawing
+    // =========================================================================
+
+    /**
+     * @brief Fill a region with color
+     *
+     * Equivalent to Halcon's paint_region operator.
+     *
+     * @param image Target image (must be RGB or will be drawn as grayscale)
+     * @param region Region to fill
+     * @param color Fill color
+     */
+    static void Region(QImage& image, const QRegion& region, const Scalar& color);
+
+    /**
+     * @brief Draw region boundary/contour
+     *
+     * Draws only the outline of the region, not filled.
+     *
+     * @param image Target image
+     * @param region Region whose boundary to draw
+     * @param color Line color
+     * @param thickness Line thickness (1 = single pixel boundary)
+     */
+    static void RegionContour(QImage& image, const QRegion& region,
+                              const Scalar& color, int32_t thickness = 1);
+
+    /**
+     * @brief Fill a region with semi-transparent color overlay
+     *
+     * Blends the color with existing image pixels.
+     *
+     * @param image Target image
+     * @param region Region to fill
+     * @param color Fill color
+     * @param alpha Transparency (0.0 = fully transparent, 1.0 = fully opaque)
+     */
+    static void RegionAlpha(QImage& image, const QRegion& region,
+                            const Scalar& color, double alpha);
 
     /**
      * @brief Draw edge points with cross markers

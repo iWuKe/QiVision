@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <unordered_map>
 
 namespace Qi::Vision {
 
@@ -807,6 +808,133 @@ void Draw::Contour(QImage& image, const QContour& contour,
     // Close contour if it's closed
     if (contour.IsClosed() && points.size() >= 3) {
         Line(image, points.back(), points.front(), color, thickness);
+    }
+}
+
+// =============================================================================
+// Region Drawing
+// =============================================================================
+
+void Draw::Region(QImage& image, const QRegion& region, const Scalar& color) {
+    if (region.Empty() || image.Empty()) return;
+
+    uint8_t* data = static_cast<uint8_t*>(image.Data());
+    int32_t stride = image.Stride();
+    int32_t channels = image.Channels();
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+
+    for (const auto& run : region.Runs()) {
+        int32_t y = run.row;
+        if (y < 0 || y >= height) continue;
+
+        int32_t x1 = std::max(0, run.colBegin);
+        int32_t x2 = std::min(width - 1, run.colEnd);
+
+        uint8_t* row = data + y * stride;
+        for (int32_t x = x1; x <= x2; ++x) {
+            if (channels >= 3) {
+                row[x * channels + 0] = color.r;
+                row[x * channels + 1] = color.g;
+                row[x * channels + 2] = color.b;
+            } else {
+                row[x] = static_cast<uint8_t>((color.r + color.g + color.b) / 3);
+            }
+        }
+    }
+}
+
+void Draw::RegionContour(QImage& image, const QRegion& region,
+                         const Scalar& color, int32_t thickness) {
+    if (region.Empty() || image.Empty()) return;
+
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+
+    // Build a quick lookup for region pixels
+    std::unordered_map<int32_t, std::vector<std::pair<int32_t, int32_t>>> rowRanges;
+    for (const auto& run : region.Runs()) {
+        rowRanges[run.row].emplace_back(run.colBegin, run.colEnd);
+    }
+
+    auto isInRegion = [&rowRanges](int32_t r, int32_t c) -> bool {
+        auto it = rowRanges.find(r);
+        if (it == rowRanges.end()) return false;
+        for (const auto& range : it->second) {
+            if (c >= range.first && c <= range.second) return true;
+        }
+        return false;
+    };
+
+    // Find and draw boundary pixels
+    for (const auto& run : region.Runs()) {
+        int32_t y = run.row;
+        if (y < 0 || y >= height) continue;
+
+        for (int32_t x = run.colBegin; x <= run.colEnd; ++x) {
+            if (x < 0 || x >= width) continue;
+
+            // Check if this is a boundary pixel
+            bool isBoundary = false;
+            for (int dy = -1; dy <= 1 && !isBoundary; ++dy) {
+                for (int dx = -1; dx <= 1 && !isBoundary; ++dx) {
+                    if (dx == 0 && dy == 0) continue;
+                    int32_t ny = y + dy;
+                    int32_t nx = x + dx;
+                    if (ny < 0 || ny >= height || nx < 0 || nx >= width) {
+                        isBoundary = true;
+                    } else if (!isInRegion(ny, nx)) {
+                        isBoundary = true;
+                    }
+                }
+            }
+
+            if (isBoundary) {
+                if (thickness == 1) {
+                    Pixel(image, x, y, color);
+                } else {
+                    FilledCircle(image, x, y, thickness / 2, color);
+                }
+            }
+        }
+    }
+}
+
+void Draw::RegionAlpha(QImage& image, const QRegion& region,
+                       const Scalar& color, double alpha) {
+    if (region.Empty() || image.Empty()) return;
+    if (alpha <= 0.0) return;
+    if (alpha >= 1.0) {
+        Region(image, region, color);
+        return;
+    }
+
+    uint8_t* data = static_cast<uint8_t*>(image.Data());
+    int32_t stride = image.Stride();
+    int32_t channels = image.Channels();
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+
+    double invAlpha = 1.0 - alpha;
+
+    for (const auto& run : region.Runs()) {
+        int32_t y = run.row;
+        if (y < 0 || y >= height) continue;
+
+        int32_t x1 = std::max(0, run.colBegin);
+        int32_t x2 = std::min(width - 1, run.colEnd);
+
+        uint8_t* row = data + y * stride;
+        for (int32_t x = x1; x <= x2; ++x) {
+            if (channels >= 3) {
+                row[x * channels + 0] = static_cast<uint8_t>(row[x * channels + 0] * invAlpha + color.r * alpha);
+                row[x * channels + 1] = static_cast<uint8_t>(row[x * channels + 1] * invAlpha + color.g * alpha);
+                row[x * channels + 2] = static_cast<uint8_t>(row[x * channels + 2] * invAlpha + color.b * alpha);
+            } else {
+                uint8_t gray = static_cast<uint8_t>((color.r + color.g + color.b) / 3);
+                row[x] = static_cast<uint8_t>(row[x] * invAlpha + gray * alpha);
+            }
+        }
     }
 }
 

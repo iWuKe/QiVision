@@ -2567,7 +2567,56 @@ void DispText(
 
 ---
 
-### 7.9 高级绘图函数
+### 7.9 Region 绘制
+
+**头文件**: `<QiVision/Display/Draw.h>`
+
+区域（QRegion）绘制函数。
+
+```cpp
+// 填充绘制区域
+void Draw::Region(
+    QImage& image,
+    const QRegion& region,
+    const Scalar& color
+);
+
+// 绘制区域轮廓（边界像素）
+void Draw::RegionContour(
+    QImage& image,
+    const QRegion& region,
+    const Scalar& color,
+    int32_t thickness = 1       // 轮廓厚度
+);
+
+// 半透明填充区域
+void Draw::RegionAlpha(
+    QImage& image,
+    const QRegion& region,
+    const Scalar& color,
+    double alpha                // 透明度 [0.0-1.0]
+);
+```
+
+**示例**:
+```cpp
+#include <QiVision/Display/Draw.h>
+#include <QiVision/Blob/Blob.h>
+
+// 获取 blob
+std::vector<QRegion> blobs;
+Blob::Connection(region, blobs);
+
+// 半透明绿色填充
+Draw::RegionAlpha(display, blobs[0], Scalar(0, 200, 0), 0.5);
+
+// 黄色轮廓
+Draw::RegionContour(display, blobs[0], Scalar(255, 255, 0), 2);
+```
+
+---
+
+### 7.10 高级绘图函数
 
 ```cpp
 // 绘制匹配结果（十字 + 角度指示器）

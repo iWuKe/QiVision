@@ -77,59 +77,6 @@ enum class LightDark {
     NotEqual        ///< Select pixels different from reference
 };
 
-// =============================================================================
-// Parameters
-// =============================================================================
-
-/**
- * @brief Adaptive threshold parameters
- */
-struct AdaptiveParams {
-    AdaptiveMethod method = AdaptiveMethod::Mean;
-    int32_t blockSize = 11;     ///< Block size (must be odd)
-    double C = 2.0;             ///< Constant to subtract
-    double k = 0.5;             ///< k for Sauvola/Niblack
-    double R = 128.0;           ///< R for Sauvola
-    double maxValue = 255.0;    ///< Max value for binary output
-
-    /// Factory for mean adaptive threshold
-    static AdaptiveParams Mean(int32_t blockSz = 11, double c = 2.0) {
-        AdaptiveParams p;
-        p.method = AdaptiveMethod::Mean;
-        p.blockSize = blockSz;
-        p.C = c;
-        return p;
-    }
-
-    /// Factory for Gaussian adaptive threshold
-    static AdaptiveParams Gaussian(int32_t blockSz = 11, double c = 2.0) {
-        AdaptiveParams p;
-        p.method = AdaptiveMethod::Gaussian;
-        p.blockSize = blockSz;
-        p.C = c;
-        return p;
-    }
-
-    /// Factory for Sauvola threshold
-    static AdaptiveParams Sauvola(int32_t blockSz = 11, double k = 0.5, double R = 128.0) {
-        AdaptiveParams p;
-        p.method = AdaptiveMethod::Sauvola;
-        p.blockSize = blockSz;
-        p.k = k;
-        p.R = R;
-        return p;
-    }
-
-    /// Factory for Niblack threshold
-    static AdaptiveParams Niblack(int32_t blockSz = 11, double k = -0.2) {
-        AdaptiveParams p;
-        p.method = AdaptiveMethod::Niblack;
-        p.blockSize = blockSz;
-        p.k = k;
-        return p;
-    }
-};
-
 /**
  * @brief Result of dual threshold operation
  */
@@ -267,27 +214,6 @@ double ComputeAutoThreshold(const QImage& src, AutoMethod method = AutoMethod::O
  *
  * @param src Input grayscale image
  * @param dst Output binary image
- * @param params Adaptive threshold parameters
- *
- * @code
- * QImage binary;
- * ThresholdAdaptive(image, binary, AdaptiveParams::Sauvola(15, 0.3));
- * @endcode
- */
-void ThresholdAdaptive(const QImage& src, QImage& dst,
-                       const AdaptiveParams& params);
-
-/**
- * @brief Apply adaptive threshold (return version)
- */
-QImage ThresholdAdaptive(const QImage& src,
-                         const AdaptiveParams& params);
-
-/**
- * @brief Adaptive threshold with simple parameters
- *
- * @param src Input image
- * @param dst Output image
  * @param method Adaptive method
  * @param blockSize Block size (odd number)
  * @param C Constant to subtract from mean
@@ -489,9 +415,14 @@ QRegion DynThresholdWithDomain(const QImage& image, const QImage& reference,
 
 /**
  * @brief Adaptive threshold to region with Domain support
+ *
+ * @param image Input image with Domain
+ * @param method Adaptive method
+ * @param blockSize Block size (odd number)
+ * @param C Constant to subtract from mean
  */
 QRegion ThresholdAdaptiveToRegion(const QImage& image,
-                                   const AdaptiveParams& params);
+                                   AdaptiveMethod method, int32_t blockSize, double C);
 
 // =============================================================================
 // Binary Image Operations

@@ -61,19 +61,6 @@ enum class ImageFormat {
 // =============================================================================
 
 /**
- * @brief JPEG/PNG compression parameters
- */
-struct CompressionParams {
-    int32_t jpegQuality = 95;       ///< JPEG quality [0-100]
-    int32_t pngCompression = 6;     ///< PNG compression level [0-9]
-    bool tiffCompression = true;    ///< Enable TIFF LZW compression
-
-    CompressionParams& SetJpegQuality(int32_t q) { jpegQuality = q; return *this; }
-    CompressionParams& SetPngCompression(int32_t c) { pngCompression = c; return *this; }
-    CompressionParams& SetTiffCompression(bool c) { tiffCompression = c; return *this; }
-};
-
-/**
  * @brief Image metadata structure
  */
 struct ImageMetadata {
@@ -91,24 +78,6 @@ struct ImageMetadata {
     std::string description;        ///< Image description
     std::string software;           ///< Creating software
     std::string dateTime;           ///< Creation date/time
-};
-
-/**
- * @brief Raw image read parameters
- */
-struct RawReadParams {
-    int32_t width = 0;              ///< Image width (required)
-    int32_t height = 0;             ///< Image height (required)
-    PixelType pixelType = PixelType::UInt8;
-    ChannelType channelType = ChannelType::Gray;
-    int32_t headerBytes = 0;        ///< Skip header bytes
-    bool bigEndian = false;         ///< Byte order for >8-bit
-
-    RawReadParams& SetSize(int32_t w, int32_t h) { width = w; height = h; return *this; }
-    RawReadParams& SetPixelType(PixelType t) { pixelType = t; return *this; }
-    RawReadParams& SetChannelType(ChannelType t) { channelType = t; return *this; }
-    RawReadParams& SetHeader(int32_t bytes) { headerBytes = bytes; return *this; }
-    RawReadParams& SetBigEndian(bool be) { bigEndian = be; return *this; }
 };
 
 // =============================================================================
@@ -141,16 +110,7 @@ void ReadImage(const std::string& filename, QImage& image);
 void ReadImage(const std::string& filename, QImage& image, ImageFormat format);
 
 /**
- * @brief Read raw binary image data (struct version)
- *
- * @param filename Input file path
- * @param[out] image Loaded image
- * @param params Raw read parameters (width, height, type required)
- */
-void ReadImageRaw(const std::string& filename, QImage& image, const RawReadParams& params);
-
-/**
- * @brief Read raw binary image data (direct params - Halcon/OpenCV style)
+ * @brief Read raw binary image data
  *
  * @param filename Input file path
  * @param[out] image Loaded image
@@ -215,18 +175,6 @@ void ReadImageGray(const std::string& filename, QImage& image);
  * @endcode
  */
 bool WriteImage(const QImage& image, const std::string& filename);
-
-/**
- * @brief Write image with format and compression parameters (struct version)
- *
- * @param image Image to write
- * @param filename Output file path
- * @param format Output format (Auto = detect from extension)
- * @param params Compression parameters
- * @return true if successful
- */
-bool WriteImage(const QImage& image, const std::string& filename,
-                ImageFormat format, const CompressionParams& params);
 
 /**
  * @brief Write image with format and parameters (OpenCV imwrite style)
@@ -299,13 +247,13 @@ void ReadDirectory(const std::string& directory,
  * @param images Vector of images to write
  * @param pattern File pattern with printf-style placeholder
  * @param startIndex Starting index
- * @param params Compression parameters
+ * @param params Optional key-value pairs: {QIWRITE_JPEG_QUALITY, 85, ...}
  * @return Number of images successfully written
  */
 int32_t WriteSequence(const std::vector<QImage>& images,
                        const std::string& pattern,
                        int32_t startIndex = 0,
-                       const CompressionParams& params = CompressionParams());
+                       const std::vector<int>& params = {});
 
 // =============================================================================
 // Format Utility Functions

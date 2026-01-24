@@ -60,17 +60,6 @@ Internal::LightDark ToInternal(LightDark ld) {
     return Internal::LightDark::Light;
 }
 
-Internal::AdaptiveThresholdParams ToInternal(const AdaptiveParams& params) {
-    Internal::AdaptiveThresholdParams p;
-    p.method = ToInternal(params.method);
-    p.blockSize = params.blockSize;
-    p.C = params.C;
-    p.k = params.k;
-    p.R = params.R;
-    p.maxValue = params.maxValue;
-    return p;
-}
-
 } // anonymous namespace
 
 // =============================================================================
@@ -149,22 +138,12 @@ double ComputeAutoThreshold(const QImage& src, AutoMethod method) {
 // =============================================================================
 
 void ThresholdAdaptive(const QImage& src, QImage& dst,
-                       const AdaptiveParams& params) {
-    Internal::ThresholdAdaptive(src, dst, ToInternal(params));
-}
-
-QImage ThresholdAdaptive(const QImage& src,
-                         const AdaptiveParams& params) {
-    return Internal::ThresholdAdaptive(src, ToInternal(params));
-}
-
-void ThresholdAdaptive(const QImage& src, QImage& dst,
                        AdaptiveMethod method, int32_t blockSize, double C) {
-    AdaptiveParams params;
-    params.method = method;
+    Internal::AdaptiveThresholdParams params;
+    params.method = ToInternal(method);
     params.blockSize = blockSize;
     params.C = C;
-    Internal::ThresholdAdaptive(src, dst, ToInternal(params));
+    Internal::ThresholdAdaptive(src, dst, params);
 }
 
 // =============================================================================
@@ -255,8 +234,12 @@ QRegion DynThresholdWithDomain(const QImage& image, const QImage& reference,
 }
 
 QRegion ThresholdAdaptiveToRegion(const QImage& image,
-                                   const AdaptiveParams& params) {
-    return Internal::ThresholdAdaptiveToRegion(image, ToInternal(params));
+                                   AdaptiveMethod method, int32_t blockSize, double C) {
+    Internal::AdaptiveThresholdParams params;
+    params.method = ToInternal(method);
+    params.blockSize = blockSize;
+    params.C = C;
+    return Internal::ThresholdAdaptiveToRegion(image, params);
 }
 
 // =============================================================================

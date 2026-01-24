@@ -24,6 +24,20 @@ double NormalizeAngle(double angle) {
     return angle;
 }
 
+// Internal parameters structure (not exposed in public API)
+struct CaliperArrayParams {
+    double profileLength = 50.0;
+    double handleWidth = 10.0;
+    int32_t caliperCount = DEFAULT_CALIPER_COUNT;
+    double caliperSpacing = DEFAULT_CALIPER_SPACING;
+    bool profilePerpendicular = true;
+    int32_t numLines = DEFAULT_NUM_LINES;
+    double samplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
+    double pathOffset = 0.0;
+    double startRatio = 0.0;
+    double endRatio = 1.0;
+};
+
 } // anonymous namespace
 
 // =============================================================================
@@ -433,11 +447,6 @@ CaliperArray& CaliperArray::operator=(const CaliperArray& other) {
 CaliperArray& CaliperArray::operator=(CaliperArray&& other) noexcept = default;
 
 bool CaliperArray::CreateAlongLine(const Point2d& p1, const Point2d& p2,
-                                    const CaliperArrayParams& params) {
-    return impl_->GenerateLineHandles(p1, p2, params);
-}
-
-bool CaliperArray::CreateAlongLine(const Point2d& p1, const Point2d& p2,
                                     int32_t caliperCount,
                                     double profileLength,
                                     double handleWidth) {
@@ -445,12 +454,7 @@ bool CaliperArray::CreateAlongLine(const Point2d& p1, const Point2d& p2,
     params.caliperCount = caliperCount;
     params.profileLength = profileLength;
     params.handleWidth = handleWidth;
-    return CreateAlongLine(p1, p2, params);
-}
-
-bool CaliperArray::CreateAlongLine(const Segment2d& segment,
-                                    const CaliperArrayParams& params) {
-    return CreateAlongLine(segment.p1, segment.p2, params);
+    return impl_->GenerateLineHandles(p1, p2, params);
 }
 
 bool CaliperArray::CreateAlongLine(const Segment2d& segment,
@@ -462,12 +466,6 @@ bool CaliperArray::CreateAlongLine(const Segment2d& segment,
 
 bool CaliperArray::CreateAlongArc(const Point2d& center, double radius,
                                    double startAngle, double sweepAngle,
-                                   const CaliperArrayParams& params) {
-    return impl_->GenerateArcHandles(center, radius, startAngle, sweepAngle, params);
-}
-
-bool CaliperArray::CreateAlongArc(const Point2d& center, double radius,
-                                   double startAngle, double sweepAngle,
                                    int32_t caliperCount,
                                    double profileLength,
                                    double handleWidth) {
@@ -475,12 +473,7 @@ bool CaliperArray::CreateAlongArc(const Point2d& center, double radius,
     params.caliperCount = caliperCount;
     params.profileLength = profileLength;
     params.handleWidth = handleWidth;
-    return CreateAlongArc(center, radius, startAngle, sweepAngle, params);
-}
-
-bool CaliperArray::CreateAlongArc(const Arc2d& arc,
-                                   const CaliperArrayParams& params) {
-    return CreateAlongArc(arc.center, arc.radius, arc.startAngle, arc.sweepAngle, params);
+    return impl_->GenerateArcHandles(center, radius, startAngle, sweepAngle, params);
 }
 
 bool CaliperArray::CreateAlongArc(const Arc2d& arc,
@@ -492,11 +485,6 @@ bool CaliperArray::CreateAlongArc(const Arc2d& arc,
 }
 
 bool CaliperArray::CreateAlongCircle(const Point2d& center, double radius,
-                                      const CaliperArrayParams& params) {
-    return impl_->GenerateArcHandles(center, radius, 0.0, 2.0 * PI, params);
-}
-
-bool CaliperArray::CreateAlongCircle(const Point2d& center, double radius,
                                       int32_t caliperCount,
                                       double profileLength,
                                       double handleWidth) {
@@ -504,12 +492,7 @@ bool CaliperArray::CreateAlongCircle(const Point2d& center, double radius,
     params.caliperCount = caliperCount;
     params.profileLength = profileLength;
     params.handleWidth = handleWidth;
-    return CreateAlongCircle(center, radius, params);
-}
-
-bool CaliperArray::CreateAlongCircle(const Circle2d& circle,
-                                      const CaliperArrayParams& params) {
-    return CreateAlongCircle(circle.center, circle.radius, params);
+    return impl_->GenerateArcHandles(center, radius, 0.0, 2.0 * PI, params);
 }
 
 bool CaliperArray::CreateAlongCircle(const Circle2d& circle,
@@ -520,11 +503,6 @@ bool CaliperArray::CreateAlongCircle(const Circle2d& circle,
 }
 
 bool CaliperArray::CreateAlongContour(const QContour& contour,
-                                       const CaliperArrayParams& params) {
-    return impl_->GenerateContourHandles(contour.GetPoints(), params);
-}
-
-bool CaliperArray::CreateAlongContour(const QContour& contour,
                                        int32_t caliperCount,
                                        double profileLength,
                                        double handleWidth) {
@@ -532,7 +510,7 @@ bool CaliperArray::CreateAlongContour(const QContour& contour,
     params.caliperCount = caliperCount;
     params.profileLength = profileLength;
     params.handleWidth = handleWidth;
-    return CreateAlongContour(contour, params);
+    return impl_->GenerateContourHandles(contour.GetPoints(), params);
 }
 
 void CaliperArray::Clear() {
@@ -558,10 +536,6 @@ PathType CaliperArray::GetPathType() const {
 
 double CaliperArray::GetPathLength() const {
     return impl_->pathLength_;
-}
-
-const CaliperArrayParams& CaliperArray::GetParams() const {
-    return impl_->params_;
 }
 
 const MeasureRectangle2& CaliperArray::GetHandle(int32_t index) const {
@@ -1024,11 +998,7 @@ CaliperArray CreateCaliperArrayLine(const Point2d& p1, const Point2d& p2,
                                      double profileLength,
                                      double handleWidth) {
     CaliperArray array;
-    CaliperArrayParams params;
-    params.caliperCount = caliperCount;
-    params.profileLength = profileLength;
-    params.handleWidth = handleWidth;
-    array.CreateAlongLine(p1, p2, params);
+    array.CreateAlongLine(p1, p2, caliperCount, profileLength, handleWidth);
     return array;
 }
 
@@ -1045,11 +1015,7 @@ CaliperArray CreateCaliperArrayArc(const Point2d& center, double radius,
                                     double profileLength,
                                     double handleWidth) {
     CaliperArray array;
-    CaliperArrayParams params;
-    params.caliperCount = caliperCount;
-    params.profileLength = profileLength;
-    params.handleWidth = handleWidth;
-    array.CreateAlongArc(center, radius, startAngle, sweepAngle, params);
+    array.CreateAlongArc(center, radius, startAngle, sweepAngle, caliperCount, profileLength, handleWidth);
     return array;
 }
 
@@ -1066,11 +1032,7 @@ CaliperArray CreateCaliperArrayCircle(const Point2d& center, double radius,
                                        double profileLength,
                                        double handleWidth) {
     CaliperArray array;
-    CaliperArrayParams params;
-    params.caliperCount = caliperCount;
-    params.profileLength = profileLength;
-    params.handleWidth = handleWidth;
-    array.CreateAlongCircle(center, radius, params);
+    array.CreateAlongCircle(center, radius, caliperCount, profileLength, handleWidth);
     return array;
 }
 
@@ -1086,11 +1048,7 @@ CaliperArray CreateCaliperArrayContour(const QContour& contour,
                                         double profileLength,
                                         double handleWidth) {
     CaliperArray array;
-    CaliperArrayParams params;
-    params.caliperCount = caliperCount;
-    params.profileLength = profileLength;
-    params.handleWidth = handleWidth;
-    array.CreateAlongContour(contour, params);
+    array.CreateAlongContour(contour, caliperCount, profileLength, handleWidth);
     return array;
 }
 

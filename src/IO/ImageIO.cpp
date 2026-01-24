@@ -193,12 +193,6 @@ void ReadImage(const std::string& filename, QImage& image, ImageFormat /*format*
     }
 }
 
-void ReadImageRaw(const std::string& filename, QImage& image, const RawReadParams& params) {
-    ReadImageRaw(filename, image, params.width, params.height,
-                 params.pixelType, params.channelType,
-                 params.headerBytes, params.bigEndian);
-}
-
 void ReadImageRaw(const std::string& filename, QImage& image,
                   int32_t width, int32_t height,
                   PixelType pixelType,
@@ -306,19 +300,6 @@ void ReadImageGray(const std::string& filename, QImage& image) {
 
 bool WriteImage(const QImage& image, const std::string& filename) {
     return WriteImage(image, filename, ImageFormat::Auto, std::vector<int>{});
-}
-
-bool WriteImage(const QImage& image, const std::string& filename,
-                ImageFormat format, const CompressionParams& params) {
-    // Convert CompressionParams to vector<int> and delegate
-    std::vector<int> vecParams;
-    vecParams.push_back(QIWRITE_JPEG_QUALITY);
-    vecParams.push_back(params.jpegQuality);
-    vecParams.push_back(QIWRITE_PNG_COMPRESSION);
-    vecParams.push_back(params.pngCompression);
-    vecParams.push_back(QIWRITE_TIFF_COMPRESSION);
-    vecParams.push_back(params.tiffCompression ? 1 : 0);
-    return WriteImage(image, filename, format, vecParams);
 }
 
 bool WriteImage(const QImage& image, const std::string& filename,
@@ -504,7 +485,7 @@ void ReadDirectory(const std::string& directory,
 int32_t WriteSequence(const std::vector<QImage>& images,
                        const std::string& pattern,
                        int32_t startIndex,
-                       const CompressionParams& params) {
+                       const std::vector<int>& params) {
     int32_t count = 0;
     int32_t index = startIndex;
 

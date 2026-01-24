@@ -32,28 +32,21 @@ int main() {
     std::cout << "=== Metrology Demo ===" << std::endl;
     std::cout << "Image: " << image.Width() << " x " << image.Height() << std::endl;
 
-    // 测量参数
-    MetrologyMeasureParams params;
-    params.numMeasures = 20;
-    params.measureLength1 = 20.0;
-    params.measureLength2 = 5.0;
-    params.thresholdMode = ThresholdMode::Auto;
-    params.fitMethod = MetrologyFitMethod::RANSAC;
-
     // 创建模型
     MetrologyModel model;
 
-    // 添加圆 (row, col, radius)
-    model.AddCircleMeasure(420, 210, 60, params);
-    model.AddCircleMeasure(420, 500, 60, params);
-    model.AddCircleMeasure(420, 790, 60, params);
-    model.AddCircleMeasure(420, 1077, 110, params);
+    // 添加圆 (row, col, radius, measureLength1, measureLength2, transition, select, params)
+    // 使用 vector<int> 传递额外参数: {METROLOGY_NUM_MEASURES, 20, METROLOGY_THRESHOLD_MODE, 1}
+    std::vector<int> circleParams = {METROLOGY_NUM_MEASURES, 20, METROLOGY_THRESHOLD_MODE, 1};
+    model.AddCircleMeasure(420, 210, 60, 20.0, 5.0, "all", "all", circleParams);
+    model.AddCircleMeasure(420, 500, 60, 20.0, 5.0, "all", "all", circleParams);
+    model.AddCircleMeasure(420, 790, 60, 20.0, 5.0, "all", "all", circleParams);
+    model.AddCircleMeasure(420, 1077, 110, 20.0, 5.0, "all", "all", circleParams);
 
-    // 添加矩形 (row, col, phi, length1, length2)
+    // 添加矩形 (row, col, phi, length1, length2, measureLength1, measureLength2, ...)
     // 中心(col=210, row=705), length1=65(x方向), length2=70(y方向)
-    MetrologyMeasureParams rectParams = params;
-    rectParams.numMeasures = 32;  // 每边8个卡尺
-    model.AddRectangle2Measure(705, 210, 0.0, 65, 70, rectParams);
+    std::vector<int> rectParams = {METROLOGY_NUM_MEASURES, 32, METROLOGY_THRESHOLD_MODE, 1};
+    model.AddRectangle2Measure(705, 210, 0.0, 65, 70, 20.0, 5.0, "all", "all", rectParams);
 
     // 测量
     Timer timer;

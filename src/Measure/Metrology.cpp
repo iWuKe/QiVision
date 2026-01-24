@@ -121,9 +121,12 @@ namespace {
 
 MetrologyObjectLine::MetrologyObjectLine(double row1, double col1,
                                           double row2, double col2,
-                                          const MetrologyMeasureParams& params)
+                                          double measureLength1, double measureLength2,
+                                          int32_t numMeasures)
     : row1_(row1), col1_(col1), row2_(row2), col2_(col2) {
-    params_ = params;
+    params_.measureLength1 = measureLength1;
+    params_.measureLength2 = measureLength2;
+    params_.numMeasures = numMeasures;
 }
 
 double MetrologyObjectLine::Length() const {
@@ -196,18 +199,24 @@ void MetrologyObjectLine::Transform(double rowOffset, double colOffset, double p
 // =============================================================================
 
 MetrologyObjectCircle::MetrologyObjectCircle(double row, double column, double radius,
-                                              const MetrologyMeasureParams& params)
+                                              double measureLength1, double measureLength2,
+                                              int32_t numMeasures)
     : row_(row), column_(column), radius_(radius),
       angleStart_(0.0), angleEnd_(TWO_PI) {
-    params_ = params;
+    params_.measureLength1 = measureLength1;
+    params_.measureLength2 = measureLength2;
+    params_.numMeasures = numMeasures;
 }
 
 MetrologyObjectCircle::MetrologyObjectCircle(double row, double column, double radius,
                                               double angleStart, double angleEnd,
-                                              const MetrologyMeasureParams& params)
+                                              double measureLength1, double measureLength2,
+                                              int32_t numMeasures)
     : row_(row), column_(column), radius_(radius),
       angleStart_(angleStart), angleEnd_(angleEnd) {
-    params_ = params;
+    params_.measureLength1 = measureLength1;
+    params_.measureLength2 = measureLength2;
+    params_.numMeasures = numMeasures;
 }
 
 bool MetrologyObjectCircle::IsFullCircle() const {
@@ -282,9 +291,12 @@ void MetrologyObjectCircle::Transform(double rowOffset, double colOffset, double
 
 MetrologyObjectEllipse::MetrologyObjectEllipse(double row, double column, double phi,
                                                 double ra, double rb,
-                                                const MetrologyMeasureParams& params)
+                                                double measureLength1, double measureLength2,
+                                                int32_t numMeasures)
     : row_(row), column_(column), phi_(phi), ra_(ra), rb_(rb) {
-    params_ = params;
+    params_.measureLength1 = measureLength1;
+    params_.measureLength2 = measureLength2;
+    params_.numMeasures = numMeasures;
 }
 
 std::vector<MeasureRectangle2> MetrologyObjectEllipse::GetCalipers() const {
@@ -363,9 +375,13 @@ void MetrologyObjectEllipse::Transform(double rowOffset, double colOffset, doubl
 
 MetrologyObjectRectangle2::MetrologyObjectRectangle2(double row, double column, double phi,
                                                        double length1, double length2,
-                                                       const MetrologyMeasureParams& params)
+                                                       double measureLength1, double measureLength2,
+                                                       int32_t numMeasuresPerSide)
     : row_(row), column_(column), phi_(phi), length1_(length1), length2_(length2) {
-    params_ = params;
+    params_.measureLength1 = measureLength1;
+    params_.measureLength2 = measureLength2;
+    // Total numMeasures = 4 * numMeasuresPerSide (one per side)
+    params_.numMeasures = 4 * numMeasuresPerSide;
 }
 
 std::vector<MeasureRectangle2> MetrologyObjectRectangle2::GetCalipers() const {
@@ -500,27 +516,16 @@ MetrologyModel& MetrologyModel::operator=(MetrologyModel&&) noexcept = default;
 
 int32_t MetrologyModel::AddLineMeasure(double row1, double col1,
                                          double row2, double col2,
-                                         const MetrologyMeasureParams& params) {
-    auto obj = std::make_unique<MetrologyObjectLine>(row1, col1, row2, col2, params);
-    int32_t idx = static_cast<int32_t>(impl_->objects.size());
-    obj->index_ = idx;
-    impl_->objects.push_back(std::move(obj));
-    return idx;
-}
-
-int32_t MetrologyModel::AddLineMeasure(double row1, double col1,
-                                         double row2, double col2,
                                          double measureLength1, double measureLength2,
                                          const std::string& transition,
                                          const std::string& select,
                                          const std::vector<int>& params) {
     auto parsed = ParseVectorParams(measureLength1, measureLength2, transition, select, params);
-    return AddLineMeasure(row1, col1, row2, col2, parsed);
-}
-
-int32_t MetrologyModel::AddCircleMeasure(double row, double column, double radius,
-                                          const MetrologyMeasureParams& params) {
-    auto obj = std::make_unique<MetrologyObjectCircle>(row, column, radius, params);
+    auto obj = std::make_unique<MetrologyObjectLine>(row1, col1, row2, col2,
+                                                      measureLength1, measureLength2,
+                                                      parsed.numMeasures);
+    // Copy additional params
+    obj->params_ = parsed;
     int32_t idx = static_cast<int32_t>(impl_->objects.size());
     obj->index_ = idx;
     impl_->objects.push_back(std::move(obj));
@@ -533,14 +538,11 @@ int32_t MetrologyModel::AddCircleMeasure(double row, double column, double radiu
                                           const std::string& select,
                                           const std::vector<int>& params) {
     auto parsed = ParseVectorParams(measureLength1, measureLength2, transition, select, params);
-    return AddCircleMeasure(row, column, radius, parsed);
-}
-
-int32_t MetrologyModel::AddArcMeasure(double row, double column, double radius,
-                                        double angleStart, double angleEnd,
-                                        const MetrologyMeasureParams& params) {
     auto obj = std::make_unique<MetrologyObjectCircle>(row, column, radius,
-                                                         angleStart, angleEnd, params);
+                                                        measureLength1, measureLength2,
+                                                        parsed.numMeasures);
+    // Copy additional params
+    obj->params_ = parsed;
     int32_t idx = static_cast<int32_t>(impl_->objects.size());
     obj->index_ = idx;
     impl_->objects.push_back(std::move(obj));
@@ -554,13 +556,12 @@ int32_t MetrologyModel::AddArcMeasure(double row, double column, double radius,
                                         const std::string& select,
                                         const std::vector<int>& params) {
     auto parsed = ParseVectorParams(measureLength1, measureLength2, transition, select, params);
-    return AddArcMeasure(row, column, radius, angleStart, angleEnd, parsed);
-}
-
-int32_t MetrologyModel::AddEllipseMeasure(double row, double column, double phi,
-                                           double ra, double rb,
-                                           const MetrologyMeasureParams& params) {
-    auto obj = std::make_unique<MetrologyObjectEllipse>(row, column, phi, ra, rb, params);
+    auto obj = std::make_unique<MetrologyObjectCircle>(row, column, radius,
+                                                        angleStart, angleEnd,
+                                                        measureLength1, measureLength2,
+                                                        parsed.numMeasures);
+    // Copy additional params
+    obj->params_ = parsed;
     int32_t idx = static_cast<int32_t>(impl_->objects.size());
     obj->index_ = idx;
     impl_->objects.push_back(std::move(obj));
@@ -574,13 +575,11 @@ int32_t MetrologyModel::AddEllipseMeasure(double row, double column, double phi,
                                            const std::string& select,
                                            const std::vector<int>& params) {
     auto parsed = ParseVectorParams(measureLength1, measureLength2, transition, select, params);
-    return AddEllipseMeasure(row, column, phi, ra, rb, parsed);
-}
-
-int32_t MetrologyModel::AddRectangle2Measure(double row, double column, double phi,
-                                               double length1, double length2,
-                                               const MetrologyMeasureParams& params) {
-    auto obj = std::make_unique<MetrologyObjectRectangle2>(row, column, phi, length1, length2, params);
+    auto obj = std::make_unique<MetrologyObjectEllipse>(row, column, phi, ra, rb,
+                                                         measureLength1, measureLength2,
+                                                         parsed.numMeasures);
+    // Copy additional params
+    obj->params_ = parsed;
     int32_t idx = static_cast<int32_t>(impl_->objects.size());
     obj->index_ = idx;
     impl_->objects.push_back(std::move(obj));
@@ -594,7 +593,17 @@ int32_t MetrologyModel::AddRectangle2Measure(double row, double column, double p
                                                const std::string& select,
                                                const std::vector<int>& params) {
     auto parsed = ParseVectorParams(measureLength1, measureLength2, transition, select, params);
-    return AddRectangle2Measure(row, column, phi, length1, length2, parsed);
+    // For rectangle, numMeasures in params is total, but constructor expects per-side
+    int32_t numMeasuresPerSide = std::max(1, parsed.numMeasures / 4);
+    auto obj = std::make_unique<MetrologyObjectRectangle2>(row, column, phi, length1, length2,
+                                                            measureLength1, measureLength2,
+                                                            numMeasuresPerSide);
+    // Copy additional params (this will override numMeasures with correct total)
+    obj->params_ = parsed;
+    int32_t idx = static_cast<int32_t>(impl_->objects.size());
+    obj->index_ = idx;
+    impl_->objects.push_back(std::move(obj));
+    return idx;
 }
 
 void MetrologyModel::ClearObject(int32_t index) {
@@ -1212,20 +1221,6 @@ void MetrologyModel::Align(double row, double column, double phi) {
 
 void MetrologyModel::ResetAlignment() {
     Align(0.0, 0.0, 0.0);
-}
-
-void MetrologyModel::SetDefaultParams(const MetrologyMeasureParams& params) {
-    impl_->defaultParams = params;
-}
-
-const MetrologyMeasureParams& MetrologyModel::DefaultParams() const {
-    return impl_->defaultParams;
-}
-
-void MetrologyModel::SetObjectParams(int32_t index, const MetrologyMeasureParams& params) {
-    if (index >= 0 && index < static_cast<int32_t>(impl_->objects.size()) && impl_->objects[index]) {
-        impl_->objects[index]->SetParams(params);
-    }
 }
 
 } // namespace Qi::Vision::Measure

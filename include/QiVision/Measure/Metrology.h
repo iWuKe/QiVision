@@ -276,9 +276,130 @@ public:
     /// Get object index
     int32_t Index() const { return index_; }
 
-    /// Get/set measurement parameters
-    const MetrologyMeasureParams& Params() const { return params_; }
-    void SetParams(const MetrologyMeasureParams& params) { params_ = params; }
+    // =========================================================================
+    // Parameter Getters
+    // =========================================================================
+
+    /// Get half-length of caliper along profile direction
+    double GetMeasureLength1() const { return params_.measureLength1; }
+
+    /// Get half-width of caliper perpendicular to profile direction
+    double GetMeasureLength2() const { return params_.measureLength2; }
+
+    /// Get number of calipers
+    int32_t GetNumMeasures() const { return params_.numMeasures; }
+
+    /// Get Gaussian smoothing sigma
+    double GetMeasureSigma() const { return params_.measureSigma; }
+
+    /// Get edge amplitude threshold
+    double GetMeasureThreshold() const { return params_.measureThreshold; }
+
+    /// Get threshold mode
+    ThresholdMode GetThresholdMode() const { return params_.thresholdMode; }
+
+    /// Get edge transition filter
+    EdgeTransition GetMeasureTransition() const { return params_.measureTransition; }
+
+    /// Get edge selection mode
+    EdgeSelectMode GetMeasureSelect() const { return params_.measureSelect; }
+
+    /// Get minimum score threshold
+    double GetMinScore() const { return params_.minScore; }
+
+    /// Get fitting method
+    MetrologyFitMethod GetFitMethod() const { return params_.fitMethod; }
+
+    /// Get outlier distance threshold
+    double GetDistanceThreshold() const { return params_.distanceThreshold; }
+
+    /// Get max RANSAC iterations
+    int32_t GetMaxIterations() const { return params_.maxIterations; }
+
+    /// Get random seed for RANSAC
+    int32_t GetRandSeed() const { return params_.randSeed; }
+
+    // =========================================================================
+    // Parameter Setters
+    // =========================================================================
+
+    /// Set caliper dimensions
+    void SetMeasureLength(double length1, double length2) {
+        params_.measureLength1 = length1;
+        params_.measureLength2 = length2;
+    }
+
+    /// Set number of calipers
+    void SetNumMeasures(int32_t numMeasures) { params_.numMeasures = numMeasures; }
+
+    /// Set Gaussian smoothing sigma
+    void SetMeasureSigma(double sigma) { params_.measureSigma = sigma; }
+
+    /// Set edge amplitude threshold (manual mode)
+    void SetMeasureThreshold(double threshold) {
+        params_.measureThreshold = threshold;
+        params_.thresholdMode = ThresholdMode::Manual;
+    }
+
+    /// Set threshold mode ("manual" or "auto")
+    void SetThresholdMode(const std::string& mode) {
+        if (mode == "auto" || mode == "Auto" || mode == "AUTO") {
+            params_.thresholdMode = ThresholdMode::Auto;
+        } else {
+            params_.thresholdMode = ThresholdMode::Manual;
+        }
+    }
+
+    /// Set edge transition filter ("positive", "negative", "all")
+    void SetMeasureTransition(const std::string& transition) {
+        if (transition == "positive" || transition == "Positive") {
+            params_.measureTransition = EdgeTransition::Positive;
+        } else if (transition == "negative" || transition == "Negative") {
+            params_.measureTransition = EdgeTransition::Negative;
+        } else {
+            params_.measureTransition = EdgeTransition::All;
+        }
+    }
+
+    /// Set edge selection mode ("first", "last", "best", "all")
+    void SetMeasureSelect(const std::string& select) {
+        if (select == "first" || select == "First") {
+            params_.measureSelect = EdgeSelectMode::First;
+        } else if (select == "last" || select == "Last") {
+            params_.measureSelect = EdgeSelectMode::Last;
+        } else if (select == "best" || select == "Best" || select == "strongest" || select == "Strongest") {
+            params_.measureSelect = EdgeSelectMode::Strongest;
+        } else {
+            params_.measureSelect = EdgeSelectMode::All;
+        }
+    }
+
+    /// Set minimum score threshold
+    void SetMinScore(double minScore) { params_.minScore = minScore; }
+
+    /// Set fitting method ("ransac", "huber", "tukey")
+    void SetFitMethod(const std::string& method) {
+        if (method == "ransac" || method == "RANSAC") {
+            params_.fitMethod = MetrologyFitMethod::RANSAC;
+        } else if (method == "huber" || method == "Huber") {
+            params_.fitMethod = MetrologyFitMethod::Huber;
+        } else if (method == "tukey" || method == "Tukey") {
+            params_.fitMethod = MetrologyFitMethod::Tukey;
+        }
+    }
+
+    /// Set outlier distance threshold (pixels)
+    void SetDistanceThreshold(double threshold) { params_.distanceThreshold = threshold; }
+
+    /// Set max RANSAC iterations (-1 for unlimited)
+    void SetMaxIterations(int32_t maxIterations) { params_.maxIterations = maxIterations; }
+
+    /// Set random seed for RANSAC
+    void SetRandSeed(int32_t seed) { params_.randSeed = seed; }
+
+    // =========================================================================
+    // Virtual Methods
+    // =========================================================================
 
     /// Get caliper handles for this object
     virtual std::vector<MeasureRectangle2> GetCalipers() const = 0;
@@ -299,6 +420,9 @@ protected:
     int32_t index_ = -1;
     MetrologyMeasureParams params_;
 
+    /// Internal access to params (for derived classes and MetrologyModel)
+    const MetrologyMeasureParams& Params() const { return params_; }
+
     friend class MetrologyModel;
 };
 
@@ -317,10 +441,13 @@ public:
      * @param col1 Start column
      * @param row2 End row
      * @param col2 End column
-     * @param params Measurement parameters
+     * @param measureLength1 Half-length of caliper along profile direction (default: 20.0)
+     * @param measureLength2 Half-width of caliper perpendicular to profile (default: 5.0)
+     * @param numMeasures Number of calipers along the line (default: 10)
      */
     MetrologyObjectLine(double row1, double col1, double row2, double col2,
-                        const MetrologyMeasureParams& params = MetrologyMeasureParams());
+                        double measureLength1 = 20.0, double measureLength2 = 5.0,
+                        int32_t numMeasures = 10);
 
     MetrologyObjectType Type() const override { return MetrologyObjectType::Line; }
     std::vector<MeasureRectangle2> GetCalipers() const override;
@@ -347,27 +474,33 @@ private:
 class MetrologyObjectCircle : public MetrologyObject {
 public:
     /**
-     * @brief Construct circle measurement object
+     * @brief Construct circle measurement object (full circle)
      * @param row Center row
      * @param column Center column
      * @param radius Radius
-     * @param params Measurement parameters
+     * @param measureLength1 Half-length of caliper along profile direction (default: 20.0)
+     * @param measureLength2 Half-width of caliper perpendicular to profile (default: 5.0)
+     * @param numMeasures Number of calipers around the circle (default: 20)
      */
     MetrologyObjectCircle(double row, double column, double radius,
-                          const MetrologyMeasureParams& params = MetrologyMeasureParams());
+                          double measureLength1 = 20.0, double measureLength2 = 5.0,
+                          int32_t numMeasures = 20);
 
     /**
-     * @brief Construct arc measurement object
+     * @brief Construct arc measurement object (partial circle)
      * @param row Center row
      * @param column Center column
      * @param radius Radius
      * @param angleStart Start angle (radians)
      * @param angleEnd End angle (radians)
-     * @param params Measurement parameters
+     * @param measureLength1 Half-length of caliper along profile direction (default: 20.0)
+     * @param measureLength2 Half-width of caliper perpendicular to profile (default: 5.0)
+     * @param numMeasures Number of calipers along the arc (default: 20)
      */
     MetrologyObjectCircle(double row, double column, double radius,
                           double angleStart, double angleEnd,
-                          const MetrologyMeasureParams& params = MetrologyMeasureParams());
+                          double measureLength1 = 20.0, double measureLength2 = 5.0,
+                          int32_t numMeasures = 20);
 
     MetrologyObjectType Type() const override { return MetrologyObjectType::Circle; }
     std::vector<MeasureRectangle2> GetCalipers() const override;
@@ -402,11 +535,14 @@ public:
      * @param phi Orientation angle (radians)
      * @param ra Semi-major axis
      * @param rb Semi-minor axis
-     * @param params Measurement parameters
+     * @param measureLength1 Half-length of caliper along profile direction (default: 20.0)
+     * @param measureLength2 Half-width of caliper perpendicular to profile (default: 5.0)
+     * @param numMeasures Number of calipers around the ellipse (default: 20)
      */
     MetrologyObjectEllipse(double row, double column, double phi,
                             double ra, double rb,
-                            const MetrologyMeasureParams& params = MetrologyMeasureParams());
+                            double measureLength1 = 20.0, double measureLength2 = 5.0,
+                            int32_t numMeasures = 20);
 
     MetrologyObjectType Type() const override { return MetrologyObjectType::Ellipse; }
     std::vector<MeasureRectangle2> GetCalipers() const override;
@@ -438,11 +574,14 @@ public:
      * @param phi Orientation angle (radians)
      * @param length1 Half-length along phi
      * @param length2 Half-length perpendicular to phi
-     * @param params Measurement parameters
+     * @param measureLength1 Half-length of caliper along profile direction (default: 20.0)
+     * @param measureLength2 Half-width of caliper perpendicular to profile (default: 5.0)
+     * @param numMeasuresPerSide Number of calipers per side (default: 5, total = 4 * numMeasuresPerSide)
      */
     MetrologyObjectRectangle2(double row, double column, double phi,
                                double length1, double length2,
-                               const MetrologyMeasureParams& params = MetrologyMeasureParams());
+                               double measureLength1 = 20.0, double measureLength2 = 5.0,
+                               int32_t numMeasuresPerSide = 5);
 
     MetrologyObjectType Type() const override { return MetrologyObjectType::Rectangle2; }
     std::vector<MeasureRectangle2> GetCalipers() const override;
@@ -505,19 +644,7 @@ public:
     // =========================================================================
 
     /**
-     * @brief Add a line measurement object (struct params)
-     * @param row1 Start row
-     * @param col1 Start column
-     * @param row2 End row
-     * @param col2 End column
-     * @param params Measurement parameters
-     * @return Object index
-     */
-    int32_t AddLineMeasure(double row1, double col1, double row2, double col2,
-                           const MetrologyMeasureParams& params);
-
-    /**
-     * @brief Add a line measurement object (Halcon-style direct params)
+     * @brief Add a line measurement object
      *
      * @param row1 Start row
      * @param col1 Start column
@@ -537,18 +664,7 @@ public:
                            const std::vector<int>& params = {});
 
     /**
-     * @brief Add a circle measurement object (struct params)
-     * @param row Center row
-     * @param column Center column
-     * @param radius Radius
-     * @param params Measurement parameters
-     * @return Object index
-     */
-    int32_t AddCircleMeasure(double row, double column, double radius,
-                              const MetrologyMeasureParams& params);
-
-    /**
-     * @brief Add a circle measurement object (Halcon-style direct params)
+     * @brief Add a circle measurement object
      *
      * @param row Center row
      * @param column Center column
@@ -567,21 +683,7 @@ public:
                               const std::vector<int>& params = {});
 
     /**
-     * @brief Add an arc measurement object (struct params)
-     * @param row Center row
-     * @param column Center column
-     * @param radius Radius
-     * @param angleStart Start angle (radians)
-     * @param angleEnd End angle (radians)
-     * @param params Measurement parameters
-     * @return Object index
-     */
-    int32_t AddArcMeasure(double row, double column, double radius,
-                           double angleStart, double angleEnd,
-                           const MetrologyMeasureParams& params);
-
-    /**
-     * @brief Add an arc measurement object (Halcon-style direct params)
+     * @brief Add an arc measurement object
      *
      * @param row Center row
      * @param column Center column
@@ -603,21 +705,7 @@ public:
                            const std::vector<int>& params = {});
 
     /**
-     * @brief Add an ellipse measurement object (struct params)
-     * @param row Center row
-     * @param column Center column
-     * @param phi Orientation angle (radians)
-     * @param ra Semi-major axis
-     * @param rb Semi-minor axis
-     * @param params Measurement parameters
-     * @return Object index
-     */
-    int32_t AddEllipseMeasure(double row, double column, double phi,
-                               double ra, double rb,
-                               const MetrologyMeasureParams& params);
-
-    /**
-     * @brief Add an ellipse measurement object (Halcon-style direct params)
+     * @brief Add an ellipse measurement object
      *
      * @param row Center row
      * @param column Center column
@@ -639,21 +727,7 @@ public:
                                const std::vector<int>& params = {});
 
     /**
-     * @brief Add a rectangle measurement object (struct params)
-     * @param row Center row
-     * @param column Center column
-     * @param phi Orientation angle (radians)
-     * @param length1 Half-length along phi
-     * @param length2 Half-length perpendicular to phi
-     * @param params Measurement parameters
-     * @return Object index
-     */
-    int32_t AddRectangle2Measure(double row, double column, double phi,
-                                  double length1, double length2,
-                                  const MetrologyMeasureParams& params);
-
-    /**
-     * @brief Add a rectangle measurement object (Halcon-style direct params)
+     * @brief Add a rectangle measurement object
      *
      * @param row Center row
      * @param column Center column
@@ -768,25 +842,6 @@ public:
      * @brief Reset to original position
      */
     void ResetAlignment();
-
-    // =========================================================================
-    // Model Parameters
-    // =========================================================================
-
-    /**
-     * @brief Set default measurement parameters for new objects
-     */
-    void SetDefaultParams(const MetrologyMeasureParams& params);
-
-    /**
-     * @brief Get default measurement parameters
-     */
-    const MetrologyMeasureParams& DefaultParams() const;
-
-    /**
-     * @brief Set object-specific parameters
-     */
-    void SetObjectParams(int32_t index, const MetrologyMeasureParams& params);
 
 private:
     struct Impl;

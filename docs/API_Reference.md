@@ -564,25 +564,41 @@ enum class ThresholdMode {
 };
 ```
 
-#### 2.7.2 MetrologyMeasureParams
+#### 2.7.2 MetrologyObject 参数 API
+
+Metrology 对象通过直接参数构造，并提供 getter/setter 方法设置附加参数：
 
 ```cpp
-struct MetrologyMeasureParams {
-    int32_t numInstances = 1;           // 实例数量
-    double measureLength1 = 20.0;       // 卡尺半长（沿投影方向）
-    double measureLength2 = 5.0;        // 卡尺半宽（垂直方向）
-    double measureSigma = 1.0;          // 高斯平滑 sigma
-    double measureThreshold = 30.0;     // 边缘阈值（Manual 模式）
-    ThresholdMode thresholdMode = ThresholdMode::Manual;
-    EdgeTransition measureTransition = EdgeTransition::All;
-    int32_t numMeasures = 10;           // 卡尺数量
-    double minScore = 0.5;              // 最小分数
+class MetrologyObject {
+public:
+    // =========== Getters ===========
+    double GetMeasureLength1() const;     // 卡尺半长（沿投影方向）
+    double GetMeasureLength2() const;     // 卡尺半宽（垂直方向）
+    int32_t GetNumMeasures() const;       // 卡尺数量
+    double GetMeasureSigma() const;       // 高斯平滑 sigma
+    double GetMeasureThreshold() const;   // 边缘阈值
+    ThresholdMode GetThresholdMode() const;
+    EdgeTransition GetMeasureTransition() const;
+    EdgeSelectMode GetMeasureSelect() const;
+    double GetMinScore() const;
+    MetrologyFitMethod GetFitMethod() const;
+    double GetDistanceThreshold() const;  // 离群距离阈值
+    int32_t GetMaxIterations() const;     // 最大迭代次数
+    int32_t GetRandSeed() const;          // RANSAC 随机种子
 
-    // 设置阈值（数值 = Manual 模式）
-    MetrologyMeasureParams& SetThreshold(double t);
-
-    // 设置阈值（"auto" = Auto 模式）
-    MetrologyMeasureParams& SetThreshold(const std::string& mode);
+    // =========== Setters ===========
+    void SetMeasureLength(double length1, double length2);
+    void SetNumMeasures(int32_t numMeasures);
+    void SetMeasureSigma(double sigma);
+    void SetMeasureThreshold(double threshold);  // 同时设为 Manual 模式
+    void SetThresholdMode(const std::string& mode);  // "manual" 或 "auto"
+    void SetMeasureTransition(const std::string& transition);  // "positive"/"negative"/"all"
+    void SetMeasureSelect(const std::string& select);  // "first"/"last"/"best"/"all"
+    void SetMinScore(double minScore);
+    void SetFitMethod(const std::string& method);  // "ransac"/"huber"/"tukey"
+    void SetDistanceThreshold(double threshold);
+    void SetMaxIterations(int32_t maxIterations);  // -1 = 无限
+    void SetRandSeed(int32_t seed);
 };
 ```
 
@@ -603,13 +619,45 @@ enum MetrologyParamFlag {
 };
 ```
 
-#### 2.7.4 MetrologyModel
+#### 2.7.4 MetrologyObject 构造函数
 
-**直接参数版本（推荐，Halcon 风格）**:
+**直接参数（Halcon 风格）**:
+```cpp
+// 直线
+MetrologyObjectLine(double row1, double col1, double row2, double col2,
+                    double measureLength1 = 20.0, double measureLength2 = 5.0,
+                    int32_t numMeasures = 10);
+
+// 圆（完整）
+MetrologyObjectCircle(double row, double column, double radius,
+                      double measureLength1 = 20.0, double measureLength2 = 5.0,
+                      int32_t numMeasures = 20);
+
+// 圆弧（部分圆）
+MetrologyObjectCircle(double row, double column, double radius,
+                      double angleStart, double angleEnd,
+                      double measureLength1 = 20.0, double measureLength2 = 5.0,
+                      int32_t numMeasures = 20);
+
+// 椭圆
+MetrologyObjectEllipse(double row, double column, double phi,
+                        double ra, double rb,
+                        double measureLength1 = 20.0, double measureLength2 = 5.0,
+                        int32_t numMeasures = 20);
+
+// 旋转矩形
+MetrologyObjectRectangle2(double row, double column, double phi,
+                           double length1, double length2,
+                           double measureLength1 = 20.0, double measureLength2 = 5.0,
+                           int32_t numMeasuresPerSide = 5);
+```
+
+#### 2.7.5 MetrologyModel
+
 ```cpp
 class MetrologyModel {
 public:
-    // 直接参数 API（必需参数直接传，可选参数用 vector<int>）
+    // 添加测量对象（直接参数 + OpenCV 风格 vector<int> 可选参数）
     int32_t AddLineMeasure(double row1, double col1, double row2, double col2,
                            double measureLength1, double measureLength2,
                            const std::string& transition = "all",
@@ -643,19 +691,18 @@ public:
                                   const std::string& select = "all",
                                   const std::vector<int>& params = {});
 
-    // 结构体参数 API（保留兼容）
-    int32_t AddLineMeasure(double row1, double col1, double row2, double col2,
-                           const MetrologyMeasureParams& params);
-    int32_t AddCircleMeasure(double row, double col, double radius,
-                             const MetrologyMeasureParams& params);
-    // ... 其他结构体版本
-
+    // 执行测量
     bool Apply(const QImage& image);
+
+    // 获取结果
     MetrologyLineResult GetLineResult(int32_t index) const;
     MetrologyCircleResult GetCircleResult(int32_t index) const;
     MetrologyEllipseResult GetEllipseResult(int32_t index) const;
+    MetrologyRectangle2Result GetRectangle2Result(int32_t index) const;
     std::vector<Point2d> GetMeasuredPoints(int32_t index) const;
     std::vector<double> GetPointWeights(int32_t index) const;
+
+    // 对齐
     void Align(double rowOffset, double colOffset, double phi);
     void ResetAlignment();
 };
@@ -668,21 +715,13 @@ using namespace Qi::Vision::Measure;
 
 MetrologyModel model;
 
-// 直接参数 API（推荐，Halcon 风格）
+// 添加圆测量（直接参数 + 可选 vector<int> 参数）
 int idx = model.AddCircleMeasure(500.0, 650.0, 220.0,
                                   30.0, 10.0,        // measureLength1, measureLength2
                                   "all", "all",       // transition, select
                                   {METROLOGY_NUM_MEASURES, 36,
                                    METROLOGY_MEASURE_SIGMA, 150,      // 1.5 * 100
                                    METROLOGY_THRESHOLD_MODE, 1});     // Auto mode
-
-// 结构体参数 API（兼容旧代码）
-MetrologyMeasureParams params;
-params.SetMeasureLength(30.0, 10.0)
-      .SetNumMeasures(36)
-      .SetMeasureSigma(1.5)
-      .SetThreshold("auto");
-int idx2 = model.AddCircleMeasure(500.0, 650.0, 220.0, params);
 
 if (model.Apply(image)) {
     auto result = model.GetCircleResult(idx);

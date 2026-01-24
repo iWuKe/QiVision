@@ -85,58 +85,6 @@ enum class PathType {
 };
 
 // =============================================================================
-// Array Generation Parameters
-// =============================================================================
-
-/**
- * @brief Parameters for caliper array generation
- */
-struct CaliperArrayParams {
-    // Handle geometry
-    double profileLength = 50.0;    ///< Profile length per caliper (pixels)
-    double handleWidth = 10.0;      ///< Handle width for averaging (pixels)
-
-    // Array distribution
-    int32_t caliperCount = DEFAULT_CALIPER_COUNT;   ///< Number of calipers
-
-    // Alternatively, specify by spacing (if caliperCount <= 0)
-    double caliperSpacing = DEFAULT_CALIPER_SPACING; ///< Spacing between calipers
-
-    // Profile direction relative to path
-    bool profilePerpendicular = true;   ///< true: perpendicular to path
-
-    // Sampling parameters
-    int32_t numLines = DEFAULT_NUM_LINES;
-    double samplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
-
-    // Edge offset from path
-    double pathOffset = 0.0;        ///< Offset from path centerline
-
-    // Path coverage
-    double startRatio = 0.0;        ///< Start position along path [0, 1]
-    double endRatio = 1.0;          ///< End position along path [0, 1]
-
-    // Builder pattern
-    CaliperArrayParams& SetProfileLength(double v) { profileLength = v; return *this; }
-    CaliperArrayParams& SetHandleWidth(double v) { handleWidth = v; return *this; }
-    CaliperArrayParams& SetCaliperCount(int32_t n) { caliperCount = n; return *this; }
-    CaliperArrayParams& SetCaliperSpacing(double v) {
-        caliperSpacing = v;
-        caliperCount = 0;
-        return *this;
-    }
-    CaliperArrayParams& SetProfilePerpendicular(bool v) { profilePerpendicular = v; return *this; }
-    CaliperArrayParams& SetNumLines(int32_t n) { numLines = n; return *this; }
-    CaliperArrayParams& SetSamplesPerPixel(double v) { samplesPerPixel = v; return *this; }
-    CaliperArrayParams& SetPathOffset(double v) { pathOffset = v; return *this; }
-    CaliperArrayParams& SetCoverage(double start, double end) {
-        startRatio = start;
-        endRatio = end;
-        return *this;
-    }
-};
-
-// =============================================================================
 // Array Measurement Results
 // =============================================================================
 
@@ -235,8 +183,7 @@ struct CaliperArrayStats {
  * @code
  * // Create array along a line
  * CaliperArray array;
- * array.CreateAlongLine({100, 100}, {500, 100},
- *     CaliperArrayParams().SetCaliperCount(20).SetProfileLength(30));
+ * array.CreateAlongLine({100, 100}, {500, 100}, 20, 30.0, 10.0);
  *
  * // Measure edges
  * auto result = array.MeasurePos(image, 1.5, 30.0, "all", "first");
@@ -261,13 +208,7 @@ public:
     // =========================================================================
 
     /**
-     * @brief Create caliper array along a line segment (struct params)
-     */
-    bool CreateAlongLine(const Point2d& p1, const Point2d& p2,
-                         const CaliperArrayParams& params);
-
-    /**
-     * @brief Create caliper array along a line segment (direct params - Halcon style)
+     * @brief Create caliper array along a line segment
      *
      * @param p1 Start point
      * @param p2 End point
@@ -281,22 +222,12 @@ public:
                          double handleWidth = 10.0);
 
     bool CreateAlongLine(const Segment2d& segment,
-                         const CaliperArrayParams& params);
-
-    bool CreateAlongLine(const Segment2d& segment,
                          int32_t caliperCount,
                          double profileLength = 50.0,
                          double handleWidth = 10.0);
 
     /**
-     * @brief Create caliper array along an arc (struct params)
-     */
-    bool CreateAlongArc(const Point2d& center, double radius,
-                        double startAngle, double sweepAngle,
-                        const CaliperArrayParams& params);
-
-    /**
-     * @brief Create caliper array along an arc (direct params - Halcon style)
+     * @brief Create caliper array along an arc
      *
      * @param center Arc center
      * @param radius Arc radius
@@ -312,21 +243,13 @@ public:
                         double profileLength = 50.0,
                         double handleWidth = 10.0);
 
-    bool CreateAlongArc(const Arc2d& arc, const CaliperArrayParams& params);
-
     bool CreateAlongArc(const Arc2d& arc,
                         int32_t caliperCount,
                         double profileLength = 50.0,
                         double handleWidth = 10.0);
 
     /**
-     * @brief Create caliper array along a full circle (struct params)
-     */
-    bool CreateAlongCircle(const Point2d& center, double radius,
-                           const CaliperArrayParams& params);
-
-    /**
-     * @brief Create caliper array along a full circle (direct params - Halcon style)
+     * @brief Create caliper array along a full circle
      *
      * @param center Circle center
      * @param radius Circle radius
@@ -339,20 +262,13 @@ public:
                            double profileLength = 50.0,
                            double handleWidth = 10.0);
 
-    bool CreateAlongCircle(const Circle2d& circle, const CaliperArrayParams& params);
-
     bool CreateAlongCircle(const Circle2d& circle,
                            int32_t caliperCount,
                            double profileLength = 50.0,
                            double handleWidth = 10.0);
 
     /**
-     * @brief Create caliper array along a contour (struct params)
-     */
-    bool CreateAlongContour(const QContour& contour, const CaliperArrayParams& params);
-
-    /**
-     * @brief Create caliper array along a contour (direct params - Halcon style)
+     * @brief Create caliper array along a contour
      *
      * @param contour XLD contour
      * @param caliperCount Number of calipers (0 = auto from spacing)
@@ -377,7 +293,6 @@ public:
     int32_t Size() const;
     PathType GetPathType() const;
     double GetPathLength() const;
-    const CaliperArrayParams& GetParams() const;
     const MeasureRectangle2& GetHandle(int32_t index) const;
     const std::vector<MeasureRectangle2>& GetHandles() const;
     double GetPathPosition(int32_t index) const;

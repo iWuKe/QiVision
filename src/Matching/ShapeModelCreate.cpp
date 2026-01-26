@@ -768,11 +768,15 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
         pyramidParams.minContrast = (params_.contrastLow > 0) ? params_.contrastLow : params_.contrastHigh;
     }
 
-    // Extract ROI if specified
+    // Extract ROI if specified (with edge-guided expansion for better context)
     QImage templateImg;
+    int32_t roiOffsetX = 0;
+    int32_t roiOffsetY = 0;
     if (roi.width > 0 && roi.height > 0) {
         templateImg = image.SubImage(roi.x, roi.y, roi.width, roi.height);
         templateSize_ = Size2i{roi.width, roi.height};
+        roiOffsetX = 0;
+        roiOffsetY = 0;
     } else {
         templateImg = image;
         templateSize_ = Size2i{image.Width(), image.Height()};
@@ -913,11 +917,19 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
     }
 
     // Set origin - HALCON uses domain centroid as default reference point
-    // For rectangular ROI, centroid equals bbox center
+    // For rectangular ROI, keep origin at original ROI center
     origin_ = origin;
     if (origin_.x == 0 && origin_.y == 0) {
-        origin_.x = templateSize_.width / 2.0;
-        origin_.y = templateSize_.height / 2.0;
+        if (roi.width > 0 && roi.height > 0) {
+            origin_.x = roiOffsetX + roi.width / 2.0;
+            origin_.y = roiOffsetY + roi.height / 2.0;
+        } else {
+            origin_.x = templateSize_.width / 2.0;
+            origin_.y = templateSize_.height / 2.0;
+        }
+    } else {
+        origin_.x += roiOffsetX;
+        origin_.y += roiOffsetY;
     }
 
     // Extract model points from pyramid using XLD contour extraction (Halcon-style)
@@ -1237,10 +1249,27 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const QRegion& region, con
         origin_.y = centroid.y;
     }
 
-    // Extract model points using QRegion mask
-
+    // Extract model points using edge-guided expansion mask
     tStep = std::chrono::high_resolution_clock::now();
-    ExtractModelPointsXLDWithRegion(templateImg, pyramid, localRegion);
+    QRegion edgeRegion = localRegion;
+    // Build edge mask from ROI-only template, then dilate slightly
+    const auto& edgePoints = pyramid.GetEdgePoints(0);
+    std::vector<QRegion::Run> runs;
+    runs.reserve(edgePoints.size());
+    for (const auto& ep : edgePoints) {
+        int32_t px = static_cast<int32_t>(std::lround(ep.x));
+        int32_t py = static_cast<int32_t>(std::lround(ep.y));
+        if (px >= 0 && px < templateSize_.width && py >= 0 && py < templateSize_.height) {
+            if (localRegion.Contains(px, py)) {
+                runs.push_back({py, px, px + 1});
+            }
+        }
+    }
+    if (!runs.empty()) {
+        QRegion rawEdgeRegion(runs);
+        edgeRegion = rawEdgeRegion.Dilate(5, 5);
+    }
+    ExtractModelPointsXLDWithRegion(templateImg, pyramid, edgeRegion);
     if (timingParams_.enableTiming) {
         createTiming_.extractPointsMs = elapsedMs(tStep);
     }

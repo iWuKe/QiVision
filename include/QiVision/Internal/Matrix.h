@@ -839,6 +839,7 @@ public:
 
     // Copy constructor
     VecX(const VecX& other) : size_(other.size_), heapData_(nullptr) {
+        std::fill(stackData_, stackData_ + VECX_STACK_SIZE, 0.0);
         if (UseHeap()) {
             heapData_ = static_cast<double*>(Platform::AlignedAlloc(size_ * sizeof(double)));
             std::copy(other.heapData_, other.heapData_ + size_, heapData_);
@@ -849,6 +850,7 @@ public:
 
     // Move constructor
     VecX(VecX&& other) noexcept : size_(other.size_), heapData_(other.heapData_) {
+        std::fill(stackData_, stackData_ + VECX_STACK_SIZE, 0.0);
         if (!other.UseHeap()) {
             std::copy(other.stackData_, other.stackData_ + size_, stackData_);
         }

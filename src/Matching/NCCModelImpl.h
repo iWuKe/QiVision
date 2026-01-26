@@ -181,9 +181,13 @@ public:
     /// Template data at each pyramid level
     std::vector<NCCLevelModel> levels_;
 
-    /// Precomputed rotated templates per level
-    /// rotatedTemplates_[level][angleIndex]
-    std::vector<std::vector<RotatedTemplate>> rotatedTemplates_;
+    /// Precomputed rotated templates per level (coarse angles)
+    /// rotatedTemplatesCoarse_[level][angleIndex]
+    std::vector<std::vector<RotatedTemplate>> rotatedTemplatesCoarse_;
+
+    /// Precomputed rotated templates per level (fine angles)
+    /// rotatedTemplatesFine_[level][angleIndex]
+    std::vector<std::vector<RotatedTemplate>> rotatedTemplatesFine_;
 
     /// Model parameters
     ModelParams params_;
@@ -204,7 +208,11 @@ public:
     MetricMode metric_ = MetricMode::UsePolarity;
 
     /// Search angle cache (discrete angles to search)
-    std::vector<double> searchAngles_;
+    std::vector<double> searchAnglesCoarse_;
+    std::vector<double> searchAnglesFine_;
+
+    /// Number of finest pyramid levels to use fine angles
+    int32_t fineAngleLevels_ = 2;
 
     // =========================================================================
     // Model Creation (NCCModelCreate.cpp)
@@ -332,13 +340,34 @@ public:
     /**
      * @brief Get angle index from angle value
      */
-    int32_t GetAngleIndex(double angle) const;
+    int32_t GetAngleIndex(double angle, int32_t level) const;
 
     /**
      * @brief Interpolate between two rotated templates
      */
-    double InterpolateAngle(double angle, int32_t& lowerIdx, int32_t& upperIdx,
+    double InterpolateAngle(double angle, int32_t level, int32_t& lowerIdx, int32_t& upperIdx,
                             double& weight) const;
+
+    /**
+     * @brief Whether to use fine angles at this pyramid level
+     */
+    bool UseFineAngles(int32_t level) const {
+        return level < fineAngleLevels_;
+    }
+
+    /**
+     * @brief Get angle list for a pyramid level
+     */
+    const std::vector<double>& GetSearchAngles(int32_t level) const {
+        return UseFineAngles(level) ? searchAnglesFine_ : searchAnglesCoarse_;
+    }
+
+    /**
+     * @brief Get rotated templates for a pyramid level
+     */
+    const std::vector<RotatedTemplate>& GetRotatedTemplates(int32_t level) const {
+        return UseFineAngles(level) ? rotatedTemplatesFine_[level] : rotatedTemplatesCoarse_[level];
+    }
 };
 
 } // namespace Internal

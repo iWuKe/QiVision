@@ -41,6 +41,28 @@ struct XLDContourSegment {
     std::vector<int32_t> angleBins;  // Quantized angle bins
     bool isClosed = false;
 
+    XLDContourSegment() = default;
+    XLDContourSegment(const XLDContourSegment& other)
+        : x(other.x),
+          y(other.y),
+          angles(other.angles),
+          magnitudes(other.magnitudes),
+          angleBins(other.angleBins),
+          isClosed(other.isClosed) {}
+    XLDContourSegment& operator=(const XLDContourSegment& other) {
+        if (this != &other) {
+            x = other.x;
+            y = other.y;
+            angles = other.angles;
+            magnitudes = other.magnitudes;
+            angleBins = other.angleBins;
+            isClosed = other.isClosed;
+        }
+        return *this;
+    }
+    XLDContourSegment(XLDContourSegment&& other) noexcept = default;
+    XLDContourSegment& operator=(XLDContourSegment&& other) noexcept = default;
+
     size_t Size() const { return x.size(); }
     bool Empty() const { return x.empty(); }
 
@@ -384,6 +406,10 @@ std::vector<XLDContourSegment> TraceContoursXLD(
  * @param spacing Target spacing between points (default 1.0 pixel)
  * @return Resampled contour segment
  */
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
 XLDContourSegment ResampleContourXLD(const XLDContourSegment& contour, double spacing = 1.0) {
     if (contour.Size() < 2) return contour;
 
@@ -440,6 +466,9 @@ XLDContourSegment ResampleContourXLD(const XLDContourSegment& contour, double sp
 
     return result;
 }
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 } // anonymous namespace
 

@@ -33,7 +33,7 @@ int main() {
     std::cout << "=== NCC Model Batch Demo ===\n";
 
     // 1. Get all images in the folder
-    std::string imageFolder = "tests/data/matching/image1";
+    std::string imageFolder = "tests/data/matching/image2";
     std::vector<std::string> imagePaths;
 
     for (const auto& entry : fs::directory_iterator(imageFolder)) {

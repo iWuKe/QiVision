@@ -46,11 +46,12 @@ double NCCModelImpl::ComputeNCCScore(
         return -1.0;
     }
 
-    if (angleIndex < 0 || angleIndex >= static_cast<int32_t>(rotatedTemplates_[level].size())) {
+    const auto& templates = GetRotatedTemplates(level);
+    if (angleIndex < 0 || angleIndex >= static_cast<int32_t>(templates.size())) {
         return -1.0;
     }
 
-    const auto& rotatedTemplate = rotatedTemplates_[level][angleIndex];
+    const auto& rotatedTemplate = templates[angleIndex];
 
     if (!rotatedTemplate.IsValid()) {
         return -1.0;
@@ -198,7 +199,7 @@ double NCCModelImpl::ComputeNCCScoreSubpixel(
     // For now, just round to nearest integer
     int32_t ix = static_cast<int32_t>(std::round(x));
     int32_t iy = static_cast<int32_t>(std::round(y));
-    int32_t angleIdx = GetAngleIndex(angle);
+    int32_t angleIdx = GetAngleIndex(angle, level);
 
     // This requires integral image which we don't have here
     // Return -1 to indicate not implemented
@@ -224,15 +225,16 @@ void NCCModelImpl::RefinePosition(
     // Sample 3x3 grid around current position
 
     const auto& modelLevel = levels_[level];
-    int32_t angleIdx = GetAngleIndex(match.angle);
-    const auto& rotatedTemplate = rotatedTemplates_[level][angleIdx];
+    int32_t angleIdx = GetAngleIndex(match.angle, level);
+    const auto& rotatedTemplate = GetRotatedTemplates(level)[angleIdx];
     if (!rotatedTemplate.IsValid()) {
         return;
     }
 
+    const auto& angleList = GetSearchAngles(level);
     auto computeOriginOffset = [&](int32_t aIdx, const RotatedTemplate& tpl,
                                    double& outX, double& outY) {
-        double angle = searchAngles_[aIdx];
+        double angle = angleList[aIdx];
         double cosA = std::cos(angle);
         double sinA = std::sin(angle);
 
@@ -318,9 +320,10 @@ void NCCModelImpl::RefinePosition(
     match.refined = true;
 
     // Parabolic refinement in angle
-    if (angleIdx > 0 && angleIdx < static_cast<int32_t>(searchAngles_.size()) - 1) {
-        const auto& leftTemplate = rotatedTemplates_[level][angleIdx - 1];
-        const auto& rightTemplate = rotatedTemplates_[level][angleIdx + 1];
+    if (angleIdx > 0 && angleIdx < static_cast<int32_t>(angleList.size()) - 1) {
+        const auto& templates = GetRotatedTemplates(level);
+        const auto& leftTemplate = templates[angleIdx - 1];
+        const auto& rightTemplate = templates[angleIdx + 1];
 
         double sLeft = -1.0;
         double sRight = -1.0;
@@ -360,8 +363,9 @@ void NCCModelImpl::RefinePosition(
                 double subAngle = (sLeft - sRight) / denom;
                 subAngle = std::clamp(subAngle, -0.5, 0.5);
 
-                double angleStep = (searchAngles_.size() > 1) ?
-                    (searchAngles_[1] - searchAngles_[0]) : 0.0;
+                const auto& angleList = GetSearchAngles(level);
+                double angleStep = (angleList.size() > 1) ?
+                    (angleList[1] - angleList[0]) : 0.0;
                 match.angle += subAngle * angleStep;
             }
         }

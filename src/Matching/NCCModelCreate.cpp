@@ -334,6 +334,10 @@ void NCCModelImpl::BuildPyramidLevels(const std::vector<float>& templateData,
     // Create level models
     levels_.resize(pyramid.NumLevels());
 
+    // Optional auto-mask to suppress low-contrast pixels when no mask is provided
+    std::vector<uint8_t> autoMask;
+    bool useAutoMask = false;
+
     for (int32_t i = 0; i < pyramid.NumLevels(); ++i) {
         const auto& pyrLevel = pyramid.GetLevel(i);
 
@@ -343,11 +347,43 @@ void NCCModelImpl::BuildPyramidLevels(const std::vector<float>& templateData,
         level.scale = pyrLevel.scale;
         level.data = pyrLevel.data;
 
-        // Downsample mask if present
-        if (!mask.empty()) {
+        // Downsample mask if present, or build auto-mask at level 0
+        if (!mask.empty() || useAutoMask) {
             if (i == 0) {
-                level.mask = mask;
-            } else {
+                if (!mask.empty()) {
+                    level.mask = mask;
+                } else {
+                    // Build auto-mask based on intensity deviation
+                    double sum = 0.0;
+                    for (float v : level.data) sum += v;
+                    double mean = sum / static_cast<double>(level.data.size());
+
+                    double sumSq = 0.0;
+                    for (float v : level.data) {
+                        double diff = v - mean;
+                        sumSq += diff * diff;
+                    }
+                    double stddev = std::sqrt(sumSq / static_cast<double>(level.data.size()));
+                    double threshold = stddev * 0.5;
+
+                    autoMask.resize(level.data.size());
+                    int32_t count = 0;
+                    for (size_t idx = 0; idx < level.data.size(); ++idx) {
+                        double diff = std::abs(level.data[idx] - mean);
+                        uint8_t m = (diff >= threshold) ? 255 : 0;
+                        autoMask[idx] = m;
+                        if (m > 0) count++;
+                    }
+
+                    int32_t minCount = 32;
+                    int32_t minRatio = static_cast<int32_t>(level.data.size() * 0.1);
+                    if (count >= std::max(minCount, minRatio)) {
+                        level.mask = autoMask;
+                        useAutoMask = true;
+                        hasMask_ = true;
+                    }
+                }
+            } else if (useAutoMask || !mask.empty()) {
                 // Simple nearest-neighbor downsample for mask
                 int32_t prevWidth = levels_[i-1].width;
                 int32_t prevHeight = levels_[i-1].height;
@@ -362,6 +398,9 @@ void NCCModelImpl::BuildPyramidLevels(const std::vector<float>& templateData,
                     }
                 }
             }
+        }
+
+        if (!level.mask.empty()) {
             level.ComputeStatisticsWithMask();
         } else {
             level.ComputeStatistics();
@@ -371,23 +410,33 @@ void NCCModelImpl::BuildPyramidLevels(const std::vector<float>& templateData,
 
 void NCCModelImpl::PrecomputeRotatedTemplates()
 {
-    // Build search angle list
+    // Build search angle lists
     BuildSearchAngles();
 
-    if (searchAngles_.empty() || levels_.empty()) {
+    if ((searchAnglesCoarse_.empty() && searchAnglesFine_.empty()) || levels_.empty()) {
         return;
     }
 
-    rotatedTemplates_.resize(levels_.size());
+    rotatedTemplatesCoarse_.resize(levels_.size());
+    rotatedTemplatesFine_.resize(levels_.size());
 
     for (size_t levelIdx = 0; levelIdx < levels_.size(); ++levelIdx) {
         const auto& level = levels_[levelIdx];
 
-        rotatedTemplates_[levelIdx].resize(searchAngles_.size());
+        if (!searchAnglesCoarse_.empty()) {
+            rotatedTemplatesCoarse_[levelIdx].resize(searchAnglesCoarse_.size());
+            for (size_t angleIdx = 0; angleIdx < searchAnglesCoarse_.size(); ++angleIdx) {
+                rotatedTemplatesCoarse_[levelIdx][angleIdx] =
+                    RotateTemplate(level, searchAnglesCoarse_[angleIdx]);
+            }
+        }
 
-        for (size_t angleIdx = 0; angleIdx < searchAngles_.size(); ++angleIdx) {
-            rotatedTemplates_[levelIdx][angleIdx] =
-                RotateTemplate(level, searchAngles_[angleIdx]);
+        if (!searchAnglesFine_.empty()) {
+            rotatedTemplatesFine_[levelIdx].resize(searchAnglesFine_.size());
+            for (size_t angleIdx = 0; angleIdx < searchAnglesFine_.size(); ++angleIdx) {
+                rotatedTemplatesFine_[levelIdx][angleIdx] =
+                    RotateTemplate(level, searchAnglesFine_[angleIdx]);
+            }
         }
     }
 }
@@ -533,7 +582,8 @@ RotatedTemplate NCCModelImpl::RotateTemplate(const NCCLevelModel& level, double 
 
 void NCCModelImpl::BuildSearchAngles()
 {
-    searchAngles_.clear();
+    searchAnglesCoarse_.clear();
+    searchAnglesFine_.clear();
 
     double angleStart = params_.angleStart;
     double angleExtent = params_.angleExtent;
@@ -556,23 +606,38 @@ void NCCModelImpl::BuildSearchAngles()
         angleStep = std::clamp(angleStep, MIN_ANGLE_STEP, MAX_ANGLE_STEP);
     }
 
-    // Generate angle list
-    int32_t numAngles = static_cast<int32_t>(std::ceil(std::abs(angleExtent) / angleStep)) + 1;
-    searchAngles_.reserve(numAngles);
+    // Fine angle list
+    int32_t numAnglesFine = static_cast<int32_t>(std::ceil(std::abs(angleExtent) / angleStep)) + 1;
+    searchAnglesFine_.reserve(numAnglesFine);
 
-    for (int32_t i = 0; i < numAngles; ++i) {
+    for (int32_t i = 0; i < numAnglesFine; ++i) {
         double angle = angleStart + i * angleStep;
         if (angleExtent >= 0) {
             if (angle > angleStart + angleExtent) break;
         } else {
             if (angle < angleStart + angleExtent) break;
         }
-        searchAngles_.push_back(angle);
+        searchAnglesFine_.push_back(angle);
     }
 
-    // Store the actual step used
-    if (searchAngles_.size() > 1) {
-        params_.angleStep = searchAngles_[1] - searchAngles_[0];
+    // Store the actual fine step used
+    if (searchAnglesFine_.size() > 1) {
+        params_.angleStep = searchAnglesFine_[1] - searchAnglesFine_[0];
+    }
+
+    // Coarse angle list (use larger step)
+    double coarseStep = std::max(params_.angleStep * 4.0, DegToRad(4.0));
+    int32_t numAnglesCoarse = static_cast<int32_t>(std::ceil(std::abs(angleExtent) / coarseStep)) + 1;
+    searchAnglesCoarse_.reserve(numAnglesCoarse);
+
+    for (int32_t i = 0; i < numAnglesCoarse; ++i) {
+        double angle = angleStart + i * coarseStep;
+        if (angleExtent >= 0) {
+            if (angle > angleStart + angleExtent) break;
+        } else {
+            if (angle < angleStart + angleExtent) break;
+        }
+        searchAnglesCoarse_.push_back(angle);
     }
 }
 

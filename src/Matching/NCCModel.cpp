@@ -470,8 +470,10 @@ void ClearNCCModel(
     auto* impl = model.Impl();
     if (impl) {
         impl->levels_.clear();
-        impl->rotatedTemplates_.clear();
-        impl->searchAngles_.clear();
+        impl->rotatedTemplatesCoarse_.clear();
+        impl->rotatedTemplatesFine_.clear();
+        impl->searchAnglesCoarse_.clear();
+        impl->searchAnglesFine_.clear();
         impl->valid_ = false;
     }
 }

@@ -17,6 +17,11 @@
     <img src="https://img.shields.io/badge/Dependencies-stb__image%20only-brightgreen.svg" alt="Dependencies">
 </p>
 
+<p align="center">
+    <a href="https://github.com/userqz1/QiVision"><img src="https://img.shields.io/badge/GitHub-userqz1%2FQiVision-blue?logo=github" alt="GitHub"></a>
+    <a href="https://gitee.com/flyingtoad/QiVision"><img src="https://img.shields.io/badge/Gitee-flyingtoad%2FQiVision-red?logo=gitee" alt="Gitee"></a>
+</p>
+
 ---
 
 ## 项目简介

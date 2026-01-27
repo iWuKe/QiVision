@@ -208,7 +208,7 @@ int main(int argc, char* argv[]) {
         timer.Start();
         FindShapeModel(searchGray, model,
                        0, RAD(360),           // search angle range
-                       0.5, 10, 0.5,          // minScore, numMatches, maxOverlap
+                       0.9, 4, 1.0,           // minScore, numMatches, maxOverlap
                        "least_squares", 0, 0.9,  // subPixel, numLevels, greediness
                        rows, cols, angles, scores);
         double searchTime = timer.ElapsedMs();

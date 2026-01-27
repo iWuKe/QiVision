@@ -68,6 +68,55 @@ std::string MetricToString(MetricMode mode) {
     }
 }
 
+double EstimateAutoMinContrastFromPyramid(const AnglePyramid& pyramid) {
+    const auto& level0 = pyramid.GetLevel(0);
+    const QImage& mag = level0.gradMag;
+    if (!mag.IsValid() || mag.Empty()) {
+        return 10.0;
+    }
+
+    const int32_t width = mag.Width();
+    const int32_t height = mag.Height();
+    if (width <= 0 || height <= 0) {
+        return 10.0;
+    }
+
+    const double targetSamples = 20000.0;
+    const double total = static_cast<double>(width) * static_cast<double>(height);
+    const int32_t step = std::max(1, static_cast<int32_t>(std::sqrt(total / targetSamples)));
+
+    std::vector<float> samples;
+    samples.reserve(static_cast<size_t>((width / step + 1) * (height / step + 1)));
+
+    for (int32_t y = 0; y < height; y += step) {
+        const float* row = static_cast<const float*>(mag.RowPtr(y));
+        for (int32_t x = 0; x < width; x += step) {
+            samples.push_back(row[x]);
+        }
+    }
+
+    if (samples.empty()) {
+        return 10.0;
+    }
+
+    const size_t idx90 = static_cast<size_t>(samples.size() * 0.90);
+    std::nth_element(samples.begin(), samples.begin() + idx90, samples.end());
+    const float p90 = samples[idx90];
+
+    const size_t idx50 = samples.size() / 2;
+    std::nth_element(samples.begin(), samples.begin() + idx50, samples.end());
+    const float p50 = samples[idx50];
+
+    double minContrast = std::max(3.0, std::min(static_cast<double>(p90) * 0.35,
+                                                static_cast<double>(p90) * 0.70));
+    minContrast = std::max(minContrast, static_cast<double>(p50) * 0.80);
+    if (!std::isfinite(minContrast) || minContrast <= 0.0) {
+        minContrast = 10.0;
+    }
+
+    return minContrast;
+}
+
 /**
  * @brief Parse contrast parameter string
  *
@@ -434,7 +483,7 @@ void FindShapeModel(
         return;
     }
 
-    auto* impl = model.Impl();
+    auto* impl = const_cast<Internal::ShapeModelImpl*>(model.Impl());
 
     // Set up search parameters
     SearchParams params;
@@ -454,11 +503,8 @@ void FindShapeModel(
     Internal::AnglePyramidParams pyramidParams;
     pyramidParams.numLevels = static_cast<int32_t>(impl->levels_.size());
 
-    // Use same contrast as model creation to avoid detecting weak edges
-    double searchContrast = (impl->params_.minContrast > 0)
-        ? impl->params_.minContrast
-        : impl->params_.contrastHigh;
-    pyramidParams.minContrast = searchContrast;
+    // Keep pyramid minContrast low; scoring applies search-time thresholds
+    pyramidParams.minContrast = 1.0;
     pyramidParams.smoothSigma = 0.5;
     pyramidParams.extractEdgePoints = false;
     pyramidParams.storeDirection = false;  // Search mode: skip storing gradDir
@@ -466,6 +512,14 @@ void FindShapeModel(
     Internal::AnglePyramid targetPyramid;
     if (!targetPyramid.Build(image, pyramidParams)) {
         return;
+    }
+
+    const double savedMinContrast = impl->params_.minContrast;
+    if (savedMinContrast <= 0.0) {
+        impl->params_.minContrast = EstimateAutoMinContrastFromPyramid(targetPyramid);
+        if (impl->timingParams_.debugCreateModel) {
+            std::printf("[Find] auto minContrast=%.2f\n", impl->params_.minContrast);
+        }
     }
 
     // Print detailed pyramid timing
@@ -493,6 +547,8 @@ void FindShapeModel(
         angles.push_back(r.angle);
         scores.push_back(r.score);
     }
+
+    impl->params_.minContrast = savedMinContrast;
 }
 
 void FindScaledShapeModel(
@@ -542,7 +598,7 @@ void FindScaledShapeModel(
     }
 
     // Get model implementation
-    auto* impl = model.Impl();
+    auto* impl = const_cast<Internal::ShapeModelImpl*>(model.Impl());
 
     // Auto-compute scale step if not specified
     // Rule: step = (max - min) / 10 for reasonable coverage, but at least 0.01
@@ -559,18 +615,20 @@ void FindScaledShapeModel(
     AnglePyramidParams pyramidParams;
     pyramidParams.numLevels = (numLevels > 0) ? numLevels : impl->params_.numLevels;
     pyramidParams.smoothSigma = 0.5;
-    double minContrast = (impl->params_.minContrast > 0.0)
-        ? impl->params_.minContrast
-        : impl->params_.contrastHigh;
-    if (impl->params_.contrastLow > 0.0) {
-        minContrast = std::max(minContrast, impl->params_.contrastLow * 0.5);
-    }
-    pyramidParams.minContrast = minContrast;
+    pyramidParams.minContrast = 1.0;
     pyramidParams.useNMS = true;
 
     AnglePyramid targetPyramid;
     if (!targetPyramid.Build(image, pyramidParams)) {
         return;  // Failed to build pyramid
+    }
+
+    const double savedMinContrast = impl->params_.minContrast;
+    if (savedMinContrast <= 0.0) {
+        impl->params_.minContrast = EstimateAutoMinContrastFromPyramid(targetPyramid);
+        if (impl->timingParams_.debugCreateModel) {
+            std::printf("[FindScaled] auto minContrast=%.2f\n", impl->params_.minContrast);
+        }
     }
 
     // Collect all matches from different scales
@@ -663,6 +721,8 @@ void FindScaledShapeModel(
             ++matchCount;
         }
     }
+
+    impl->params_.minContrast = savedMinContrast;
 }
 
 // =============================================================================

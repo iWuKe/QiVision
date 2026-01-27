@@ -58,6 +58,48 @@ namespace {
         return (ratio - fuzzyLow) / (fuzzyHigh - fuzzyLow);
     }
 
+    double ComputeProfileContrast(const std::vector<double>& profile) {
+        if (profile.empty()) return 0.0;
+        auto [minIt, maxIt] = std::minmax_element(profile.begin(), profile.end());
+        return *maxIt - *minIt;
+    }
+
+    double ProfileAngleAt(const MeasureRectangle2& handle, double /*profilePos*/) {
+        return handle.ProfileAngle();
+    }
+
+    double ProfileAngleAt(const MeasureArc& handle, double profilePos) {
+        double angle = handle.ProfilePosToAngle(profilePos);
+        return angle + PI * 0.5;
+    }
+
+    double ProfileAngleAt(const MeasureConcentricCircles& handle, double /*profilePos*/) {
+        return handle.Angle();
+    }
+
+    void ComputeInterDistances(std::vector<PairResult>& pairs) {
+        if (pairs.size() < 2) {
+            if (!pairs.empty()) {
+                pairs[0].interDistance = 0.0;
+            }
+            return;
+        }
+
+        std::vector<size_t> order(pairs.size());
+        std::iota(order.begin(), order.end(), 0);
+        auto centerPos = [&pairs](size_t idx) {
+            return 0.5 * (pairs[idx].first.profilePosition + pairs[idx].second.profilePosition);
+        };
+        std::sort(order.begin(), order.end(),
+                  [&](size_t a, size_t b) { return centerPos(a) < centerPos(b); });
+
+        for (size_t i = 0; i + 1 < order.size(); ++i) {
+            double d = centerPos(order[i + 1]) - centerPos(order[i]);
+            pairs[order[i]].interDistance = std::max(0.0, d);
+        }
+        pairs[order.back()].interDistance = 0.0;
+    }
+
     // Extract profile implementation
     std::vector<double> ExtractProfileImpl(const QImage& image,
                                             const MeasureRectangle2& handle,
@@ -247,6 +289,7 @@ namespace {
         // Convert 1D results to EdgeResult
         double profileLength = handle.ProfileLength();
         double stepSize = profileLength / (profile.size() - 1);
+        double contrast = ComputeProfileContrast(profile);
 
         for (const auto& edge : edges1D) {
             EdgeResult result;
@@ -263,11 +306,11 @@ namespace {
             result.amplitude = std::abs(edge.amplitude);
             result.transition = ToEdgeTransition(edge.polarity);
 
-            // Angle is the profile direction
-            result.angle = handle.ProfileAngle();
+            // Angle is the local profile direction
+            result.angle = ProfileAngleAt(handle, result.profilePosition);
 
-            // Confidence based on amplitude
-            result.confidence = std::min(1.0, result.amplitude / 255.0);
+            // Confidence based on amplitude vs profile contrast
+            result.confidence = (contrast > 0.0) ? std::min(1.0, result.amplitude / contrast) : 0.0;
             result.score = result.confidence;
 
             results.push_back(result);
@@ -331,6 +374,7 @@ namespace {
         // Find pairs
         double profileLength = handle.ProfileLength();
         double stepSize = profileLength / (profile.size() - 1);
+        double contrast = ComputeProfileContrast(profile);
 
         for (const auto& first : firstEdges) {
             for (const auto& second : secondEdges) {
@@ -348,8 +392,8 @@ namespace {
                 pair.first.row = p1.y;
                 pair.first.amplitude = std::abs(first.amplitude);
                 pair.first.transition = ToEdgeTransition(first.polarity);
-                pair.first.confidence = std::min(1.0, pair.first.amplitude / 255.0);
-                pair.first.angle = handle.ProfileAngle();
+                pair.first.confidence = (contrast > 0.0) ? std::min(1.0, pair.first.amplitude / contrast) : 0.0;
+                pair.first.angle = ProfileAngleAt(handle, pair.first.profilePosition);
 
                 // Second edge
                 pair.second.profilePosition = second.position * stepSize;
@@ -358,8 +402,8 @@ namespace {
                 pair.second.row = p2.y;
                 pair.second.amplitude = std::abs(second.amplitude);
                 pair.second.transition = ToEdgeTransition(second.polarity);
-                pair.second.confidence = std::min(1.0, pair.second.amplitude / 255.0);
-                pair.second.angle = handle.ProfileAngle();
+                pair.second.confidence = (contrast > 0.0) ? std::min(1.0, pair.second.amplitude / contrast) : 0.0;
+                pair.second.angle = ProfileAngleAt(handle, pair.second.profilePosition);
 
                 // Pair properties (Halcon compatible)
                 pair.intraDistance = width;  // Distance within this pair
@@ -381,6 +425,8 @@ namespace {
 
         // Apply selection mode
         results = SelectPairs(results, selectMode, MAX_EDGES);
+
+        ComputeInterDistances(results);
 
         return results;
     }
@@ -462,7 +508,7 @@ namespace {
 
             result.amplitude = std::abs(edge.amplitude);
             result.transition = ToEdgeTransition(edge.polarity);
-            result.angle = handle.ProfileAngle();
+            result.angle = ProfileAngleAt(handle, result.profilePosition);
             result.score = score;
             result.confidence = score;
 
@@ -572,16 +618,12 @@ namespace {
             }
         }
 
-        // Sort by score descending
-        std::sort(results.begin(), results.end(),
-                  [](const PairResult& a, const PairResult& b) {
-                      return a.score > b.score;
-                  });
-
         // Apply selection mode
         results = SelectPairs(results, ParsePairSelect(
             selectMode == EdgeSelectMode::First ? "first" :
             selectMode == EdgeSelectMode::Last ? "last" : "all"), MAX_EDGES);
+
+        ComputeInterDistances(results);
 
         return results;
     }
@@ -636,8 +678,8 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
     EdgeTransition firstTrans, secondTrans;
 
     if (trans == EdgeTransition::All) {
-        firstTrans = EdgeTransition::Positive;
-        secondTrans = EdgeTransition::Negative;
+        firstTrans = EdgeTransition::All;
+        secondTrans = EdgeTransition::All;
     } else if (trans == EdgeTransition::Positive) {
         firstTrans = EdgeTransition::Positive;
         secondTrans = EdgeTransition::Negative;
@@ -660,8 +702,8 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
     EdgeTransition firstTrans, secondTrans;
 
     if (trans == EdgeTransition::All) {
-        firstTrans = EdgeTransition::Positive;
-        secondTrans = EdgeTransition::Negative;
+        firstTrans = EdgeTransition::All;
+        secondTrans = EdgeTransition::All;
     } else if (trans == EdgeTransition::Positive) {
         firstTrans = EdgeTransition::Positive;
         secondTrans = EdgeTransition::Negative;
@@ -684,8 +726,8 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
     EdgeTransition firstTrans, secondTrans;
 
     if (trans == EdgeTransition::All) {
-        firstTrans = EdgeTransition::Positive;
-        secondTrans = EdgeTransition::Negative;
+        firstTrans = EdgeTransition::All;
+        secondTrans = EdgeTransition::All;
     } else if (trans == EdgeTransition::Positive) {
         firstTrans = EdgeTransition::Positive;
         secondTrans = EdgeTransition::Negative;
@@ -840,18 +882,32 @@ std::vector<PairResult> SelectPairs(const std::vector<PairResult>& pairs,
 
     std::vector<PairResult> result;
 
+    auto centerPos = [](const PairResult& p) {
+        return 0.5 * (p.first.profilePosition + p.second.profilePosition);
+    };
+
     switch (mode) {
         case PairSelectMode::All:
             result = pairs;
             break;
 
-        case PairSelectMode::First:
-            result.push_back(pairs.front());
+        case PairSelectMode::First: {
+            auto it = std::min_element(pairs.begin(), pairs.end(),
+                [&](const PairResult& a, const PairResult& b) {
+                    return centerPos(a) < centerPos(b);
+                });
+            result.push_back(*it);
             break;
+        }
 
-        case PairSelectMode::Last:
-            result.push_back(pairs.back());
+        case PairSelectMode::Last: {
+            auto it = std::max_element(pairs.begin(), pairs.end(),
+                [&](const PairResult& a, const PairResult& b) {
+                    return centerPos(a) < centerPos(b);
+                });
+            result.push_back(*it);
             break;
+        }
 
         case PairSelectMode::Strongest: {
             auto it = std::max_element(pairs.begin(), pairs.end(),

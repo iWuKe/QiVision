@@ -141,21 +141,47 @@ double ShapeModelImpl::ComputeScoreAtPosition(
                 float rotSin = soaSin[i] * cosR + soaCos[i] * sinR;
                 float dot = rotCos * gx + rotSin * gy;
                 float mag = std::sqrt(magSq);
+                float similarity = dot / mag;
+                float simPos = std::max(0.0f, similarity);
+                float simNeg = std::max(0.0f, -similarity);
 
                 if (params_.metric == MetricMode::UsePolarity) {
-                    float similarity = std::max(0.0f, dot / mag);
-                    totalScore += soaWeight[i] * similarity;
-                    totalWeight += soaWeight[i];
-                    matchedCount++;
-                } else {
-                    float similarity = dot / mag;
-                    totalScore += soaWeight[i] * std::max(0.0f, similarity);
-                    totalWeight += soaWeight[i];
-                    matchedCount++;
+                    float score = 0.0f;
+                    if (params_.polarity == MatchPolarity::Opposite) {
+                        score = simNeg;
+                    } else if (params_.polarity == MatchPolarity::Any) {
+                        score = std::max(simPos, simNeg);
+                    } else {
+                        score = simPos;
+                    }
 
-                    totalScoreInverted += soaWeight[i] * std::max(0.0f, -similarity);
-                    totalWeightInverted += soaWeight[i];
-                    matchedCountInverted++;
+                    if (score > 0.0f) {
+                        totalScore += soaWeight[i] * score;
+                        totalWeight += soaWeight[i];
+                        matchedCount++;
+                    }
+                } else {
+                    if (params_.polarity == MatchPolarity::Opposite) {
+                        if (simNeg > 0.0f) {
+                            totalScore += soaWeight[i] * simNeg;
+                            totalWeight += soaWeight[i];
+                            matchedCount++;
+                        }
+                    } else if (params_.polarity == MatchPolarity::Any) {
+                        totalScore += soaWeight[i] * simPos;
+                        totalWeight += soaWeight[i];
+                        matchedCount++;
+
+                        totalScoreInverted += soaWeight[i] * simNeg;
+                        totalWeightInverted += soaWeight[i];
+                        matchedCountInverted++;
+                    } else {
+                        if (simPos > 0.0f) {
+                            totalScore += soaWeight[i] * simPos;
+                            totalWeight += soaWeight[i];
+                            matchedCount++;
+                        }
+                    }
                 }
             }
         }
@@ -226,7 +252,6 @@ double ShapeModelImpl::ComputeScoreBilinearSSE(
     float levelScale = static_cast<float>(pyramid.GetScale(level));
     float minMag = std::max(2.0f, baseMin * levelScale);
     const __m128 vMinMagSq = _mm_set_ss(minMag * minMag);
-    const __m128 vSignMask = _mm_set_ss(-0.0f);
 
     float totalScore = 0.0f;
     float totalWeight = 0.0f;
@@ -351,7 +376,6 @@ double ShapeModelImpl::ComputeScoreWithSinCos(
     const float yf = static_cast<float>(y);
 
     const __m128 vMinMagSq = _mm_set_ss(minMagSq);
-    const __m128 vSignMask = _mm_set_ss(-0.0f);
 
     float totalScore = 0.0f;
     float totalWeight = 0.0f;
@@ -407,18 +431,35 @@ double ShapeModelImpl::ComputeScoreWithSinCos(
                 float rotCos = soaCos[i] * cosR - soaSin[i] * sinR;
                 float rotSin = soaSin[i] * cosR + soaCos[i] * sinR;
                 float dot = rotCos * gx + rotSin * gy;
+                float mag = std::sqrt(_mm_cvtss_f32(vMagSq));
+                float similarity = dot / mag;
+                float simPos = std::max(0.0f, similarity);
+                float simNeg = std::max(0.0f, -similarity);
 
-                __m128 vInvMag = _mm_rsqrt_ss(vMagSq);
-                __m128 vDot = _mm_set_ss(dot);
-                __m128 vAbsDot = _mm_andnot_ps(vSignMask, vDot);
-                __m128 vScore = _mm_mul_ss(vAbsDot, vInvMag);
+                float score = 0.0f;
+                if (params_.metric == MetricMode::UsePolarity) {
+                    if (params_.polarity == MatchPolarity::Opposite) {
+                        score = simNeg;
+                    } else if (params_.polarity == MatchPolarity::Any) {
+                        score = std::max(simPos, simNeg);
+                    } else {
+                        score = simPos;
+                    }
+                } else {
+                    if (params_.polarity == MatchPolarity::Opposite) {
+                        score = simNeg;
+                    } else if (params_.polarity == MatchPolarity::Any) {
+                        score = std::max(simPos, simNeg);
+                    } else {
+                        score = simPos;
+                    }
+                }
 
-                float score;
-                _mm_store_ss(&score, vScore);
-
-                totalScore += soaWeight[i] * score;
-                totalWeight += soaWeight[i];
-                matchedCount++;
+                if (score > 0.0f) {
+                    totalScore += soaWeight[i] * score;
+                    totalWeight += soaWeight[i];
+                    matchedCount++;
+                }
             }
         }
 
@@ -641,10 +682,23 @@ double ShapeModelImpl::ComputeScoreQuantized(
 
                 int32_t binDiff = (modelBin + rotationBin - imageBin) & binMask;
                 float score = cosLUT[binDiff];
+                float simPos = std::max(0.0f, score);
+                float simNeg = std::max(0.0f, -score);
 
-                totalScore += soaWeight[i] * score;
-                totalWeight += soaWeight[i];
-                matchedCount++;
+                float finalScore = 0.0f;
+                if (params_.polarity == MatchPolarity::Opposite) {
+                    finalScore = simNeg;
+                } else if (params_.polarity == MatchPolarity::Any) {
+                    finalScore = std::max(simPos, simNeg);
+                } else {
+                    finalScore = simPos;
+                }
+
+                if (finalScore > 0.0f) {
+                    totalScore += soaWeight[i] * finalScore;
+                    totalWeight += soaWeight[i];
+                    matchedCount++;
+                }
             }
         }
 

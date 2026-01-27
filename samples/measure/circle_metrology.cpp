@@ -93,6 +93,9 @@ int main() {
     Color::GrayToRgb(grayImage, colorImg);
     Draw::MetrologyModelResult(colorImg, model);
 
+    // 保存结果
+    colorImg.SaveToFile("tests/output/metrology_result.png");
+
     // 显示
     Window win("Metrology Demo");
     win.SetAutoResize(true);

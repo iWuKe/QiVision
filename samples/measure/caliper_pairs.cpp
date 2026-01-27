@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
     QImage colorImg;
     Color::GrayToRgb(gray, colorImg);
 
-    // Draw caliper tool (rectangle + projection line) - cyan
+    // Draw caliper tool - cyan
     Draw::MeasureRect(colorImg, handle, cyan, 1);
 
     // Draw edge points and center - green
@@ -105,6 +105,9 @@ int main(int argc, char* argv[]) {
         // Pair center
         Draw::Cross(colorImg, center, 8, 0, green, 2);
     }
+
+    // Save result
+    colorImg.SaveToFile("tests/output/caliper_pairs.png");
 
     // Display
     Window win("Caliper Pairs Demo");

@@ -1123,6 +1123,12 @@ CircleFitResult FitCircleRANSAC(const std::vector<Point2d>& points,
     auto residuals = ComputeCircleResiduals(points, result.circle);
     FillResidualStats(result, residuals, params);
 
+    // Generate weights from inlierMask for visualization compatibility
+    result.weights.resize(points.size(), 0.0);
+    for (size_t i = 0; i < ransacResult.inlierMask.size(); ++i) {
+        result.weights[i] = ransacResult.inlierMask[i] ? 1.0 : 0.0;
+    }
+
     return result;
 }
 

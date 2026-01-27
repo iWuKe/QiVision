@@ -143,29 +143,11 @@ int main() {
         QImage colorImg;
         Color::GrayToRgb(gray, colorImg);
 
-        // 绘制所有卡尺
-        for (const auto& caliper : calipers) {
-            Draw::MeasureRect(colorImg, caliper, cyan, 1);
-        }
+        // 绘制卡尺工具（包含连接线 + 矩形框 + 中心点）
+        Draw::MeasureRects(colorImg, calipers, cyan, 1);
 
-        // 绘制边缘点（根据权重着色）
-        for (size_t i = 0; i < edgePoints.size(); ++i) {
-            bool isInlier = (i < result.weights.size() && result.weights[i] > 0.5);
-            Scalar color = isInlier ? green : red;
-            Draw::FilledCircle(colorImg, edgePoints[i], 4, color);
-        }
-
-        // 绘制拟合圆
-        Draw::Circle(colorImg, result.circle.center, result.circle.radius, yellow, 2);
-        Draw::Cross(colorImg, result.circle.center, 10, 0, yellow, 2);
-
-        // 绘制初始圆（虚线效果用点表示）
-        for (int i = 0; i < 36; ++i) {
-            double angle = 2.0 * M_PI * i / 36;
-            Point2d pt(initCenterCol + initRadius * std::cos(angle),
-                       initCenterRow + initRadius * std::sin(angle));
-            Draw::Pixel(colorImg, static_cast<int32_t>(pt.x), static_cast<int32_t>(pt.y), cyan);
-        }
+        // 保存结果
+        colorImg.SaveToFile("tests/output/caliper_only.png");
 
         // 显示
         Window win("Manual Circle Measurement");

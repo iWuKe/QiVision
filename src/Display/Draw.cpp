@@ -769,18 +769,11 @@ void Draw::MeasureRect(QImage& image, const Measure::MeasureRectangle2& handle,
     double x4 = cx + len1 * profileDirX - len2 * edgeDirX;
     double y4 = cy + len1 * profileDirY - len2 * edgeDirY;
 
-    // Draw four edges (closed rectangle)
+    // Draw four edges (closed rectangle) - projection box only
     Line(image, Point2d{x1, y1}, Point2d{x2, y2}, color, thickness);
     Line(image, Point2d{x2, y2}, Point2d{x3, y3}, color, thickness);
     Line(image, Point2d{x3, y3}, Point2d{x4, y4}, color, thickness);
     Line(image, Point2d{x4, y4}, Point2d{x1, y1}, color, thickness);
-
-    // Draw projection line (center line along profile direction)
-    double pStartX = cx - len1 * profileDirX;
-    double pStartY = cy - len1 * profileDirY;
-    double pEndX = cx + len1 * profileDirX;
-    double pEndY = cy + len1 * profileDirY;
-    Line(image, Point2d{pStartX, pStartY}, Point2d{pEndX, pEndY}, color, thickness);
 }
 
 void Draw::MeasureArc(QImage& image, const Measure::MeasureArc& handle,
@@ -881,17 +874,33 @@ void Draw::MeasureRects(QImage& image,
                         const Scalar& color, int32_t thickness) {
     if (handles.empty()) return;
 
-    // 1. Draw curve connecting caliper centers
-    if (handles.size() >= 2) {
-        for (size_t i = 0; i < handles.size(); ++i) {
-            size_t j = (i + 1) % handles.size();  // Connect last to first for closed contour
-            Point2d p1{handles[i].Column(), handles[i].Row()};
-            Point2d p2{handles[j].Column(), handles[j].Row()};
-            Line(image, p1, p2, color, thickness);
-        }
+    // 1. Calculate geometric center and average radius
+    double centerX = 0, centerY = 0;
+    for (const auto& handle : handles) {
+        centerX += handle.Column();
+        centerY += handle.Row();
+    }
+    centerX /= handles.size();
+    centerY /= handles.size();
+
+    // Calculate average radius from center to caliper positions
+    double avgRadius = 0;
+    for (const auto& handle : handles) {
+        double dx = handle.Column() - centerX;
+        double dy = handle.Row() - centerY;
+        avgRadius += std::sqrt(dx * dx + dy * dy);
+    }
+    avgRadius /= handles.size();
+
+    // 2. Draw circle connecting caliper centers
+    if (avgRadius > 0) {
+        Circle(image, Point2d{centerX, centerY}, avgRadius, color, thickness);
     }
 
-    // 2. Draw each caliper rectangle
+    // 3. Draw geometric center of the entire caliper tool
+    Cross(image, Point2d{centerX, centerY}, 12, color, thickness);
+
+    // 4. Draw each caliper projection box
     for (const auto& handle : handles) {
         MeasureRect(image, handle, color, thickness);
     }

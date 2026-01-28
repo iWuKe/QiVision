@@ -35,6 +35,10 @@
 #include <QiVision/Morphology/Morphology.h>
 #include <QiVision/Display/Display.h>
 #include <QiVision/Display/Draw.h>
+#include <QiVision/Calib/CameraModel.h>
+#include <QiVision/Calib/Undistort.h>
+#include <QiVision/Calib/CalibBoard.h>
+#include <QiVision/Calib/CameraCalib.h>
 
 namespace Qi::Vision {
 

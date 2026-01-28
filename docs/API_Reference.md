@@ -1,7 +1,7 @@
 # QiVision API Reference
 
-> Version: 0.6.0
-> Last Updated: 2026-01-27
+> Version: 0.7.0
+> Last Updated: 2026-01-28
 > Namespace: `Qi::Vision`
 
 Professional industrial machine vision library.
@@ -20,7 +20,8 @@ Professional industrial machine vision library.
 8. [Display](#8-display) - Drawing primitives
 9. [GUI](#9-gui) - Window display
 10. [Morphology](#10-morphology) - Morphological operations
-11. [Appendix](#appendix) - Types and constants
+11. [Calib](#11-calib) - Camera calibration and distortion correction
+12. [Appendix](#appendix) - Types and constants
 
 ---
 
@@ -2378,10 +2379,397 @@ enum class ChannelType {
 
 ---
 
+## 11. Calib
+
+**Namespace**: `Qi::Vision::Calib`
+**Headers**: `<QiVision/Calib/CameraModel.h>`, `<QiVision/Calib/Undistort.h>`, `<QiVision/Calib/CalibBoard.h>`
+
+Camera calibration, distortion correction, and coordinate transformations.
+
+---
+
+### CameraIntrinsics
+
+Camera intrinsic parameters.
+
+```cpp
+struct CameraIntrinsics {
+    double fx = 1.0;    // Focal length X (pixels)
+    double fy = 1.0;    // Focal length Y (pixels)
+    double cx = 0.0;    // Principal point X (pixels)
+    double cy = 0.0;    // Principal point Y (pixels)
+
+    Internal::Mat33 ToMatrix() const;
+    static CameraIntrinsics FromMatrix(const Internal::Mat33& K);
+};
+```
+
+**Methods**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| ToMatrix() | Internal::Mat33 | 3x3 intrinsic matrix K |
+| FromMatrix() | CameraIntrinsics | Create from 3x3 matrix |
+
+---
+
+### DistortionCoeffs
+
+Lens distortion coefficients (Brown-Conrady model).
+
+```cpp
+struct DistortionCoeffs {
+    double k1 = 0.0;    // Radial distortion k1
+    double k2 = 0.0;    // Radial distortion k2
+    double k3 = 0.0;    // Radial distortion k3
+    double p1 = 0.0;    // Tangential distortion p1
+    double p2 = 0.0;    // Tangential distortion p2
+
+    bool IsZero() const;
+};
+```
+
+---
+
+### CameraModel
+
+Complete camera model with intrinsics and distortion.
+
+```cpp
+class CameraModel {
+public:
+    CameraModel();
+    CameraModel(const CameraIntrinsics& intr, const DistortionCoeffs& dist,
+                const Size2i& imgSize = Size2i(0, 0));
+
+    const CameraIntrinsics& Intrinsics() const;
+    const DistortionCoeffs& Distortion() const;
+    const Size2i& ImageSize() const;
+
+    Point2d Distort(const Point2d& normalized) const;
+    Point2d Undistort(const Point2d& distorted, int maxIterations = 10) const;
+    Point2d ProjectPoint(const Point3d& p3d) const;
+    Point3d UnprojectPixel(const Point2d& pixel) const;
+
+    bool IsValid() const;
+};
+```
+
+**Methods**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| Distort() | Point2d | Apply distortion to normalized point |
+| Undistort() | Point2d | Remove distortion (iterative) |
+| ProjectPoint() | Point2d | Project 3D point to 2D pixel |
+| UnprojectPixel() | Point3d | Unproject pixel to 3D ray |
+
+---
+
+### UndistortMap
+
+Pre-computed undistortion map for efficient batch processing.
+
+```cpp
+struct UndistortMap {
+    std::vector<float> mapX;    // Source X coordinates
+    std::vector<float> mapY;    // Source Y coordinates
+    int32_t width = 0;
+    int32_t height = 0;
+
+    bool IsValid() const;
+};
+```
+
+---
+
+### Undistort
+
+Removes lens distortion from image.
+
+```cpp
+void Undistort(
+    const QImage& src,
+    QImage& dst,
+    const CameraModel& camera,
+    Internal::InterpolationMethod method = Internal::InterpolationMethod::Bilinear
+);
+
+void Undistort(
+    const QImage& src,
+    QImage& dst,
+    const CameraModel& camera,
+    const CameraIntrinsics& newCameraMatrix,
+    const Size2i& outputSize = Size2i(0, 0),
+    Internal::InterpolationMethod method = Internal::InterpolationMethod::Bilinear
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| src | const QImage& | Source (distorted) image |
+| dst | QImage& | [out] Output (undistorted) image |
+| camera | const CameraModel& | Camera model with intrinsics and distortion |
+| newCameraMatrix | const CameraIntrinsics& | New camera matrix (adjusts FOV) |
+| outputSize | const Size2i& | Output size (0 = same as source) |
+| method | InterpolationMethod | Bilinear (default), Nearest, or Bicubic |
+
+---
+
+### InitUndistortMap
+
+Pre-computes undistortion map for efficient batch processing.
+
+```cpp
+UndistortMap InitUndistortMap(
+    const CameraModel& camera,
+    const Size2i& outputSize,
+    const CameraIntrinsics* newCameraMatrix = nullptr
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| camera | const CameraModel& | Camera model |
+| outputSize | const Size2i& | Output image size |
+| newCameraMatrix | const CameraIntrinsics* | Optional new camera matrix |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| UndistortMap | Pre-computed mapping coordinates |
+
+---
+
+### Remap
+
+Applies remapping using pre-computed map.
+
+```cpp
+void Remap(
+    const QImage& src,
+    QImage& dst,
+    const UndistortMap& map,
+    Internal::InterpolationMethod method = Internal::InterpolationMethod::Bilinear,
+    Internal::BorderMode borderMode = Internal::BorderMode::Constant,
+    double borderValue = 0.0
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| src | const QImage& | Source image |
+| dst | QImage& | [out] Output image |
+| map | const UndistortMap& | Pre-computed undistortion map |
+| borderMode | BorderMode | Border handling |
+| borderValue | double | Value for constant border mode |
+
+---
+
+### GetOptimalNewCameraMatrix
+
+Computes optimal new camera matrix for undistortion.
+
+```cpp
+CameraIntrinsics GetOptimalNewCameraMatrix(
+    const CameraModel& camera,
+    double alpha = 1.0,
+    const Size2i& newImageSize = Size2i(0, 0)
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| camera | const CameraModel& | Original camera model |
+| alpha | double | Free scaling (0=all valid, 1=keep all source) |
+| newImageSize | const Size2i& | New image size (0,0 = same as original) |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| CameraIntrinsics | Optimal camera matrix balancing FOV and valid pixels |
+
+---
+
+### UndistortPoint / UndistortPoints
+
+Undistorts point(s) using camera model.
+
+```cpp
+Point2d UndistortPoint(const Point2d& point, const CameraModel& camera);
+
+std::vector<Point2d> UndistortPoints(
+    const std::vector<Point2d>& points,
+    const CameraModel& camera
+);
+```
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| Point2d | Undistorted pixel coordinate |
+| std::vector<Point2d> | Undistorted pixel coordinates |
+
+---
+
+### DistortPoint
+
+Applies distortion to a point (for simulation).
+
+```cpp
+Point2d DistortPoint(const Point2d& point, const CameraModel& camera);
+```
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| Point2d | Distorted pixel coordinate |
+
+---
+
+### CornerGrid
+
+Result of chessboard corner detection.
+
+```cpp
+struct CornerGrid {
+    std::vector<Point2d> corners;   // Detected corners in row-major order
+    int32_t rows = 0;               // Pattern rows (inner corners)
+    int32_t cols = 0;               // Pattern columns (inner corners)
+    bool found = false;             // Whether pattern was fully detected
+
+    Point2d At(int32_t row, int32_t col) const;
+    size_t Count() const;
+    bool IsValid() const;
+};
+```
+
+**Methods**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| At(row, col) | Point2d | Get corner at grid position |
+| Count() | size_t | Total number of corners |
+| IsValid() | bool | Check if grid is valid |
+
+---
+
+### FindChessboardCorners
+
+Detects chessboard inner corners in image.
+
+```cpp
+CornerGrid FindChessboardCorners(
+    const QImage& image,
+    int32_t patternCols,
+    int32_t patternRows,
+    ChessboardFlags flags = ChessboardFlags::AdaptiveThresh | ChessboardFlags::NormalizeImage
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Input grayscale image |
+| patternCols | int32_t | Number of inner corners per row |
+| patternRows | int32_t | Number of inner corners per column |
+| flags | ChessboardFlags | Detection flags |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| CornerGrid | Detected corners (empty if not found) |
+
+**ChessboardFlags**
+| Flag | Description |
+|------|-------------|
+| None | No special processing |
+| AdaptiveThresh | Use adaptive thresholding |
+| NormalizeImage | Normalize image before detection |
+| FilterQuads | Filter out false quads |
+| FastCheck | Quick check if chessboard present |
+
+---
+
+### CornerSubPix
+
+Refines corner positions to subpixel accuracy.
+
+```cpp
+void CornerSubPix(
+    const QImage& image,
+    std::vector<Point2d>& corners,
+    int32_t winSize = 5,
+    int32_t maxIterations = 30,
+    double epsilon = 0.001
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Input grayscale image |
+| corners | std::vector<Point2d>& | [in/out] Corner positions |
+| winSize | int32_t | Half-size of search window |
+| maxIterations | int32_t | Maximum refinement iterations |
+| epsilon | double | Convergence threshold |
+
+---
+
+### GenerateChessboardPoints
+
+Generates ideal chessboard corner positions in object space.
+
+```cpp
+std::vector<Point3d> GenerateChessboardPoints(
+    int32_t patternCols,
+    int32_t patternRows,
+    double squareSize = 1.0
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| patternCols | int32_t | Number of inner corners per row |
+| patternRows | int32_t | Number of inner corners per column |
+| squareSize | double | Size of each square |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| std::vector<Point3d> | 3D corner positions at z=0 |
+
+---
+
+### DrawChessboardCorners
+
+Draws detected corners on image.
+
+```cpp
+void DrawChessboardCorners(
+    QImage& image,
+    const CornerGrid& grid,
+    bool drawOrder = true
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | QImage& | [in/out] Image to draw on |
+| grid | const CornerGrid& | Detected corner grid |
+| drawOrder | bool | Draw lines connecting corners |
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.8.0 | 2026-01-28 | Add CalibBoard module (chessboard detection, corner refinement) |
+| 0.7.0 | 2026-01-28 | Add Calib module (CameraModel, Undistort) |
 | 0.6.0 | 2026-01-27 | Add Morphology module (binary + gray-scale) |
 | 0.5.0 | 2026-01-24 | API format update, add Segment module, NCCModel |
 | 0.4.0 | 2026-01-21 | Unified API signatures |

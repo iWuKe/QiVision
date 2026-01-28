@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-28 (ShapeModel 性能优化, pregeneration 默认开启)
+> 最后更新: 2026-01-28 (新增 CameraCalib 模块)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -17,7 +17,7 @@
 Platform █████████████████░░░ 86%
 Core     ████████████████████ 100%
 Internal ████████████████████ 100%
-Feature  ██████████░░░░░░░░░░ 50%
+Feature  ████████████░░░░░░░░ 55%
 Tests    █████████████████░░░ 87%
 ```
 
@@ -104,6 +104,8 @@ Tests    █████████████████░░░ 87%
 | AffineTransform.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 仿射变换 |
 | Homography.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 单应性变换 (DLT+RANSAC, WarpPerspective, LM精化) |
 | Hough.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 霍夫变换（直线/圆） |
+| PolarTransform.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 极坐标变换 (Linear/SemiLog, WarpPolar) |
+| CornerRefine.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 角点精化 (Harris/Shi-Tomasi/SubPix) |
 
 ---
 
@@ -207,15 +209,15 @@ Tests    █████████████████░░░ 87%
 | QPose.h | ⬜ | ⬜ | ⬜ | ⬜ | 6DOF 位姿，欧拉角 ZYX |
 | QHomMat2d.h | ⬜ | ⬜ | ⬜ | ⬜ | 2D 齐次变换矩阵 |
 | QHomMat3d.h | ⬜ | ⬜ | ⬜ | ⬜ | 3D 齐次变换矩阵 |
-| CameraModel.h | ⬜ | ⬜ | ⬜ | ⬜ | 相机内外参 + 畸变 |
+| CameraModel.h | ✅ | ✅ | ⬜ | ⬜ | 相机内外参 + 畸变 (Brown-Conrady模型) |
 
 ### 标定功能
 
 | 模块 | 设计 | 实现 | 单测 | 精度测试 | 审查 | 备注 |
 |------|:----:|:----:|:----:|:--------:|:----:|------|
-| CalibBoard.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 标定板检测 (棋盘格/圆点) |
-| CameraCalib.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 相机内参标定 (张正友法) |
-| Undistort.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 畸变校正 |
+| CalibBoard.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 标定板检测 (棋盘格角点) |
+| CameraCalib.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 相机内参标定 (张正友法) |
+| Undistort.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 畸变校正 (Undistort/Remap/UndistortMap) |
 | HandEyeCalib.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 手眼标定 |
 | StereoCalib.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 双目标定 |
 
@@ -246,6 +248,120 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-28 (新增 CameraCalib 模块)
+
+- **Calib/CameraCalib 模块** (新增)
+  - 新增 `include/QiVision/Calib/CameraCalib.h`: 相机标定头文件
+  - 新增 `src/Calib/CameraCalib.cpp`: 张正友法相机标定实现
+  - **CalibFlags**: 标定配置标志
+    - `FixPrincipalPoint`: 固定主点在图像中心
+    - `FixAspectRatio`: 固定 fx = fy
+    - `ZeroTangentDist`: 假设切向畸变为零
+    - `FixK1/K2/K3`: 固定径向畸变系数
+    - `UseIntrinsicGuess`: 使用初始内参作为初值
+  - **ExtrinsicParams**: 外参结构体
+    - `R`: 3x3 旋转矩阵
+    - `t`: 平移向量
+    - `rvec`: Rodrigues 旋转向量
+    - `ToTransformMatrix()`: 转换为 4x4 变换矩阵
+  - **CalibrationResult**: 标定结果
+    - `camera`: 标定得到的 CameraModel
+    - `rmsError/meanError/maxError`: 重投影误差统计
+    - `extrinsics`: 每张图的外参
+    - `perViewErrors/perPointErrors`: 详细误差信息
+  - **CalibrateCamera**: 张正友法主函数
+    - 从多张图的单应矩阵约束求解内参
+    - 从内参和单应矩阵计算外参
+    - 线性估计畸变系数
+    - Gauss-Newton 非线性优化
+  - **SolvePnP**: 位姿估计
+    - DLT 初始化 + 迭代优化
+  - **ProjectPoints**: 3D 点投影
+  - **ComputeReprojectionErrors**: 重投影误差计算
+  - **RodriguesToMatrix/MatrixToRodrigues**: Rodrigues 旋转变换
+
+### 2026-01-28 (新增 CalibBoard + CornerRefine 模块)
+
+- **Calib/CalibBoard 模块** (新增)
+  - 新增 `include/QiVision/Calib/CalibBoard.h`: 标定板检测头文件
+  - 新增 `src/Calib/CalibBoard.cpp`: 标定板检测实现
+  - **CornerGrid**: 角点网格结构
+    - `corners`: 检测到的角点（行优先顺序）
+    - `rows/cols`: 棋盘格内角点数
+    - `At(row, col)`: 获取指定位置的角点
+    - `IsValid()`: 检查是否有效
+  - **FindChessboardCorners**: 棋盘格角点检测
+    - 自适应阈值二值化
+    - 四边形检测和角点提取
+    - 角点聚类和网格组织
+    - 亚像素精化
+  - **CornerSubPix**: 角点亚像素精化
+  - **GenerateChessboardPoints**: 生成世界坐标系角点
+  - **DrawChessboardCorners**: 绘制检测结果
+
+- **Internal/CornerRefine 模块** (新增)
+  - 新增 `include/QiVision/Internal/CornerRefine.h`: 角点精化头文件
+  - 新增 `src/Internal/CornerRefine.cpp`: 角点精化实现
+  - **RefineCornerGradient**: 梯度法亚像素角点精化
+  - **RefineCorners**: 批量角点精化
+  - **DetectHarrisCorners**: Harris 角点检测
+    - 计算 Harris 响应: R = det(M) - k * trace(M)^2
+    - 非极大值抑制
+    - 质量级别和最小距离过滤
+  - **DetectShiTomasiCorners**: Shi-Tomasi 角点检测
+    - 计算最小特征值: min(lambda1, lambda2)
+  - **ComputeStructureTensor**: 结构张量计算
+  - **Eigenvalues2x2**: 2x2 对称矩阵特征值分解
+
+### 2026-01-28 (新增 Calib/CameraModel + Undistort 模块)
+
+- **Calib/CameraModel 模块** (新增)
+  - 新增 `include/QiVision/Calib/CameraModel.h`: 相机模型头文件
+  - 新增 `src/Calib/CameraModel.cpp`: 相机模型实现
+  - **CameraIntrinsics**: 相机内参 (fx, fy, cx, cy)
+    - `ToMatrix()`: 转换为 3x3 内参矩阵
+    - `FromMatrix()`: 从矩阵创建
+  - **DistortionCoeffs**: 畸变系数 (Brown-Conrady 模型)
+    - 径向畸变: k1, k2, k3
+    - 切向畸变: p1, p2
+    - `IsZero()`: 检查是否无畸变
+  - **CameraModel**: 完整相机模型
+    - `Distort()`: 应用畸变 (normalized -> distorted)
+    - `Undistort()`: 去畸变 (Newton-Raphson 迭代)
+    - `ProjectPoint()`: 3D 点投影到 2D 像素
+    - `UnprojectPixel()`: 2D 像素反投影到 3D 射线
+
+- **Calib/Undistort 模块** (新增)
+  - 新增 `include/QiVision/Calib/Undistort.h`: 畸变校正头文件
+  - 新增 `src/Calib/Undistort.cpp`: 畸变校正实现
+  - **UndistortMap**: 预计算映射表 (高效批量处理)
+  - **Undistort()**: 图像去畸变
+    - 支持自定义新相机矩阵
+    - 支持自定义输出尺寸
+    - 支持 Nearest/Bilinear/Bicubic 插值
+  - **InitUndistortMap()**: 预计算映射表
+  - **Remap()**: 使用映射表重映射
+    - 支持 UInt8/UInt16/Float32 像素类型
+    - OpenMP 并行化
+  - **GetOptimalNewCameraMatrix()**: 计算最优新相机矩阵
+  - **UndistortPoint/UndistortPoints/DistortPoint**: 点级别操作
+
+### 2026-01-28 (新增 PolarTransform 模块)
+
+- **Internal/PolarTransform 模块** (新增)
+  - 新增 `include/QiVision/Internal/PolarTransform.h`: 极坐标变换头文件
+  - 新增 `src/Internal/PolarTransform.cpp`: 极坐标变换实现
+  - **WarpPolar**: 图像极坐标变换（参考 OpenCV warpPolar）
+    - 正向变换: 笛卡尔坐标 -> 极坐标 (x=angle, y=radius)
+    - 反向变换: 极坐标 -> 笛卡尔坐标
+    - 支持 Linear 和 SemiLog 两种映射模式
+    - 支持 Nearest/Bilinear/Bicubic 插值
+    - 支持所有像素类型 (UInt8/UInt16/Int16/Float32)
+  - **辅助函数**:
+    - `CartesianToPolar`: 点坐标笛卡尔->极坐标转换
+    - `PolarToCartesian`: 点坐标极坐标->笛卡尔转换
+    - `LinearToLogPolar` / `LogPolarToLinear`: 线性/对数极坐标半径映射
 
 ### 2026-01-27 (Morphology 模块实现)
 

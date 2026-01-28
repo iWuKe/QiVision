@@ -61,6 +61,8 @@ set(QIVISION_SOURCES
     # Internal/LinemodPyramid.cpp  # Archived - using XLD method
     # Internal/ResponseMap.cpp     # Archived - using XLD method
     Internal/IntegralImage.cpp
+    Internal/PolarTransform.cpp
+    Internal/CornerRefine.cpp
     # Matching (Feature Layer)
     Matching/ShapeModel.cpp
     Matching/ShapeModelCreate.cpp
@@ -92,6 +94,11 @@ set(QIVISION_SOURCES
     Display/Draw.cpp
     # GUI (Feature Layer)
     GUI/Window.cpp
+    # Calib (Feature Layer)
+    Calib/CameraModel.cpp
+    Calib/Undistort.cpp
+    Calib/CalibBoard.cpp
+    Calib/CameraCalib.cpp
 )
 
 set(QIVISION_HEADERS
@@ -158,6 +165,8 @@ set(QIVISION_HEADERS
     # ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/LinemodPyramid.h  # Archived
     # ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ResponseMap.h     # Archived
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/IntegralImage.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/PolarTransform.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/CornerRefine.h
     # Matching (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/MatchTypes.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/ShapeModel.h
@@ -188,6 +197,11 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Display/Draw.h
     # GUI (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/GUI/Window.h
+    # Calib (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/CameraModel.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/Undistort.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/CalibBoard.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/CameraCalib.h
 )
 
 # Create library

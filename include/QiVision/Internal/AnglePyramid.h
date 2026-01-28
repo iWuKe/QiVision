@@ -81,6 +81,7 @@ struct AnglePyramidParams {
     bool extractEdgePoints = true;      ///< Extract edge points (false for search pyramid)
     bool useNMS = true;                 ///< Apply Non-Maximum Suppression (false for shape matching)
     bool storeDirection = true;         ///< Store gradDir (false for search mode - saves memory)
+    bool useParallel = false;           ///< Use OpenMP parallel (false = single thread for pyramid)
 
     // Builder pattern
     AnglePyramidParams& SetNumLevels(int32_t n) { numLevels = n; return *this; }

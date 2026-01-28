@@ -59,7 +59,11 @@ static OpenMPInitializer g_ompInit;
 constexpr int32_t OPENMP_MIN_PIXELS = 200000;
 
 /// 判断是否使用 OpenMP 并行
-inline bool ShouldUseOpenMP(int32_t width, int32_t height) {
+/// @param width 图像宽度
+/// @param height 图像高度
+/// @param forceDisable 强制禁用并行（优先级最高）
+inline bool ShouldUseOpenMP(int32_t width, int32_t height, bool forceDisable = false) {
+    if (forceDisable) return false;
     return static_cast<int64_t>(width) * height >= OPENMP_MIN_PIXELS;
 }
 
@@ -1798,22 +1802,17 @@ bool AnglePyramid::Build(const QImage& image, const AnglePyramidParams& params) 
     }
 
 #ifdef _OPENMP
-    // Adaptive thread strategy for large images
-    {
-        int64_t pixels = static_cast<int64_t>(impl_->originalWidth_) * impl_->originalHeight_;
-        int numProcs = omp_get_num_procs();
-        int desired = 0;
-        if (pixels >= 4000000) {
-            desired = std::min(numProcs, 12);
-        } else if (pixels >= 1000000) {
-            desired = std::min(numProcs, 8);
-        } else if (pixels >= 300000) {
-            desired = std::min(numProcs, 6);
-        } else {
-            desired = std::min(std::max(1, numProcs / 2), 4);
-        }
-        omp_set_dynamic(0);
-        omp_set_num_threads(desired);
+    // RAII guard: set optimal thread count (12) for Search on exit
+    // Pyramid builds with single thread for efficiency, Search uses 12 threads
+    struct ThreadGuard {
+        int optimal;
+        ThreadGuard() : optimal(std::min(omp_get_num_procs(), 12)) {}
+        ~ThreadGuard() { omp_set_num_threads(optimal); }
+    } threadGuard;
+
+    // Pyramid uses single thread (avoids OpenMP overhead)
+    if (!params.useParallel) {
+        omp_set_num_threads(1);
     }
 #endif
 

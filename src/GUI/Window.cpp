@@ -189,7 +189,8 @@ public:
 
         // Show window
         XMapWindow(display_, window_);
-        XFlush(display_);
+        // Use XSync to ensure window is mapped before returning
+        XSync(display_, False);
 
         isOpen_ = true;
     }
@@ -254,7 +255,8 @@ public:
                 width_ = newWidth;
                 height_ = newHeight;
                 XResizeWindow(display_, window_, width_, height_);
-                XFlush(display_);
+                // Use XSync to ensure window resize completes before drawing
+                XSync(display_, False);
             }
         }
 
@@ -453,7 +455,9 @@ public:
             XPutImage(display_, window_, gc_, ximage_,
                       srcX, srcY, drawX, drawY, drawWidth, drawHeight);
         }
-        XFlush(display_);
+        // Use XSync instead of XFlush to ensure the image is actually displayed
+        // XFlush only sends requests to server, XSync waits for completion
+        XSync(display_, False);
     }
 
     // Helper to get modifiers from X11 state
@@ -675,7 +679,7 @@ public:
                             XPutImage(display_, window_, gc_, ximage_,
                                       0, 0, displayOffsetX_, displayOffsetY_,
                                       imageWidth_, imageHeight_);
-                            XFlush(display_);
+                            XSync(display_, False);
                         }
                         break;
 

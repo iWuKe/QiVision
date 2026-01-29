@@ -801,23 +801,26 @@ public:
     void SetResizable(bool resizable) {
         resizable_ = resizable;
         if (display_ && window_) {
-            XSizeHints hints;
-            hints.flags = PMinSize | PMaxSize;
-            if (resizable) {
-                // Allow any size
-                hints.min_width = 1;
-                hints.min_height = 1;
-                hints.max_width = screenWidth_;
-                hints.max_height = screenHeight_;
-            } else {
-                // Fix size to current dimensions
-                hints.min_width = width_;
-                hints.min_height = height_;
-                hints.max_width = width_;
-                hints.max_height = height_;
+            XSizeHints* hints = XAllocSizeHints();
+            if (hints) {
+                hints->flags = PMinSize | PMaxSize;
+                if (resizable) {
+                    // Allow any size
+                    hints->min_width = 1;
+                    hints->min_height = 1;
+                    hints->max_width = screenWidth_;
+                    hints->max_height = screenHeight_;
+                } else {
+                    // Fix size to current dimensions
+                    hints->min_width = width_;
+                    hints->min_height = height_;
+                    hints->max_width = width_;
+                    hints->max_height = height_;
+                }
+                XSetWMNormalHints(display_, window_, hints);
+                XFree(hints);
             }
-            XSetWMNormalHints(display_, window_, &hints);
-            XFlush(display_);
+            XSync(display_, False);
         }
     }
 

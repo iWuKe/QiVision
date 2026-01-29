@@ -45,6 +45,7 @@
 #include <QiVision/Edge/Edge.h>
 #include <QiVision/Hough/Hough.h>
 #include <QiVision/Contour/Contour.h>
+#include <QiVision/Defect/VariationModel.h>
 
 namespace Qi::Vision {
 

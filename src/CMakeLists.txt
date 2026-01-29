@@ -109,6 +109,8 @@ set(QIVISION_SOURCES
     Hough/Hough.cpp
     # Contour (Feature Layer)
     Contour/Contour.cpp
+    # Defect (Feature Layer)
+    Defect/VariationModel.cpp
 )
 
 set(QIVISION_HEADERS
@@ -222,6 +224,8 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Hough/Hough.h
     # Contour (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Contour/Contour.h
+    # Defect (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Defect/VariationModel.h
 )
 
 # Create library

@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-29 (GUI XSync 修复)
+> 最后更新: 2026-01-29 (Defect/VariationModel 模块)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -196,7 +196,7 @@ Tests    █████████████████░░░ 87%
 | **Contour/Contour.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | XLD轮廓操作 (公开 API，封装 Internal) |
 | **OCR/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 字符识别/验证 |
 | **Barcode/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 一维码/二维码 |
-| **Defect/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 缺陷检测 |
+| **Defect/VariationModel.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 变差模型缺陷检测 (Halcon 风格) |
 | **Texture/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P2** | 纹理分析 |
 | **Calib/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P2** | 相机标定 |
 
@@ -252,6 +252,28 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-29 (Defect/VariationModel 模块)
+
+- **Defect/VariationModel 模块** (新增)
+  - 新增 `include/QiVision/Defect/VariationModel.h`: 变差模型缺陷检测头文件
+  - 新增 `src/Defect/VariationModel.cpp`: 实现文件
+  - **VariationModel 类** (Halcon 风格 API):
+    - `Train()` + `Prepare()`: 多图训练模式，计算每像素均值和方差
+    - `CreateFromSingleImage()`: 单图 + 边缘感知模式
+      - 自动检测边缘区域，分配大容差
+      - 平坦区域分配小容差
+      - 无需多张训练图
+    - `Compare()`: 比较测试图，返回缺陷区域 (QRegion)
+    - `GetDiffImage()`: 获取归一化差异图
+    - `GetMeanImage()` / `GetVarImage()`: 获取模型图像
+    - `Write()` / `Read()`: 模型序列化
+  - **便捷函数**:
+    - `CompareImages()`: 快速单图对比
+    - `CompareImagesEdgeAware()`: 边缘感知对比
+    - `AbsDiffThreshold()`: 简单差分阈值
+    - `AbsDiffImage()`: 差分图像
+  - 算法原理: `|test - mean| > threshold × sqrt(variance)`
 
 ### 2026-01-29 (GUI XSync 修复)
 

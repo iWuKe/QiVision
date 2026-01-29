@@ -111,6 +111,8 @@ set(QIVISION_SOURCES
     Contour/Contour.cpp
     # Defect (Feature Layer)
     Defect/VariationModel.cpp
+    # Texture (Feature Layer)
+    Texture/Texture.cpp
 )
 
 set(QIVISION_HEADERS
@@ -226,6 +228,8 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Contour/Contour.h
     # Defect (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Defect/VariationModel.h
+    # Texture (Feature Layer)
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Texture/Texture.h
 )
 
 # Create library

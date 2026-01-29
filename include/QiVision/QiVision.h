@@ -46,6 +46,7 @@
 #include <QiVision/Hough/Hough.h>
 #include <QiVision/Contour/Contour.h>
 #include <QiVision/Defect/VariationModel.h>
+#include <QiVision/Texture/Texture.h>
 
 namespace Qi::Vision {
 

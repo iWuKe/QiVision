@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-29 (Defect/VariationModel 模块)
+> 最后更新: 2026-01-29 (Texture 模块)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -197,7 +197,7 @@ Tests    █████████████████░░░ 87%
 | **OCR/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 字符识别/验证 |
 | **Barcode/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 一维码/二维码 |
 | **Defect/VariationModel.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 变差模型缺陷检测 (Halcon 风格) |
-| **Texture/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P2** | 纹理分析 |
+| **Texture/Texture.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 纹理分析 (LBP/GLCM/Gabor) |
 | **Calib/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P2** | 相机标定 |
 
 ---
@@ -252,6 +252,35 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-29 (Texture 模块)
+
+- **Texture/Texture 模块** (新增)
+  - 新增 `include/QiVision/Texture/Texture.h`: 纹理分析头文件
+  - 新增 `src/Texture/Texture.cpp`: 实现文件
+  - **LBP (局部二值模式)**:
+    - `ComputeLBP()`: 基础 8 邻域 LBP
+    - `ComputeLBPExtended()`: 可配置半径和采样点
+    - `ComputeLBPHistogram()`: LBP 直方图
+    - 支持 Standard/Uniform/RotationInvariant/UniformRI 变体
+  - **GLCM (灰度共生矩阵)**:
+    - `ComputeGLCM()`: 计算共生矩阵
+    - `ExtractGLCMFeatures()`: 提取特征 (对比度/能量/熵/相关性等)
+    - `ComputeGLCMFeatures()`: 一步完成
+    - 支持 4 个方向 + 平均
+  - **Gabor 滤波器**:
+    - `CreateGaborKernel()`: 创建 Gabor 核
+    - `ApplyGaborFilter()`: 单滤波器
+    - `ApplyGaborFilterBank()`: 多方向滤波器组
+    - `ComputeGaborEnergy()`: 能量响应
+    - `ExtractGaborFeatures()`: 特征提取
+  - **纹理比较**:
+    - `CompareLBPHistograms()`: Chi-square 距离
+    - `CompareGLCMFeatures()`: 欧氏距离
+    - `CompareGaborFeatures()`: 欧氏距离
+  - **纹理分割**:
+    - `SegmentByTextureLBP()`: k-means 聚类分割
+    - `DetectTextureAnomalies()`: 异常检测
 
 ### 2026-01-29 (Defect/VariationModel 模块)
 

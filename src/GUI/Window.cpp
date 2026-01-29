@@ -77,6 +77,37 @@ static std::mutex g_windowsMutex;
 
 #if defined(QIVISION_PLATFORM_LINUX) && defined(QIVISION_HAS_X11)
 
+// Shared Display connection for all windows
+static Display* g_sharedDisplay = nullptr;
+static int g_displayRefCount = 0;
+static std::mutex g_displayMutex;
+
+// Forward declaration - Window::Impl will register itself
+// Global registry of all windows by X11 window ID
+static std::unordered_map<::Window, void*> g_windowRegistry;
+
+static Display* AcquireDisplay() {
+    std::lock_guard<std::mutex> lock(g_displayMutex);
+    if (!g_sharedDisplay) {
+        g_sharedDisplay = XOpenDisplay(nullptr);
+    }
+    if (g_sharedDisplay) {
+        g_displayRefCount++;
+    }
+    return g_sharedDisplay;
+}
+
+static void ReleaseDisplay() {
+    std::lock_guard<std::mutex> lock(g_displayMutex);
+    if (g_displayRefCount > 0) {
+        g_displayRefCount--;
+        if (g_displayRefCount == 0 && g_sharedDisplay) {
+            XCloseDisplay(g_sharedDisplay);
+            g_sharedDisplay = nullptr;
+        }
+    }
+}
+
 class Window::Impl {
 public:
     Display* display_ = nullptr;
@@ -108,6 +139,8 @@ public:
 
     // Resizable setting
     bool resizable_ = true;
+    int32_t fixedWidth_ = 0;   // Fixed size when not resizable
+    int32_t fixedHeight_ = 0;
 
     // Mouse interaction
     MouseCallback mouseCallback_;
@@ -143,7 +176,7 @@ public:
     Impl(const std::string& title, int32_t width, int32_t height)
         : width_(width), height_(height), title_(title), baseTitle_(title) {
 
-        display_ = XOpenDisplay(nullptr);
+        display_ = AcquireDisplay();
         if (!display_) {
             return;
         }
@@ -169,7 +202,7 @@ public:
         );
 
         if (!window_) {
-            XCloseDisplay(display_);
+            ReleaseDisplay();
             display_ = nullptr;
             return;
         }
@@ -195,6 +228,12 @@ public:
         // Use XSync to ensure window is mapped before returning
         XSync(display_, False);
 
+        // Register in global registry
+        {
+            std::lock_guard<std::mutex> lock(g_displayMutex);
+            g_windowRegistry[window_] = this;
+        }
+
         isOpen_ = true;
     }
 
@@ -203,22 +242,28 @@ public:
     }
 
     void Close() {
+        // Unregister from global registry
+        if (window_) {
+            std::lock_guard<std::mutex> lock(g_displayMutex);
+            g_windowRegistry.erase(window_);
+        }
+
         if (ximage_) {
             // Don't destroy data, we own it
             ximage_->data = nullptr;
             XDestroyImage(ximage_);
             ximage_ = nullptr;
         }
-        if (gc_) {
+        if (gc_ && display_) {
             XFreeGC(display_, gc_);
             gc_ = nullptr;
         }
-        if (window_) {
+        if (window_ && display_) {
             XDestroyWindow(display_, window_);
             window_ = 0;
         }
         if (display_) {
-            XCloseDisplay(display_);
+            ReleaseDisplay();
             display_ = nullptr;
         }
         isOpen_ = false;
@@ -662,6 +707,69 @@ public:
         }
     }
 
+    // Handle a single X event, return key code if KeyPress, -2 if close, -1 otherwise
+    int32_t HandleEvent(XEvent& event) {
+        switch (event.type) {
+            case Expose:
+                if (currentImage_.Width() > 0) {
+                    Show(currentImage_, currentScaleMode_);
+                } else if (ximage_) {
+                    XPutImage(display_, window_, gc_, ximage_,
+                              0, 0, displayOffsetX_, displayOffsetY_,
+                              imageWidth_, imageHeight_);
+                    XSync(display_, False);
+                }
+                break;
+
+            case KeyPress: {
+                KeySym keysym = XLookupKeysym(&event.xkey, 0);
+                KeyModifier mods = GetModifiers(event.xkey.state);
+
+                if (keyCallback_) {
+                    keyCallback_(static_cast<int32_t>(keysym & 0xFFFF), mods);
+                }
+
+                if (zoomPanEnabled_ && (keysym == XK_f || keysym == XK_F)) {
+                    zoomLevel_ = 1.0;
+                    panOffsetX_ = 0;
+                    panOffsetY_ = 0;
+                    if (currentImage_.Width() > 0) {
+                        Show(currentImage_, currentScaleMode_);
+                    }
+                }
+
+                if (keysym >= XK_space && keysym <= XK_asciitilde) {
+                    return static_cast<int32_t>(keysym);
+                }
+                return static_cast<int32_t>(keysym & 0xFFFF);
+            }
+
+            case ConfigureNotify:
+                width_ = event.xconfigure.width;
+                height_ = event.xconfigure.height;
+                if (currentImage_.Width() > 0) {
+                    Show(currentImage_, currentScaleMode_);
+                }
+                break;
+
+            case ClientMessage:
+                if (static_cast<Atom>(event.xclient.data.l[0]) == wmDeleteMessage_) {
+                    isOpen_ = false;
+                    return -2;  // Window closed
+                }
+                break;
+
+            case MotionNotify:
+            case ButtonPress:
+            case ButtonRelease:
+            case EnterNotify:
+            case LeaveNotify:
+                HandleMouseEvent(event);
+                break;
+        }
+        return -1;
+    }
+
     int32_t WaitKey(int32_t timeoutMs) {
         if (!isOpen_ || !display_) return -1;
 
@@ -670,77 +778,33 @@ public:
         gettimeofday(&startTime, nullptr);
 
         while (isOpen_) {
-            // Check for events
+            // Process ALL pending events for ALL windows
             while (XPending(display_)) {
                 XEvent event;
                 XNextEvent(display_, &event);
 
-                switch (event.type) {
-                    case Expose:
-                        // Redraw
-                        if (currentImage_.Width() > 0) {
-                            Show(currentImage_, currentScaleMode_);
-                        } else if (ximage_) {
-                            XPutImage(display_, window_, gc_, ximage_,
-                                      0, 0, displayOffsetX_, displayOffsetY_,
-                                      imageWidth_, imageHeight_);
-                            XSync(display_, False);
-                        }
-                        break;
+                // Find which window this event belongs to
+                ::Window eventWindow = event.xany.window;
+                Impl* targetImpl = nullptr;
 
-                    case KeyPress: {
-                        KeySym keysym = XLookupKeysym(&event.xkey, 0);
-                        KeyModifier mods = GetModifiers(event.xkey.state);
-
-                        // Call key callback if set
-                        if (keyCallback_) {
-                            keyCallback_(static_cast<int32_t>(keysym & 0xFFFF), mods);
-                        }
-
-                        // Handle double-click reset (not a key, but using 'f' for fit)
-                        if (zoomPanEnabled_ && (keysym == XK_f || keysym == XK_F)) {
-                            zoomLevel_ = 1.0;
-                            panOffsetX_ = 0;
-                            panOffsetY_ = 0;
-                            if (currentImage_.Width() > 0) {
-                                Show(currentImage_, currentScaleMode_);
-                            }
-                        }
-
-                        // Convert to ASCII if possible
-                        if (keysym >= XK_space && keysym <= XK_asciitilde) {
-                            return static_cast<int32_t>(keysym);
-                        }
-                        // Return special keys as-is
-                        return static_cast<int32_t>(keysym & 0xFFFF);
+                {
+                    std::lock_guard<std::mutex> lock(g_displayMutex);
+                    auto it = g_windowRegistry.find(eventWindow);
+                    if (it != g_windowRegistry.end()) {
+                        targetImpl = static_cast<Impl*>(it->second);
                     }
+                }
 
-                    case ConfigureNotify:
-                        if (width_ != event.xconfigure.width ||
-                            height_ != event.xconfigure.height) {
-                            width_ = event.xconfigure.width;
-                            height_ = event.xconfigure.height;
-                            // Redraw with new size
-                            if (currentImage_.Width() > 0) {
-                                Show(currentImage_, currentScaleMode_);
-                            }
-                        }
-                        break;
-
-                    case ClientMessage:
-                        if (static_cast<Atom>(event.xclient.data.l[0]) == wmDeleteMessage_) {
-                            isOpen_ = false;
-                            return -1;
-                        }
-                        break;
-
-                    case MotionNotify:
-                    case ButtonPress:
-                    case ButtonRelease:
-                    case EnterNotify:
-                    case LeaveNotify:
-                        HandleMouseEvent(event);
-                        break;
+                if (targetImpl) {
+                    int32_t result = targetImpl->HandleEvent(event);
+                    // If this window got a key press, return it
+                    if (targetImpl == this && result >= 0) {
+                        return result;
+                    }
+                    // If this window was closed
+                    if (targetImpl == this && result == -2) {
+                        return -1;
+                    }
                 }
             }
 
@@ -801,25 +865,87 @@ public:
     void SetResizable(bool resizable) {
         resizable_ = resizable;
         if (display_ && window_) {
+            // Ensure all pending operations are complete before getting geometry
+            XSync(display_, False);
+
+            // Get actual window size (use ::Window for X11 Window type)
+            ::Window root;
+            int x, y;
+            unsigned int w, h, border, depth;
+            XGetGeometry(display_, window_, &root, &x, &y, &w, &h, &border, &depth);
+
+            if (!resizable) {
+                // Save fixed size for enforcing in ConfigureNotify
+                fixedWidth_ = static_cast<int32_t>(w);
+                fixedHeight_ = static_cast<int32_t>(h);
+            }
+
+            // Method 1: XSizeHints (may not work on all WMs)
             XSizeHints* hints = XAllocSizeHints();
             if (hints) {
                 hints->flags = PMinSize | PMaxSize;
                 if (resizable) {
-                    // Allow any size
                     hints->min_width = 1;
                     hints->min_height = 1;
                     hints->max_width = screenWidth_;
                     hints->max_height = screenHeight_;
                 } else {
-                    // Fix size to current dimensions
-                    hints->min_width = width_;
-                    hints->min_height = height_;
-                    hints->max_width = width_;
-                    hints->max_height = height_;
+                    hints->min_width = static_cast<int>(w);
+                    hints->min_height = static_cast<int>(h);
+                    hints->max_width = static_cast<int>(w);
+                    hints->max_height = static_cast<int>(h);
                 }
                 XSetWMNormalHints(display_, window_, hints);
                 XFree(hints);
             }
+
+            // Method 2: Motif WM hints (more widely supported)
+            // Define MWM hint structure
+            struct MwmHints {
+                unsigned long flags;
+                unsigned long functions;
+                unsigned long decorations;
+                long inputMode;
+                unsigned long status;
+            };
+            enum {
+                MWM_HINTS_FUNCTIONS = 1 << 0,
+                MWM_HINTS_DECORATIONS = 1 << 1,
+                MWM_FUNC_ALL = 1 << 0,
+                MWM_FUNC_RESIZE = 1 << 1,
+                MWM_FUNC_MOVE = 1 << 2,
+                MWM_FUNC_MINIMIZE = 1 << 3,
+                MWM_FUNC_MAXIMIZE = 1 << 4,
+                MWM_FUNC_CLOSE = 1 << 5,
+                MWM_DECOR_ALL = 1 << 0,
+                MWM_DECOR_BORDER = 1 << 1,
+                MWM_DECOR_RESIZEH = 1 << 2,
+                MWM_DECOR_TITLE = 1 << 3,
+                MWM_DECOR_MENU = 1 << 4,
+                MWM_DECOR_MINIMIZE = 1 << 5,
+                MWM_DECOR_MAXIMIZE = 1 << 6
+            };
+
+            Atom motifHintsAtom = XInternAtom(display_, "_MOTIF_WM_HINTS", False);
+            if (motifHintsAtom != 0) {
+                MwmHints mwmHints;
+                mwmHints.flags = MWM_HINTS_FUNCTIONS | MWM_HINTS_DECORATIONS;
+                if (resizable) {
+                    // All functions and decorations
+                    mwmHints.functions = MWM_FUNC_ALL;
+                    mwmHints.decorations = MWM_DECOR_ALL;
+                } else {
+                    // Disable resize function and resize handle decoration
+                    mwmHints.functions = MWM_FUNC_MOVE | MWM_FUNC_MINIMIZE | MWM_FUNC_CLOSE;
+                    mwmHints.decorations = MWM_DECOR_BORDER | MWM_DECOR_TITLE | MWM_DECOR_MENU | MWM_DECOR_MINIMIZE;
+                }
+                mwmHints.inputMode = 0;
+                mwmHints.status = 0;
+
+                XChangeProperty(display_, window_, motifHintsAtom, motifHintsAtom, 32,
+                                PropModeReplace, (unsigned char*)&mwmHints, 5);
+            }
+
             XSync(display_, False);
         }
     }

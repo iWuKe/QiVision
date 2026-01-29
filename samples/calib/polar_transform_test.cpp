@@ -186,16 +186,19 @@ int main() {
     winOrig.SetAutoResize(true, 800, 600);
     winOrig.EnablePixelInfo(true);
     winOrig.DispImage(colorImg);
+    winOrig.SetResizable(false);  // Fix window size to prevent resize issues
 
     Window winPolar("Polar (X=angle, Y=radius)");
     winPolar.SetAutoResize(true, 800, 300);
     winPolar.EnablePixelInfo(true);
     winPolar.DispImage(polarColor);
+    winPolar.SetResizable(false);
 
     Window winRecon("Reconstructed");
     winRecon.SetAutoResize(true, 400, 400);
     winRecon.EnablePixelInfo(true);
     winRecon.DispImage(reconColor);
+    winRecon.SetResizable(false);
 
     std::cout << "\nPress any key to close..." << std::endl;
     winOrig.WaitKey(0);

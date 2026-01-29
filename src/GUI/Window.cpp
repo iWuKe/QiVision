@@ -106,6 +106,9 @@ public:
     int32_t screenWidth_ = 0;
     int32_t screenHeight_ = 0;
 
+    // Resizable setting
+    bool resizable_ = true;
+
     // Mouse interaction
     MouseCallback mouseCallback_;
     KeyCallback keyCallback_;
@@ -795,6 +798,33 @@ public:
         return autoResize_;
     }
 
+    void SetResizable(bool resizable) {
+        resizable_ = resizable;
+        if (display_ && window_) {
+            XSizeHints hints;
+            hints.flags = PMinSize | PMaxSize;
+            if (resizable) {
+                // Allow any size
+                hints.min_width = 1;
+                hints.min_height = 1;
+                hints.max_width = screenWidth_;
+                hints.max_height = screenHeight_;
+            } else {
+                // Fix size to current dimensions
+                hints.min_width = width_;
+                hints.min_height = height_;
+                hints.max_width = width_;
+                hints.max_height = height_;
+            }
+            XSetWMNormalHints(display_, window_, &hints);
+            XFlush(display_);
+        }
+    }
+
+    bool IsResizable() const {
+        return resizable_;
+    }
+
     // Mouse interaction setters/getters
     void SetMouseCallback(MouseCallback cb) { mouseCallback_ = std::move(cb); }
     void SetKeyCallback(KeyCallback cb) { keyCallback_ = std::move(cb); }
@@ -1206,6 +1236,9 @@ public:
     int32_t maxHeight_ = 0;
     int32_t screenWidth_ = 0;
     int32_t screenHeight_ = 0;
+
+    // Resizable setting
+    bool resizable_ = true;
 
     // Mouse interaction
     MouseCallback mouseCallback_;
@@ -1739,6 +1772,26 @@ public:
         return autoResize_;
     }
 
+    void SetResizable(bool resizable) {
+        resizable_ = resizable;
+        if (hwnd_) {
+            LONG style = GetWindowLong(hwnd_, GWL_STYLE);
+            if (resizable) {
+                style |= WS_SIZEBOX | WS_MAXIMIZEBOX;
+            } else {
+                style &= ~(WS_SIZEBOX | WS_MAXIMIZEBOX);
+            }
+            SetWindowLong(hwnd_, GWL_STYLE, style);
+            // Force redraw of window frame
+            SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        }
+    }
+
+    bool IsResizable() const {
+        return resizable_;
+    }
+
     // Mouse interaction setters/getters
     void SetMouseCallback(MouseCallback cb) { mouseCallback_ = std::move(cb); }
     void SetKeyCallback(KeyCallback cb) { keyCallback_ = std::move(cb); }
@@ -1902,6 +1955,8 @@ public:
     void Move(int32_t /*x*/, int32_t /*y*/) {}
     void SetAutoResize(bool enable, int32_t /*maxWidth*/, int32_t /*maxHeight*/) { autoResize_ = enable; }
     bool IsAutoResize() const { return autoResize_; }
+    void SetResizable(bool) {}
+    bool IsResizable() const { return true; }
 
     // Stub implementations for mouse interaction
     void SetMouseCallback(MouseCallback) {}
@@ -1991,6 +2046,14 @@ void Window::SetAutoResize(bool enable, int32_t maxWidth, int32_t maxHeight) {
 
 bool Window::IsAutoResize() const {
     return impl_ ? impl_->IsAutoResize() : false;
+}
+
+void Window::SetResizable(bool resizable) {
+    if (impl_) impl_->SetResizable(resizable);
+}
+
+bool Window::IsResizable() const {
+    return impl_ ? impl_->IsResizable() : true;
 }
 
 // Mouse interaction

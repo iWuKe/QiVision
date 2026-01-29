@@ -238,6 +238,21 @@ public:
      */
     bool IsAutoResize() const;
 
+    /**
+     * @brief Set whether window can be resized by user
+     * @param resizable If true, user can resize window; if false, window size is fixed
+     *
+     * Note: When resizable is false, the window manager will prevent user from
+     * changing the window size. This avoids display issues during resize.
+     * Default is true (resizable).
+     */
+    void SetResizable(bool resizable);
+
+    /**
+     * @brief Check if window is resizable
+     */
+    bool IsResizable() const;
+
     // =========================================================================
     // Mouse Interaction
     // =========================================================================

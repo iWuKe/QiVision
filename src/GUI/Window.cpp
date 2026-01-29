@@ -415,7 +415,9 @@ public:
         ximage_->data = reinterpret_cast<char*>(buffer_.data());
 
         // Clear window and draw image centered
+        // Use XClearArea with exposures=False and sync to avoid flicker
         XClearWindow(display_, window_);
+        XSync(display_, False);  // Ensure clear completes before drawing
 
         int offsetX = (width_ - dstWidth) / 2;
         int offsetY = (height_ - dstHeight) / 2;

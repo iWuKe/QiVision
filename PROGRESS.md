@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-29 (Contour 公开 API 模块)
+> 最后更新: 2026-01-29 (GUI XSync 修复)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -252,6 +252,17 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-29 (GUI XSync 修复)
+
+- **GUI/Window.cpp 修复** (X11 空白显示问题)
+  - 问题: GUI 偶尔显示空白，因为 XFlush 只发送请求但不等待完成
+  - 修复: 在关键显示操作中将 XFlush 改为 XSync
+    - XMapWindow 后: 确保窗口映射完成后再返回
+    - XResizeWindow 后: 确保窗口大小变化完成后再绘制
+    - XPutImage 后: 确保图像显示完成后再返回
+    - Expose 事件重绘: 确保重绘完成
+  - XSync 会等待 X Server 完成所有请求，避免竞态条件
 
 ### 2026-01-29 (Contour 公开 API 模块)
 

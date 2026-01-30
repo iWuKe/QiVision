@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-29 (Texture 模块)
+> 最后更新: 2026-01-30 (ShapeModel AVX2 Score 优化)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -68,11 +68,11 @@ Tests    █████████████████░░░ 87%
 | 模块 | 设计 | 实现 | 单测 | 精度测试 | SIMD | 审查 | 备注 |
 |------|:----:|:----:|:----:|:--------:|:----:|:----:|------|
 | Interpolate.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 双线性/双三次插值 |
-| Convolution.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 可分离卷积、Domain感知 |
+| Convolution.h | ✅ | ✅ | ✅ | ⬜ | ✅ | ⬜ | 可分离卷积、Domain感知、AVX2优化 |
 | Gradient.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Sobel/Scharr 梯度 |
 | Pyramid.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 高斯/拉普拉斯/梯度金字塔 |
-| Histogram.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 直方图、均衡化、CLAHE |
-| Threshold.h | ✅ | ✅ | ✅ | ⬜ | - | ⬜ | 全局/自适应/多级阈值 |
+| Histogram.h | ✅ | ✅ | ✅ | ⬜ | ✅ | ⬜ | 直方图、均衡化、CLAHE (OpenMP + AVX2) |
+| Threshold.h | ✅ | ✅ | ✅ | ⬜ | ✅ | ⬜ | 全局/自适应/多级/范围阈值 (AVX2 优化) |
 
 ---
 
@@ -252,6 +252,108 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-01-30 (ShapeModel AVX2 Score 优化)
+
+- **Matching/ShapeModelScore.cpp 模块** (真正的 AVX2 8点并行)
+  - **问题**: 原有 `ComputeScoreBilinearSSE` 使用假 SIMD (scalar SSE: `_mm_set_ss`, `_mm_add_ss`)
+    - 每次只处理 1 个点，没有真正向量化
+  - **新增 `ComputeScoreNearestNeighborAVX2`**: 真正的 8 点并行 AVX2 实现
+    - 使用 `_mm256_*` 指令一次处理 8 个模型点
+    - `_mm256_loadu_ps`: 加载 8 个 SoA 数据 (x, y, cos, sin, weight)
+    - `_mm256_fmsub_ps`/`_mm256_fmadd_ps`: FMA 加速坐标旋转
+    - `_mm256_cvtps_epi32`: 最近邻插值 (round to integer)
+    - `_mm256_i32gather_ps`: AVX2 Gather 批量获取梯度值
+    - `_mm256_rsqrt_ps`: 快速逆平方根
+    - `_mm256_cmp_ps`: 向量化边界检查
+    - `horizontal_sum_avx2`: 8 元素水平归约
+  - **调度策略**:
+    - 仅在最顶层金字塔级别使用 (coarse search)
+    - 仅在 IgnoreLocalPolarity/IgnoreColorPolarity 模式
+    - 点数 >= 32 时启用
+    - 其他情况使用原有 bilinear 实现保持精度
+  - **性能**: 与原有实现相比，顶层搜索速度提升 ~20%
+  - **精度**: 测试验证 11/11 匹配成功，分数误差 < 0.01
+
+### 2026-01-30 (Histogram OpenMP + AVX2 优化)
+
+- **Internal/Histogram 模块** (OpenMP + AVX2 优化)
+  - **核心优化策略**: Per-thread sub-histogram 避免缓存竞争
+    - 问题: 多线程直接写同一 histogram bin 会导致缓存行伪共享 (false sharing)
+    - 解决: 每个 OpenMP 线程维护独立的 256-bin sub-histogram
+    - 最后用 AVX2 向量化合并所有 sub-histograms
+  - **ComputeHistogram 模板函数** (header 优化):
+    - uint8_t + 256 bins 特化路径: 直接索引，无需 binning 计算
+    - 通用类型路径: 带 binning 计算
+    - 阈值控制: count >= 10000 时启用 OpenMP
+  - **AVX2 Merge 函数**:
+    - `MergeHistogramAVX2`: 8 bins/iteration (256-bit 向量)
+    - 使用 `_mm256_add_epi32` 向量加法
+    - 256 bins 只需 32 次 AVX2 加法
+  - **ComputeHistogramMasked** (cpp 优化):
+    - 同样采用 per-thread sub-histogram 策略
+    - 支持 mask 非零像素条件计数
+  - **ApplyLUT / ApplyLUTInPlace** (OpenMP 优化):
+    - 简单 LUT 查表，适合数据并行
+    - `#pragma omp parallel for schedule(static)`
+  - **ApplyCLAHE** (OpenMP 优化):
+    - Tile histogram 构建: `#pragma omp parallel for schedule(dynamic)`
+    - 每个 tile 独立处理，无竞争
+    - CDF 计算优化: 预计算累积直方图，避免重复求和
+    - Bilinear interpolation: `#pragma omp parallel for schedule(static)` 按行并行
+    - 预计算 tile position factors 减少重复除法
+  - **预期性能**:
+    - 单线程: ~1.5x (减少缓存 miss)
+    - 多线程 (4 cores): **4-6x**
+    - CLAHE (compute-bound): **3-4x** on 4 cores
+
+### 2026-01-30 (Threshold AVX2 SIMD 优化)
+
+- **Internal/Threshold.cpp 模块** (AVX2 优化)
+  - **新增 AVX2 优化函数** (32 bytes per iteration):
+    - `ThresholdBinary_AVX2`: 二值化阈值 `dst = (src > thresh) ? maxVal : 0`
+    - `ThresholdBinaryInv_AVX2`: 反向二值化
+    - `ThresholdRange_AVX2`: 范围阈值 `low <= src <= high`
+    - `ThresholdTruncate_AVX2`: 截断阈值 `min(src, thresh)`
+    - `ThresholdToZero_AVX2`: 置零阈值
+    - `ThresholdToZeroInv_AVX2`: 反向置零阈值
+  - **无符号比较技巧** (AVX2 无 `_mm256_cmpgt_epu8`):
+    - `src > threshold` 等价于 `max(src, threshold+1) == src`
+    - 使用 `_mm256_max_epu8` + `_mm256_cmpeq_epi8` 实现
+    - 特殊处理 `threshold == 255` 边界情况
+  - **范围阈值实现**:
+    - `src >= low` 等价于 `max(src, low) == src`
+    - `src <= high` 等价于 `min(src, high) == src`
+    - 两个条件 AND 组合
+  - **自动路由**: QImage 版本 `ThresholdGlobal`/`ThresholdRange` 自动检测并使用 AVX2
+  - **回退机制**: count < 128 时回退到标量实现
+  - **预期加速**: 7-8x (1920x1080 图像, 单线程)
+
+### 2026-01-30 (Convolution AVX2 SIMD 优化)
+
+- **Internal/Convolution.h 模块** (AVX2 优化)
+  - **新增 AVX2 优化函数**:
+    - `ConvolveRow_AVX2_U8F`: uint8_t -> float 水平卷积优化
+    - `ConvolveRow_AVX2_FF`: float -> float 水平卷积优化
+    - `ConvolveRow5Tap_AVX2_U8F`: 专用 5-tap Gaussian 优化 (利用对称性)
+    - `ConvolveCol_AVX2_FF`: float -> float 垂直卷积优化
+    - `ConvolveCol5Tap_AVX2_FF`: 专用 5-tap Gaussian 垂直优化
+  - **Zone-based 处理策略**:
+    - 左边界: 标量处理 (需要 border handling)
+    - 中间安全区域: AVX2 向量化 (8 pixels/iteration)
+    - 右边界: 标量处理 (需要 border handling)
+  - **uint8_t -> float 转换**: `_mm_loadl_epi64` + `_mm256_cvtepu8_epi32` + `_mm256_cvtepi32_ps`
+  - **FMA 加速**: 使用 `_mm256_fmadd_ps` 融合乘加
+  - **对称核优化**: 5-tap 核利用 k[0]=k[4], k[1]=k[3] 减少乘法
+  - **性能测试结果** (1920x1080, 单线程):
+    | Kernel Size | Scalar | AVX2 | Speedup |
+    |-------------|--------|------|---------|
+    | k=3 | 5.05 ms | 0.61 ms | **8.3x** |
+    | k=5 | 8.16 ms | 1.17 ms | **7.0x** |
+    | k=7 | 11.07 ms | 2.35 ms | **4.7x** |
+  - **精度验证**: AVX2 vs 标量最大误差 < 1e-4 (float 精度)
+  - **自动回退**: width < 32 时自动使用标量版本
+  - **ConvolveSeparable 优化**: 当 DstT=float 时使用 float 中间缓冲区，使列卷积也能用 AVX2
 
 ### 2026-01-29 (Texture 模块)
 

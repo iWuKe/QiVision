@@ -366,6 +366,24 @@ double ShapeModelImpl::ComputeScoreWithSinCos(
         return 0.0;
     }
 
+#ifdef __AVX2__
+    // Use AVX2 optimized path for:
+    // - Topmost pyramid level only (coarse search where speed matters most)
+    // - IgnoreLocalPolarity or IgnoreColorPolarity mode (abs similarity)
+    // - Sufficient number of points (to amortize SIMD overhead)
+    // Note: AVX2 path uses nearest-neighbor (faster), scalar path uses bilinear (more accurate)
+    // We only use it at the very top level to avoid accuracy loss in refinement stages.
+    const int32_t numLevels = static_cast<int32_t>(levels_.size());
+    const bool isTopLevel = (level == numLevels - 1);  // Only the topmost level
+    const bool isIgnorePolarity = (params_.metric == MetricMode::IgnoreLocalPolarity ||
+                                   params_.metric == MetricMode::IgnoreColorPolarity);
+
+    if (isTopLevel && isIgnorePolarity && numPoints >= 32) {
+        return ComputeScoreNearestNeighborAVX2(pyramid, level, x, y, cosR, sinR, scale,
+                                                static_cast<float>(greediness), outCoverage, useGridPoints);
+    }
+#endif
+
     const float* gxData;
     const float* gyData;
     int32_t width, height, stride;
@@ -580,6 +598,216 @@ double ShapeModelImpl::ComputeScoreNearestNeighbor(
     // Return pure similarity score (no coverage penalty)
     return static_cast<double>(totalScore) / totalWeight;
 }
+
+// =============================================================================
+// ShapeModelImpl::ComputeScoreNearestNeighborAVX2 - True 8-point parallel
+// =============================================================================
+
+#ifdef __AVX2__
+
+// Horizontal sum of 8 floats in AVX2 register
+static inline float horizontal_sum_avx2(__m256 v) {
+    // Sum low and high 128-bit halves
+    __m128 vlow = _mm256_castps256_ps128(v);
+    __m128 vhigh = _mm256_extractf128_ps(v, 1);
+    vlow = _mm_add_ps(vlow, vhigh);  // 4 floats
+    // Horizontal add twice to get single sum
+    vlow = _mm_hadd_ps(vlow, vlow);  // [a+b, c+d, a+b, c+d]
+    vlow = _mm_hadd_ps(vlow, vlow);  // [a+b+c+d, ...]
+    return _mm_cvtss_f32(vlow);
+}
+
+double ShapeModelImpl::ComputeScoreNearestNeighborAVX2(
+    const AnglePyramid& pyramid, int32_t level,
+    double x, double y, float cosR, float sinR, double scale,
+    float greediness, double* outCoverage, bool useGridPoints) const
+{
+    const auto& levelModel = levels_[level];
+    const auto& pts = useGridPoints ? levelModel.gridPoints : levelModel.points;
+    const size_t numPoints = pts.size();
+    if (numPoints == 0) {
+        if (outCoverage) *outCoverage = 0.0;
+        return 0.0;
+    }
+
+    const float* gxData;
+    const float* gyData;
+    int32_t width, height, stride;
+    if (!pyramid.GetGradientData(level, gxData, gyData, width, height, stride)) {
+        if (outCoverage) *outCoverage = 0.0;
+        return 0.0;
+    }
+
+    // Get SoA data pointers
+    const float* soaX = useGridPoints ? levelModel.gridSoaX.data() : levelModel.soaX.data();
+    const float* soaY = useGridPoints ? levelModel.gridSoaY.data() : levelModel.soaY.data();
+    const float* soaCos = useGridPoints ? levelModel.gridSoaCosAngle.data() : levelModel.soaCosAngle.data();
+    const float* soaSin = useGridPoints ? levelModel.gridSoaSinAngle.data() : levelModel.soaSinAngle.data();
+    const float* soaWeight = useGridPoints ? levelModel.gridSoaWeight.data() : levelModel.soaWeight.data();
+
+    // Broadcast constants to AVX registers
+    const __m256 vCosR = _mm256_set1_ps(cosR);
+    const __m256 vSinR = _mm256_set1_ps(sinR);
+    const __m256 vXf = _mm256_set1_ps(static_cast<float>(x));
+    const __m256 vYf = _mm256_set1_ps(static_cast<float>(y));
+    const __m256 vScale = _mm256_set1_ps(static_cast<float>(scale));
+    const __m256 vHalf = _mm256_set1_ps(0.5f);
+    const __m256 vZero = _mm256_setzero_ps();
+    const __m256 vMinMagSq = _mm256_set1_ps(25.0f);  // minMag^2 = 5^2
+    const __m256 vMaxXf = _mm256_set1_ps(static_cast<float>(width - 1));
+    const __m256 vMaxYf = _mm256_set1_ps(static_cast<float>(height - 1));
+    const __m256i vStride = _mm256_set1_epi32(stride);
+
+    // Mask for absolute value (clear sign bit)
+    const __m256 vAbsMask = _mm256_castsi256_ps(_mm256_set1_epi32(0x7FFFFFFF));
+
+    // Accumulators
+    __m256 vTotalScore = _mm256_setzero_ps();
+    __m256 vTotalWeight = _mm256_setzero_ps();
+    __m256 vMatchedCount = _mm256_setzero_ps();
+    const __m256 vOne = _mm256_set1_ps(1.0f);
+
+    // Main vectorized loop: process 8 points at a time
+    size_t i = 0;
+    const size_t numVec = numPoints & ~7ULL;  // Round down to multiple of 8
+
+    for (; i < numVec; i += 8) {
+        // 1. Load 8 points of SoA data (aligned loads if possible)
+        __m256 vSoaX = _mm256_loadu_ps(&soaX[i]);
+        __m256 vSoaY = _mm256_loadu_ps(&soaY[i]);
+        __m256 vSoaCos = _mm256_loadu_ps(&soaCos[i]);
+        __m256 vSoaSin = _mm256_loadu_ps(&soaSin[i]);
+        __m256 vWeight = _mm256_loadu_ps(&soaWeight[i]);
+
+        // 2. Rotate model coordinates: rotX = cos*x - sin*y, rotY = sin*x + cos*y
+        // Using FMA: a*b-c = fmsub, a*b+c = fmadd
+        __m256 vRotX = _mm256_fmsub_ps(vCosR, vSoaX, _mm256_mul_ps(vSinR, vSoaY));
+        __m256 vRotY = _mm256_fmadd_ps(vSinR, vSoaX, _mm256_mul_ps(vCosR, vSoaY));
+
+        // 3. Compute image coordinates: imgX = xf + scale * rotX
+        __m256 vImgX = _mm256_fmadd_ps(vScale, vRotX, vXf);
+        __m256 vImgY = _mm256_fmadd_ps(vScale, vRotY, vYf);
+
+        // 4. Nearest neighbor: round to integer (add 0.5 and truncate)
+        __m256i vIx = _mm256_cvtps_epi32(_mm256_add_ps(vImgX, vHalf));
+        __m256i vIy = _mm256_cvtps_epi32(_mm256_add_ps(vImgY, vHalf));
+
+        // 5. Compute linear index: idx = iy * stride + ix
+        __m256i vIdx = _mm256_add_epi32(_mm256_mullo_epi32(vIy, vStride), vIx);
+
+        // 6. Boundary check: 0 <= imgX < width && 0 <= imgY < height
+        // Use rounded coordinates for bounds check to match index computation
+        __m256 vRoundedX = _mm256_cvtepi32_ps(vIx);
+        __m256 vRoundedY = _mm256_cvtepi32_ps(vIy);
+        __m256 vMaskX = _mm256_and_ps(
+            _mm256_cmp_ps(vRoundedX, vZero, _CMP_GE_OS),
+            _mm256_cmp_ps(vRoundedX, vMaxXf, _CMP_LE_OS));
+        __m256 vMaskY = _mm256_and_ps(
+            _mm256_cmp_ps(vRoundedY, vZero, _CMP_GE_OS),
+            _mm256_cmp_ps(vRoundedY, vMaxYf, _CMP_LE_OS));
+        __m256 vBoundsMask = _mm256_and_ps(vMaskX, vMaskY);
+
+        // 7. Gather gradient values (AVX2 gather instruction)
+        // Note: gather returns 0 for masked-out lanes when mask is 0
+        // We use the bounds mask to safely gather (out-of-bounds indices return garbage but are masked)
+        __m256i vGatherMask = _mm256_castps_si256(vBoundsMask);
+
+        // Safe gather: clamp indices to valid range to avoid segfault
+        // For out-of-bounds points, use index 0 (will be masked out anyway)
+        __m256i vSafeIdx = _mm256_and_si256(vIdx,
+            _mm256_set1_epi32((width * height - 1) | 0x7FFFFFFF));
+        vSafeIdx = _mm256_max_epi32(vSafeIdx, _mm256_setzero_si256());
+        vSafeIdx = _mm256_blendv_epi8(_mm256_setzero_si256(), vIdx, vGatherMask);
+
+        __m256 vGx = _mm256_i32gather_ps(gxData, vSafeIdx, 4);
+        __m256 vGy = _mm256_i32gather_ps(gyData, vSafeIdx, 4);
+
+        // Zero out gathered values for out-of-bounds points
+        vGx = _mm256_and_ps(vGx, vBoundsMask);
+        vGy = _mm256_and_ps(vGy, vBoundsMask);
+
+        // 8. Compute magnitude squared: magSq = gx*gx + gy*gy
+        __m256 vMagSq = _mm256_fmadd_ps(vGx, vGx, _mm256_mul_ps(vGy, vGy));
+
+        // 9. Magnitude check: magSq >= minMagSq
+        __m256 vMagMask = _mm256_cmp_ps(vMagSq, vMinMagSq, _CMP_GE_OS);
+        __m256 vValidMask = _mm256_and_ps(vBoundsMask, vMagMask);
+
+        // 10. Rotate model direction: rotCos = soaCos*cosR - soaSin*sinR
+        __m256 vRotCos = _mm256_fmsub_ps(vSoaCos, vCosR, _mm256_mul_ps(vSoaSin, vSinR));
+        __m256 vRotSin = _mm256_fmadd_ps(vSoaSin, vCosR, _mm256_mul_ps(vSoaCos, vSinR));
+
+        // 11. Dot product: dot = rotCos * gx + rotSin * gy
+        __m256 vDot = _mm256_fmadd_ps(vRotCos, vGx, _mm256_mul_ps(vRotSin, vGy));
+
+        // 12. Fast inverse sqrt: invMag = rsqrt(magSq)
+        // Add small epsilon to avoid division by zero
+        __m256 vMagSqSafe = _mm256_max_ps(vMagSq, _mm256_set1_ps(1e-10f));
+        __m256 vInvMag = _mm256_rsqrt_ps(vMagSqSafe);
+
+        // 13. Score = |dot| * invMag (IgnoreLocalPolarity mode)
+        __m256 vAbsDot = _mm256_and_ps(vDot, vAbsMask);
+        __m256 vScore = _mm256_mul_ps(vAbsDot, vInvMag);
+
+        // 14. Weighted contribution: contrib = weight * score
+        __m256 vContrib = _mm256_mul_ps(vWeight, vScore);
+
+        // 15. Masked accumulation (only for valid points)
+        vTotalScore = _mm256_add_ps(vTotalScore, _mm256_and_ps(vContrib, vValidMask));
+        vTotalWeight = _mm256_add_ps(vTotalWeight, _mm256_and_ps(vWeight, vValidMask));
+        vMatchedCount = _mm256_add_ps(vMatchedCount, _mm256_and_ps(vOne, vValidMask));
+    }
+
+    // Horizontal reduction
+    float totalScore = horizontal_sum_avx2(vTotalScore);
+    float totalWeight = horizontal_sum_avx2(vTotalWeight);
+    int32_t matchedCount = static_cast<int32_t>(horizontal_sum_avx2(vMatchedCount));
+
+    // Scalar cleanup for remaining points (< 8)
+    const int32_t maxX = width - 1;
+    const int32_t maxY = height - 1;
+    const float xf = static_cast<float>(x);
+    const float yf = static_cast<float>(y);
+    const float scalef = static_cast<float>(scale);
+
+    for (; i < numPoints; ++i) {
+        float rotX = cosR * soaX[i] - sinR * soaY[i];
+        float rotY = sinR * soaX[i] + cosR * soaY[i];
+
+        // Nearest neighbor: round to integer
+        int32_t imgX = static_cast<int32_t>(xf + scalef * rotX + 0.5f);
+        int32_t imgY = static_cast<int32_t>(yf + scalef * rotY + 0.5f);
+
+        if (imgX >= 0 && imgX <= maxX && imgY >= 0 && imgY <= maxY) {
+            int32_t idx = imgY * stride + imgX;
+
+            float gx = gxData[idx];
+            float gy = gyData[idx];
+
+            float magSq = gx * gx + gy * gy;
+            if (magSq >= 25.0f) {
+                float rotCos = soaCos[i] * cosR - soaSin[i] * sinR;
+                float rotSin = soaSin[i] * cosR + soaCos[i] * sinR;
+                float dot = rotCos * gx + rotSin * gy;
+
+                float invMag = 1.0f / std::sqrt(magSq);
+                float score = std::fabs(dot) * invMag;
+
+                totalScore += soaWeight[i] * score;
+                totalWeight += soaWeight[i];
+                matchedCount++;
+            }
+        }
+    }
+
+    double coverage = static_cast<double>(matchedCount) / numPoints;
+    if (outCoverage) *outCoverage = coverage;
+    if (totalWeight <= 0) return 0.0;
+
+    return static_cast<double>(totalScore) / totalWeight;
+}
+
+#endif  // __AVX2__
 
 // =============================================================================
 // ShapeModelImpl::ComputeScoreQuantized

@@ -304,6 +304,16 @@ public:
                                         int32_t x, int32_t y, float cosR, float sinR,
                                         double greediness, double* outCoverage = nullptr) const;
 
+#ifdef __AVX2__
+    /// True AVX2 vectorized score computation (8 points parallel)
+    /// Uses nearest-neighbor interpolation with gather instructions
+    /// Designed for coarse search where speed is critical
+    double ComputeScoreNearestNeighborAVX2(
+        const AnglePyramid& pyramid, int32_t level,
+        double x, double y, float cosR, float sinR, double scale,
+        float greediness, double* outCoverage, bool useGridPoints) const;
+#endif
+
     double ComputeScoreQuantized(const AnglePyramid& pyramid, int32_t level,
                                   double x, double y, float cosR, float sinR, int32_t rotationBin,
                                   double greediness, double* outCoverage = nullptr,

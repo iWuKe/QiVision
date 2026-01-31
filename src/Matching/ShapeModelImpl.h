@@ -204,6 +204,11 @@ public:
     Size2i templateSize_;
     bool valid_ = false;
 
+    // Saved template image for scale model creation
+    // (scaled models need to re-extract edges from scaled image)
+    QImage templateImage_;
+    Rect2i templateROI_;  // Original ROI (if any)
+
     // Timing configuration and results
     ShapeModelTimingParams timingParams_;
     ShapeModelCreateTiming createTiming_;

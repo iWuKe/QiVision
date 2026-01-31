@@ -1,7 +1,7 @@
 # QiVision API Reference
 
-> Version: 0.13.0
-> Last Updated: 2026-01-29
+> Version: 0.14.0
+> Last Updated: 2026-01-30
 > Namespace: `Qi::Vision`
 
 Professional industrial machine vision library.
@@ -25,7 +25,9 @@ Professional industrial machine vision library.
 13. [Edge](#13-edge) - Edge detection (Canny, Steger)
 14. [Hough](#14-hough) - Hough transform (lines, circles)
 15. [Contour](#15-contour) - XLD contour operations
-16. [Appendix](#appendix) - Types and constants
+16. [Defect](#16-defect) - Defect detection (Variation Model)
+17. [Texture](#17-texture) - Texture analysis (LBP, GLCM, Gabor)
+18. [Appendix](#appendix) - Types and constants
 
 ---
 
@@ -4144,10 +4146,480 @@ double DistancePointXld(const QContour& contour, double row, double column);
 
 ---
 
+## 16. Defect
+
+**Namespace**: `Qi::Vision::Defect`
+**Header**: `<QiVision/Defect/VariationModel.h>`
+
+Defect detection using variation model (Halcon-style).
+
+---
+
+### VariationModel
+
+Variation model for defect detection. Compares test images against a statistical model built from "golden" samples.
+
+```cpp
+class VariationModel {
+public:
+    VariationModel(int32_t width = 0, int32_t height = 0);
+
+    // Multi-image training mode
+    void Train(const QImage& goodImage);
+    void Prepare();
+
+    // Single-image mode
+    void CreateFromSingleImage(const QImage& golden,
+                               double edgeTolerance = 30.0,
+                               double flatTolerance = 10.0,
+                               double edgeSigma = 1.5,
+                               int32_t edgeDilateRadius = 2);
+    void CreateFromImages(const QImage& golden, const QImage& varImage);
+
+    // Detection
+    QRegion Compare(const QImage& testImage, double threshold = 3.0) const;
+    QRegion Compare(const QImage& testImage, const QRegion& roi,
+                    double threshold = 3.0) const;
+    void GetDiffImage(const QImage& testImage, QImage& diffImage) const;
+
+    // Model access
+    QImage GetMeanImage() const;
+    QImage GetVarImage() const;
+    void SetVarImage(const QImage& varImage);
+    void SetMinVariance(double minVar);
+    int32_t Width() const;
+    int32_t Height() const;
+    bool IsReady() const;
+    int32_t TrainingCount() const;
+
+    // Serialization
+    void Write(const std::string& filename) const;
+    static VariationModel Read(const std::string& filename);
+    VariationModel Clone() const;
+};
+```
+
+**Parameters**:
+- `width`, `height` - Model dimensions (0 = auto)
+- `goodImage` - Defect-free training image
+- `golden` - Reference image
+- `edgeTolerance` - Tolerance for edge regions (default 30.0)
+- `flatTolerance` - Tolerance for flat regions (default 10.0)
+- `edgeSigma` - Sigma for edge detection (default 1.5)
+- `edgeDilateRadius` - Edge region dilation (default 2)
+- `testImage` - Image to test
+- `threshold` - Detection threshold in standard deviations (default 3.0)
+
+**Returns**:
+- `Compare()` - Defect region
+- `GetMeanImage()` - Mean image
+- `GetVarImage()` - Variance image
+
+---
+
+### Convenience Functions
+
+Quick comparison functions.
+
+#### CompareImages
+
+Simple comparison using uniform tolerance.
+
+```cpp
+QRegion CompareImages(const QImage& golden, const QImage& test,
+                      double tolerance = 10.0);
+```
+
+---
+
+#### CompareImagesEdgeAware
+
+Comparison with edge-aware tolerance.
+
+```cpp
+QRegion CompareImagesEdgeAware(const QImage& golden, const QImage& test,
+                               double edgeTolerance = 30.0,
+                               double flatTolerance = 10.0);
+```
+
+---
+
+#### AbsDiffThreshold
+
+Simple absolute difference thresholding.
+
+```cpp
+QRegion AbsDiffThreshold(const QImage& image1, const QImage& image2,
+                         double threshold);
+```
+
+---
+
+#### AbsDiffImage
+
+Compute absolute difference image.
+
+```cpp
+void AbsDiffImage(const QImage& image1, const QImage& image2,
+                  QImage& diffImage);
+```
+
+---
+
+## 17. Texture
+
+**Namespace**: `Qi::Vision::Texture`
+**Header**: `<QiVision/Texture/Texture.h>`
+
+Texture analysis using LBP, GLCM, and Gabor filters.
+
+---
+
+### LBP (Local Binary Pattern)
+
+#### LBPType
+
+LBP variants.
+
+```cpp
+enum class LBPType {
+    Standard,           // Basic 8-neighbor (256 bins)
+    Uniform,            // Uniform patterns (59 bins)
+    RotationInvariant,  // Rotation invariant (36 bins)
+    UniformRI           // Uniform + RI (10 bins)
+};
+```
+
+---
+
+#### ComputeLBP
+
+Compute LBP image.
+
+```cpp
+void ComputeLBP(const QImage& image, QImage& lbpImage,
+                LBPType type = LBPType::Standard);
+```
+
+**Parameters**:
+- `image` - Input grayscale image
+- `lbpImage` - Output LBP image (UInt8)
+- `type` - LBP variant
+
+---
+
+#### ComputeLBPExtended
+
+Extended LBP with configurable radius and points.
+
+```cpp
+void ComputeLBPExtended(const QImage& image, QImage& lbpImage,
+                        int32_t radius = 1, int32_t numPoints = 8,
+                        LBPType type = LBPType::Standard);
+```
+
+**Parameters**:
+- `radius` - Circular neighborhood radius
+- `numPoints` - Number of sample points
+
+---
+
+#### ComputeLBPHistogram
+
+Compute LBP histogram.
+
+```cpp
+int32_t ComputeLBPHistogram(const QImage& lbpImage,
+                            std::vector<double>& histogram,
+                            LBPType type = LBPType::Standard);
+
+int32_t ComputeLBPHistogram(const QImage& lbpImage, const QRegion& region,
+                            std::vector<double>& histogram,
+                            LBPType type = LBPType::Standard);
+```
+
+**Returns**: Number of bins
+
+---
+
+### GLCM (Gray Level Co-occurrence Matrix)
+
+#### GLCMFeatures
+
+GLCM feature set.
+
+```cpp
+struct GLCMFeatures {
+    double contrast;        // Local intensity variation
+    double dissimilarity;   // Similar to contrast
+    double homogeneity;     // Closeness to diagonal
+    double energy;          // Uniformity
+    double entropy;         // Randomness
+    double correlation;     // Linear dependency
+    double mean;            // Mean gray level
+    double variance;        // Variance
+    double asm_;            // Angular Second Moment
+    double maxProbability;  // Max probability
+};
+```
+
+---
+
+#### GLCMDirection
+
+Direction for co-occurrence.
+
+```cpp
+enum class GLCMDirection {
+    Horizontal,   // 0°
+    Vertical,     // 90°
+    Diagonal45,   // 45°
+    Diagonal135,  // 135°
+    Average       // Average of all 4
+};
+```
+
+---
+
+#### ComputeGLCM
+
+Compute GLCM matrix.
+
+```cpp
+void ComputeGLCM(const QImage& image,
+                 std::vector<std::vector<double>>& glcm,
+                 int32_t distance = 1,
+                 GLCMDirection direction = GLCMDirection::Horizontal,
+                 int32_t numLevels = 256);
+
+void ComputeGLCM(const QImage& image, const QRegion& region,
+                 std::vector<std::vector<double>>& glcm,
+                 int32_t distance = 1,
+                 GLCMDirection direction = GLCMDirection::Horizontal,
+                 int32_t numLevels = 256);
+```
+
+**Parameters**:
+- `distance` - Pixel distance (default 1)
+- `direction` - Direction for co-occurrence
+- `numLevels` - Number of gray levels (default 256)
+
+---
+
+#### ExtractGLCMFeatures
+
+Extract features from GLCM.
+
+```cpp
+GLCMFeatures ExtractGLCMFeatures(const std::vector<std::vector<double>>& glcm);
+```
+
+---
+
+#### ComputeGLCMFeatures
+
+Compute GLCM features directly from image.
+
+```cpp
+GLCMFeatures ComputeGLCMFeatures(const QImage& image,
+                                 int32_t distance = 1,
+                                 GLCMDirection direction = GLCMDirection::Average,
+                                 int32_t numLevels = 64);
+
+GLCMFeatures ComputeGLCMFeatures(const QImage& image, const QRegion& region,
+                                 int32_t distance = 1,
+                                 GLCMDirection direction = GLCMDirection::Average,
+                                 int32_t numLevels = 64);
+```
+
+---
+
+### Gabor Filters
+
+#### GaborParams
+
+Gabor filter parameters.
+
+```cpp
+struct GaborParams {
+    double sigma = 3.0;       // Gaussian envelope sigma
+    double theta = 0.0;       // Orientation (radians)
+    double lambda = 8.0;      // Wavelength
+    double gamma = 0.5;       // Spatial aspect ratio
+    double psi = 0.0;         // Phase offset
+    int32_t kernelSize = 0;   // Kernel size (0 = auto)
+
+    static GaborParams WithOrientation(double degrees);
+};
+```
+
+---
+
+#### CreateGaborKernel
+
+Create Gabor filter kernel.
+
+```cpp
+void CreateGaborKernel(const GaborParams& params, QImage& kernel);
+```
+
+---
+
+#### ApplyGaborFilter
+
+Apply Gabor filter.
+
+```cpp
+void ApplyGaborFilter(const QImage& image, QImage& output,
+                      const GaborParams& params);
+```
+
+---
+
+#### ApplyGaborFilterBank
+
+Apply multiple orientations.
+
+```cpp
+void ApplyGaborFilterBank(const QImage& image,
+                          std::vector<QImage>& responses,
+                          int32_t numOrientations = 8,
+                          double sigma = 3.0,
+                          double lambda = 8.0);
+```
+
+**Parameters**:
+- `numOrientations` - Number of orientations (evenly spaced 0-180°)
+
+---
+
+#### ComputeGaborEnergy
+
+Compute Gabor energy (magnitude response).
+
+```cpp
+void ComputeGaborEnergy(const QImage& image, QImage& energy,
+                        const GaborParams& params);
+```
+
+---
+
+#### GaborFeatures
+
+Gabor texture features.
+
+```cpp
+struct GaborFeatures {
+    std::vector<double> meanEnergy;     // Mean energy per orientation
+    std::vector<double> stdEnergy;      // Std dev per orientation
+    double dominantOrientation;         // Dominant orientation (degrees)
+    double orientationStrength;         // Strength of dominant
+};
+```
+
+---
+
+#### ExtractGaborFeatures
+
+Extract Gabor texture features.
+
+```cpp
+GaborFeatures ExtractGaborFeatures(const QImage& image,
+                                   int32_t numOrientations = 8,
+                                   double sigma = 3.0,
+                                   double lambda = 8.0);
+
+GaborFeatures ExtractGaborFeatures(const QImage& image, const QRegion& region,
+                                   int32_t numOrientations = 8,
+                                   double sigma = 3.0,
+                                   double lambda = 8.0);
+```
+
+---
+
+### Texture Comparison
+
+#### CompareLBPHistograms
+
+Compare two LBP histograms using Chi-square distance.
+
+```cpp
+double CompareLBPHistograms(const std::vector<double>& hist1,
+                            const std::vector<double>& hist2);
+```
+
+**Returns**: Chi-square distance (0 = identical)
+
+---
+
+#### CompareGLCMFeatures
+
+Compare two GLCM feature sets.
+
+```cpp
+double CompareGLCMFeatures(const GLCMFeatures& f1, const GLCMFeatures& f2);
+```
+
+**Returns**: Euclidean distance
+
+---
+
+#### CompareGaborFeatures
+
+Compare two Gabor feature sets.
+
+```cpp
+double CompareGaborFeatures(const GaborFeatures& f1, const GaborFeatures& f2);
+```
+
+**Returns**: Euclidean distance
+
+---
+
+### Texture Segmentation
+
+#### SegmentByTextureLBP
+
+Segment image by texture using LBP and k-means clustering.
+
+```cpp
+int32_t SegmentByTextureLBP(const QImage& image, QImage& labels,
+                            int32_t numClusters = 2,
+                            int32_t windowSize = 16);
+```
+
+**Parameters**:
+- `labels` - Output label image (Int32)
+- `numClusters` - Number of texture clusters
+- `windowSize` - Window size for local histogram
+
+**Returns**: Actual number of clusters found
+
+---
+
+#### DetectTextureAnomalies
+
+Detect texture anomalies using LBP.
+
+```cpp
+void DetectTextureAnomalies(const QImage& image,
+                            const std::vector<double>& referenceHist,
+                            QImage& anomalyMap,
+                            int32_t windowSize = 16,
+                            LBPType type = LBPType::Uniform);
+```
+
+**Parameters**:
+- `referenceHist` - Reference texture histogram
+- `anomalyMap` - Output anomaly map (Float32, higher = more anomalous)
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.14.0 | 2026-01-30 | Add Defect and Texture modules |
 | 0.13.0 | 2026-01-29 | Add Contour module (XLD operations) |
 | 0.12.0 | 2026-01-29 | Add Hough module (line and circle detection) |
 | 0.11.0 | 2026-01-29 | Add Affine/Homography Transform modules |

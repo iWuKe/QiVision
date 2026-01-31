@@ -507,6 +507,121 @@ XLDContourSegment ResampleContourXLD(const XLDContourSegment& contour, double sp
 #pragma GCC diagnostic pop
 #endif
 
+/**
+ * @brief Simple bilinear scaling for QImage with correct stride handling
+ *
+ * This function correctly handles QImage's row-padded memory layout,
+ * unlike the generic ScaleImage function which has stride bugs.
+ *
+ * @param src Source grayscale image
+ * @param scale Scale factor (< 1 for downsampling)
+ * @return Scaled QImage
+ */
+QImage ScaleImageBilinear(const QImage& src, double scale) {
+    if (src.Empty() || scale <= 0) return QImage();
+
+    int32_t srcW = src.Width();
+    int32_t srcH = src.Height();
+    int32_t dstW = static_cast<int32_t>(std::round(srcW * scale));
+    int32_t dstH = static_cast<int32_t>(std::round(srcH * scale));
+
+    if (dstW <= 0 || dstH <= 0) return QImage();
+
+    QImage dst(dstW, dstH, src.Type(), src.GetChannelType());
+
+    // Get strides (bytes per row)
+    int32_t srcStride = src.Stride();
+    int32_t dstStride = dst.Stride();
+
+    // Process based on pixel type
+    if (src.Type() == PixelType::UInt8) {
+        const uint8_t* srcData = static_cast<const uint8_t*>(src.Data());
+        uint8_t* dstData = static_cast<uint8_t*>(dst.Data());
+
+        for (int32_t dy = 0; dy < dstH; ++dy) {
+            double sy = (dy + 0.5) / scale - 0.5;
+            int32_t y0 = static_cast<int32_t>(std::floor(sy));
+            int32_t y1 = y0 + 1;
+            double fy = sy - y0;
+
+            // Clamp to valid range
+            y0 = std::max(0, std::min(y0, srcH - 1));
+            y1 = std::max(0, std::min(y1, srcH - 1));
+
+            const uint8_t* row0 = srcData + y0 * srcStride;
+            const uint8_t* row1 = srcData + y1 * srcStride;
+            uint8_t* dstRow = dstData + dy * dstStride;
+
+            for (int32_t dx = 0; dx < dstW; ++dx) {
+                double sx = (dx + 0.5) / scale - 0.5;
+                int32_t x0 = static_cast<int32_t>(std::floor(sx));
+                int32_t x1 = x0 + 1;
+                double fx = sx - x0;
+
+                // Clamp to valid range
+                x0 = std::max(0, std::min(x0, srcW - 1));
+                x1 = std::max(0, std::min(x1, srcW - 1));
+
+                // Bilinear interpolation
+                double v00 = row0[x0];
+                double v10 = row0[x1];
+                double v01 = row1[x0];
+                double v11 = row1[x1];
+
+                double v = v00 * (1 - fx) * (1 - fy) +
+                          v10 * fx * (1 - fy) +
+                          v01 * (1 - fx) * fy +
+                          v11 * fx * fy;
+
+                dstRow[dx] = static_cast<uint8_t>(std::clamp(std::round(v), 0.0, 255.0));
+            }
+        }
+    } else if (src.Type() == PixelType::Float32) {
+        const float* srcData = static_cast<const float*>(src.Data());
+        float* dstData = static_cast<float*>(dst.Data());
+        int32_t srcStrideF = srcStride / sizeof(float);
+        int32_t dstStrideF = dstStride / sizeof(float);
+
+        for (int32_t dy = 0; dy < dstH; ++dy) {
+            double sy = (dy + 0.5) / scale - 0.5;
+            int32_t y0 = static_cast<int32_t>(std::floor(sy));
+            int32_t y1 = y0 + 1;
+            double fy = sy - y0;
+
+            y0 = std::max(0, std::min(y0, srcH - 1));
+            y1 = std::max(0, std::min(y1, srcH - 1));
+
+            const float* row0 = srcData + y0 * srcStrideF;
+            const float* row1 = srcData + y1 * srcStrideF;
+            float* dstRow = dstData + dy * dstStrideF;
+
+            for (int32_t dx = 0; dx < dstW; ++dx) {
+                double sx = (dx + 0.5) / scale - 0.5;
+                int32_t x0 = static_cast<int32_t>(std::floor(sx));
+                int32_t x1 = x0 + 1;
+                double fx = sx - x0;
+
+                x0 = std::max(0, std::min(x0, srcW - 1));
+                x1 = std::max(0, std::min(x1, srcW - 1));
+
+                double v00 = row0[x0];
+                double v10 = row0[x1];
+                double v01 = row1[x0];
+                double v11 = row1[x1];
+
+                double v = v00 * (1 - fx) * (1 - fy) +
+                          v10 * fx * (1 - fy) +
+                          v01 * (1 - fx) * fy +
+                          v11 * fx * fy;
+
+                dstRow[dx] = static_cast<float>(v);
+            }
+        }
+    }
+
+    return dst;
+}
+
 } // anonymous namespace
 
 namespace Internal {
@@ -581,29 +696,6 @@ void LevelModel::BuildSoAForPoints(const std::vector<ModelPoint>& pts,
 // =============================================================================
 // Helpers for scaled model cache
 // =============================================================================
-
-static LevelModel ScaleLevelModel(const LevelModel& src, double scale) {
-    LevelModel dst = src;
-    dst.points.clear();
-    dst.gridPoints.clear();
-
-    dst.width = static_cast<int32_t>(std::round(src.width * scale));
-    dst.height = static_cast<int32_t>(std::round(src.height * scale));
-    dst.scale = src.scale * scale;
-
-    dst.points.reserve(src.points.size());
-    for (const auto& pt : src.points) {
-        ModelPoint p = pt;
-        p.x *= scale;
-        p.y *= scale;
-        dst.points.push_back(p);
-    }
-
-    // Re-generate grid points for scaled model (integer grid)
-    dst.RegenerateGridPoints();
-    dst.BuildSoA();
-    return dst;
-}
 
 static void ComputeBoundsForLevels(const std::vector<LevelModel>& levels,
                                    double& minX, double& maxX,
@@ -785,6 +877,11 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
     if (templateImg.Empty()) {
         return false;
     }
+
+    // Save template image for scale model creation
+    // (scaled models need to re-extract edges from scaled image)
+    templateImage_ = templateImg;
+    templateROI_ = roi;
 
     // Build pyramid (with timing)
     tStep = std::chrono::high_resolution_clock::now();
@@ -1085,6 +1182,18 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const QRegion& region, con
 
     if (templateImg.Empty()) {
         return false;
+    }
+
+    // Save template image for scale model creation
+    // (scaled models need to re-extract edges from scaled image)
+    templateImage_ = templateImg;
+    templateROI_ = bbox;
+
+    if (timingParams_.debugCreateModel) {
+        std::printf("[CreateModel] templateImage_ saved: %dx%d (input was %dx%d, bbox=[%d,%d,%d,%d])\n",
+                    templateImage_.Width(), templateImage_.Height(),
+                    image.Width(), image.Height(),
+                    bbox.x, bbox.y, bbox.width, bbox.height);
     }
 
     // Build pyramid
@@ -2151,6 +2260,14 @@ void ShapeModelImpl::BuildScaledModels() {
         return;
     }
 
+    // Check if template image is available for proper scaling
+    if (templateImage_.Empty()) {
+        if (timingParams_.debugCreateModel) {
+            std::printf("[BuildScaledModels] Warning: No template image saved, skipping scale models\n");
+        }
+        return;
+    }
+
     double scaleMin = params_.scaleMin;
     double scaleMax = params_.scaleMax;
     double scaleStep = params_.scaleStep;
@@ -2167,22 +2284,131 @@ void ShapeModelImpl::BuildScaledModels() {
         params_.scaleStep = scaleStep;
     }
 
+    if (timingParams_.debugCreateModel) {
+        std::printf("[BuildScaledModels] Building scaled models: scale=[%.3f, %.3f], step=%.3f\n",
+                    scaleMin, scaleMax, scaleStep);
+    }
+
     constexpr double SCALE_TOLERANCE = 1e-6;
     for (double scale = scaleMin; scale <= scaleMax + SCALE_TOLERANCE; scale += scaleStep) {
+        // Skip scale=1.0 as it's the base model (already in levels_)
+        if (std::abs(scale - 1.0) < SCALE_TOLERANCE) {
+            continue;
+        }
+
         ScaledModelData sm;
         sm.scale = scale;
 
-        sm.levels.reserve(levels_.size());
-        for (const auto& level : levels_) {
-            sm.levels.push_back(ScaleLevelModel(level, scale));
+        // Step 1: Scale the template image using bilinear interpolation
+        int32_t scaledWidth = static_cast<int32_t>(std::round(templateImage_.Width() * scale));
+        int32_t scaledHeight = static_cast<int32_t>(std::round(templateImage_.Height() * scale));
+
+        if (scaledWidth < 8 || scaledHeight < 8) {
+            if (timingParams_.debugCreateModel) {
+                std::printf("[BuildScaledModels] Scale %.3f: image too small (%dx%d), skipping\n",
+                            scale, scaledWidth, scaledHeight);
+            }
+            continue;
         }
 
-        sm.templateSize.width = static_cast<int32_t>(std::round(templateSize_.width * scale));
-        sm.templateSize.height = static_cast<int32_t>(std::round(templateSize_.height * scale));
+        // Use our own ScaleImageBilinear function that correctly handles QImage strides
+        // (the generic Transform::ScaleImage has stride bugs)
+        QImage scaledImg = ScaleImageBilinear(templateImage_, scale);
 
+        if (scaledImg.Empty()) {
+            if (timingParams_.debugCreateModel) {
+                std::printf("[BuildScaledModels] Scale %.3f: failed to scale image, skipping\n", scale);
+            }
+            continue;
+        }
+
+        if (timingParams_.debugCreateModel) {
+            std::printf("[BuildScaledModels] Scale %.3f: templateImage_=%dx%d -> scaledImg=%dx%d\n",
+                        scale, templateImage_.Width(), templateImage_.Height(),
+                        scaledImg.Width(), scaledImg.Height());
+        }
+
+        sm.templateSize.width = scaledWidth;
+        sm.templateSize.height = scaledHeight;
+
+        // Step 2: Build pyramid parameters for the scaled image
+        AnglePyramidParams pyramidParams;
+        int32_t minScaledDim = std::min(scaledWidth, scaledHeight);
+
+        // Compute maximum valid pyramid levels based on scaled template size
+        constexpr int32_t MIN_LEVEL_SIZE = 12;
+        int32_t maxValidLevels = 1;
+        int32_t dim = minScaledDim;
+        while (dim >= MIN_LEVEL_SIZE * 2 && maxValidLevels < 6) {
+            dim /= 2;
+            maxValidLevels++;
+        }
+
+        // Use same number of levels as base model, but clamp to valid range
+        pyramidParams.numLevels = std::min(static_cast<int32_t>(levels_.size()), maxValidLevels);
+        pyramidParams.smoothSigma = 0.5;
+        pyramidParams.useNMS = true;
+
+        // Use same contrast threshold as base model
+        pyramidParams.minContrast = (params_.contrastLow > 0) ? params_.contrastLow : params_.contrastHigh;
+        if (pyramidParams.minContrast <= 0) {
+            pyramidParams.minContrast = 10.0;  // Default fallback
+        }
+
+        // Step 3: Build AnglePyramid on the scaled image
+        AnglePyramid pyramid;
+        if (!pyramid.Build(scaledImg, pyramidParams)) {
+            if (timingParams_.debugCreateModel) {
+                std::printf("[BuildScaledModels] Scale %.3f: failed to build pyramid, skipping\n", scale);
+            }
+            continue;
+        }
+
+        // Step 4: Save current state and extract model points
+        // We need to temporarily modify origin_ for the scaled model
+        Point2d originalOrigin = origin_;
+        Point2d scaledOrigin;
+        scaledOrigin.x = origin_.x * scale;
+        scaledOrigin.y = origin_.y * scale;
+        origin_ = scaledOrigin;
+
+        // Save current levels and extract new ones
+        std::vector<LevelModel> originalLevels = std::move(levels_);
+        levels_.clear();
+
+        // Extract model points from the scaled pyramid
+        ExtractModelPointsXLD(scaledImg, pyramid);
+
+        // Apply optimization if enabled
+        if (params_.optimization != OptimizationMode::None && !levels_.empty()) {
+            OptimizeModel();
+        }
+
+        // Build SoA data for the scaled levels
+        for (auto& level : levels_) {
+            level.BuildSoA();
+        }
+
+        // Move extracted levels to scaled model data
+        sm.levels = std::move(levels_);
+
+        // Restore original state
+        levels_ = std::move(originalLevels);
+        origin_ = originalOrigin;
+
+        // Check if extraction succeeded
+        if (sm.levels.empty() || sm.levels[0].points.empty()) {
+            if (timingParams_.debugCreateModel) {
+                std::printf("[BuildScaledModels] Scale %.3f: no points extracted, skipping\n", scale);
+            }
+            continue;
+        }
+
+        // Step 5: Compute bounds and coverage for the scaled model
         ComputeBoundsForLevels(sm.levels, sm.modelMinX, sm.modelMaxX, sm.modelMinY, sm.modelMaxY);
         sm.minCoverage = ComputeMinCoverageForLevels(sm.levels);
 
+        // Step 6: Build search angle cache for the scaled model
         double angleExtent = params_.angleExtent;
         if (angleExtent <= 0) {
             angleExtent = 2.0 * PI;
@@ -2193,7 +2419,16 @@ void ShapeModelImpl::BuildScaledModels() {
         sm.searchAngleStart = params_.angleStart;
         sm.searchAngleExtent = angleExtent;
 
+        if (timingParams_.debugCreateModel) {
+            std::printf("[BuildScaledModels] Scale %.3f: %zu levels, %zu points at level 0\n",
+                        scale, sm.levels.size(), sm.levels[0].points.size());
+        }
+
         scaledModels_.push_back(std::move(sm));
+    }
+
+    if (timingParams_.debugCreateModel) {
+        std::printf("[BuildScaledModels] Created %zu scaled models\n", scaledModels_.size());
     }
 }
 

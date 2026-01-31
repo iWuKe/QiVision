@@ -439,6 +439,7 @@ void CreateScaledShapeModel(
     params.minContrast = minContrast;
 
     model.Impl()->params_ = params;
+    model.Impl()->timingParams_.debugCreateModel = g_debugCreateModel;
 
     Point2d origin{0, 0};
     if (!model.Impl()->CreateModel(templateImage, region, origin)) {

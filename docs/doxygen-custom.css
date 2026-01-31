@@ -1,0 +1,673 @@
+/* QiVision Doxygen Custom Stylesheet */
+/* OpenCV-inspired modern look */
+
+:root {
+    --primary-color: #1976D2;
+    --primary-dark: #0D47A1;
+    --primary-light: #BBDEFB;
+    --secondary-color: #4CAF50;
+    --text-color: #212121;
+    --text-light: #757575;
+    --bg-light: #FAFAFA;
+    --bg-dark: #263238;
+    --border-color: #E0E0E0;
+    --code-bg: #ECEFF1;
+    --menu-bg: #37474F;
+    --menu-hover: #455A64;
+}
+
+/* General styling */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--text-color);
+    line-height: 1.6;
+    background: #fff;
+}
+
+/* ============================================
+   TOP NAVIGATION BAR - OpenCV style
+   ============================================ */
+
+/* Main navigation bar */
+#top {
+    background: var(--bg-dark) !important;
+}
+
+.sm-dox {
+    background: var(--bg-dark) !important;
+    padding: 0 !important;
+}
+
+.sm-dox a,
+.sm-dox a:focus,
+.sm-dox a:hover,
+.sm-dox a:active {
+    color: #fff !important;
+    background: transparent !important;
+    font-weight: 500;
+    padding: 12px 16px !important;
+    text-shadow: none !important;
+}
+
+.sm-dox a:hover,
+.sm-dox a:focus {
+    background: var(--menu-hover) !important;
+    color: #fff !important;
+}
+
+.sm-dox a.highlighted {
+    background: var(--menu-hover) !important;
+    color: #fff !important;
+}
+
+/* ============================================
+   DROPDOWN MENUS - Fix white background issue
+   ============================================ */
+
+/* Dropdown menu container */
+.sm-dox ul {
+    background: var(--menu-bg) !important;
+    border: none !important;
+    border-radius: 0 0 4px 4px !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+    padding: 8px 0 !important;
+}
+
+/* Dropdown menu items */
+.sm-dox ul a,
+.sm-dox ul a:focus,
+.sm-dox ul a:hover,
+.sm-dox ul a:active {
+    color: #E0E0E0 !important;
+    background: var(--menu-bg) !important;
+    padding: 10px 20px !important;
+    font-size: 14px !important;
+    border-left: 3px solid transparent !important;
+}
+
+.sm-dox ul a:hover,
+.sm-dox ul a:focus {
+    background: var(--menu-hover) !important;
+    color: #fff !important;
+    border-left: 3px solid var(--primary-color) !important;
+}
+
+/* Nested dropdown menus */
+.sm-dox ul ul {
+    background: var(--menu-bg) !important;
+}
+
+/* Dropdown arrow indicators - Fix overlap issue */
+.sm-dox a span.sub-arrow {
+    border-color: #fff transparent transparent transparent !important;
+    border-width: 5px !important;
+    right: 12px !important;
+    top: 50% !important;
+    margin-top: -3px !important;
+}
+
+.sm-dox ul a span.sub-arrow {
+    border-color: transparent transparent transparent #fff !important;
+    border-width: 5px !important;
+    right: 12px !important;
+    top: 50% !important;
+    margin-top: -5px !important;
+}
+
+/* Add padding for arrow space */
+.sm-dox a.has-submenu {
+    padding-right: 32px !important;
+}
+
+.sm-dox ul a.has-submenu {
+    padding-right: 32px !important;
+}
+
+/* Menu separators */
+.sm-dox li {
+    border-top: none !important;
+}
+
+/* ============================================
+   TITLE AREA
+   ============================================ */
+
+#titlearea {
+    background: var(--bg-dark);
+    padding: 16px 20px;
+    border-bottom: 3px solid var(--primary-color);
+}
+
+#projectname {
+    font-size: 1.8em;
+    font-weight: 700;
+    color: #fff;
+    margin: 0;
+}
+
+#projectnumber {
+    color: var(--primary-light);
+    font-size: 0.9em;
+}
+
+#projectbrief {
+    color: #B0BEC5;
+    font-size: 1em;
+    margin-top: 4px;
+}
+
+/* Project logo area */
+#projectlogo {
+    padding-right: 20px;
+}
+
+/* ============================================
+   SIDE NAVIGATION TREE
+   ============================================ */
+
+#side-nav {
+    background: var(--bg-light);
+    border-right: 1px solid var(--border-color);
+}
+
+#nav-tree {
+    background: var(--bg-light);
+    font-size: 14px;
+}
+
+#nav-tree .selected {
+    background: var(--primary-color) !important;
+    color: #fff !important;
+}
+
+#nav-tree a {
+    color: var(--text-color);
+}
+
+#nav-tree a:hover {
+    background: var(--primary-light);
+}
+
+.ui-resizable-e {
+    background: var(--border-color);
+    width: 6px;
+}
+
+/* ============================================
+   CONTENT AREA
+   ============================================ */
+
+.contents {
+    max-width: 1200px;
+    padding: 24px 32px;
+}
+
+.header {
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 12px;
+    margin-bottom: 24px;
+}
+
+.headertitle .title {
+    color: var(--primary-dark);
+    font-weight: 600;
+    font-size: 1.8em;
+}
+
+.title {
+    color: var(--primary-dark);
+    font-weight: 600;
+}
+
+/* ============================================
+   CODE BLOCKS
+   ============================================ */
+
+div.fragment {
+    background: var(--code-bg);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid var(--primary-color);
+    border-radius: 0 4px 4px 0;
+    padding: 16px;
+    overflow-x: auto;
+    margin: 16px 0;
+}
+
+pre.fragment {
+    background: transparent;
+    border: none;
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+}
+
+code, .code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.9em;
+    color: #C62828;
+}
+
+/* Syntax highlighting */
+.keyword { color: #1565C0; font-weight: 600; }
+.keywordtype { color: #7B1FA2; }
+.keywordflow { color: #1565C0; font-weight: 600; }
+.comment { color: #689F38; font-style: italic; }
+.preprocessor { color: #6A1B9A; }
+.stringliteral { color: #C62828; }
+.charliteral { color: #C62828; }
+
+/* ============================================
+   MEMBER DOCUMENTATION
+   ============================================ */
+
+.memtitle {
+    background: linear-gradient(to bottom, #ECEFF1, #CFD8DC);
+    border: 1px solid var(--border-color);
+    border-radius: 4px 4px 0 0;
+    padding: 10px 14px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.memproto {
+    background: var(--code-bg);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    padding: 14px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 13px;
+}
+
+.memdoc {
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    padding: 16px;
+    margin-bottom: 24px;
+    background: #fff;
+}
+
+.memitem {
+    margin-bottom: 24px;
+}
+
+.memname {
+    color: var(--primary-dark);
+    font-weight: 600;
+}
+
+.memname td {
+    font-family: "JetBrains Mono", Consolas, monospace;
+}
+
+/* ============================================
+   TABLES
+   ============================================ */
+
+table.memberdecls {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+table.memberdecls td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: top;
+}
+
+table.memberdecls tr:hover {
+    background: var(--bg-light);
+}
+
+.mdescLeft, .mdescRight {
+    color: var(--text-light);
+    font-size: 0.95em;
+}
+
+.memItemLeft, .memItemRight {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 13px;
+}
+
+/* Markdown tables */
+table.markdownTable {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0;
+}
+
+table.markdownTable th {
+    background: var(--primary-color);
+    color: #fff;
+    padding: 12px 14px;
+    text-align: left;
+    font-weight: 600;
+}
+
+table.markdownTable td {
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+}
+
+table.markdownTable tr:nth-child(even) {
+    background: var(--bg-light);
+}
+
+table.markdownTable tr:hover {
+    background: var(--primary-light);
+}
+
+/* Parameters table */
+table.params {
+    border-collapse: collapse;
+    margin: 16px 0;
+    width: 100%;
+}
+
+table.params td {
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    vertical-align: top;
+}
+
+table.params td.paramname {
+    font-weight: 600;
+    color: var(--primary-dark);
+    font-family: "JetBrains Mono", Consolas, monospace;
+    width: 150px;
+}
+
+table.params td.paramtype {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    color: #7B1FA2;
+}
+
+/* ============================================
+   DIRECTORY/FILE TREE
+   ============================================ */
+
+.directory {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.directory td {
+    padding: 8px 12px;
+}
+
+.directory tr:hover {
+    background: var(--bg-light);
+}
+
+.directory tr.even {
+    background: #FAFAFA;
+}
+
+/* ============================================
+   LINKS
+   ============================================ */
+
+a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+a:hover {
+    color: var(--primary-dark);
+    text-decoration: underline;
+}
+
+a.el {
+    font-weight: 500;
+}
+
+/* ============================================
+   SECTION HEADERS
+   ============================================ */
+
+h1, h2, h3 {
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+h1 {
+    font-size: 1.8em;
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 8px;
+}
+
+h2.groupheader {
+    border-bottom: 2px solid var(--secondary-color);
+    padding-bottom: 8px;
+    margin-top: 32px;
+    color: var(--primary-dark);
+}
+
+h2.memtitle {
+    font-size: 1em;
+}
+
+/* ============================================
+   SEARCH BOX
+   ============================================ */
+
+#MSearchBox {
+    background: #455A64;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 10px;
+    margin: 8px;
+}
+
+#MSearchField {
+    background: transparent;
+    color: #fff;
+    border: none;
+}
+
+#MSearchField::placeholder {
+    color: #90A4AE;
+}
+
+#MSearchSelectWindow {
+    background: var(--menu-bg);
+    border: none;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+#MSearchResultsWindow {
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* ============================================
+   NOTES, WARNINGS, RETURN VALUES
+   ============================================ */
+
+dl.section.return {
+    background: #E8F5E9;
+    padding: 14px;
+    border-radius: 4px;
+    border-left: 4px solid var(--secondary-color);
+    margin: 16px 0;
+}
+
+dl.section.return dt {
+    font-weight: 600;
+    color: #2E7D32;
+}
+
+dl.section.note {
+    background: #FFF8E1;
+    padding: 14px;
+    border-radius: 4px;
+    border-left: 4px solid #FFA000;
+    margin: 16px 0;
+}
+
+dl.section.note dt {
+    font-weight: 600;
+    color: #E65100;
+}
+
+dl.section.warning {
+    background: #FFEBEE;
+    padding: 14px;
+    border-radius: 4px;
+    border-left: 4px solid #D32F2F;
+    margin: 16px 0;
+}
+
+dl.section.warning dt {
+    font-weight: 600;
+    color: #C62828;
+}
+
+dl.section.see {
+    background: #E3F2FD;
+    padding: 14px;
+    border-radius: 4px;
+    border-left: 4px solid var(--primary-color);
+    margin: 16px 0;
+}
+
+/* ============================================
+   GRAPHICAL ELEMENTS
+   ============================================ */
+
+.dotgraph {
+    text-align: center;
+    margin: 20px 0;
+}
+
+.inheritancegraph,
+.collaborationgraph {
+    margin: 16px 0;
+    text-align: center;
+}
+
+/* ============================================
+   FOOTER
+   ============================================ */
+
+.footer {
+    background: var(--bg-light);
+    border-top: 1px solid var(--border-color);
+    padding: 20px;
+    text-align: center;
+    color: var(--text-light);
+    font-size: 0.85em;
+}
+
+/* ============================================
+   TABS (Module/Class/File selection)
+   ============================================ */
+
+.tabs, .tabs2, .tabs3 {
+    background: var(--bg-dark);
+    border-bottom: none;
+    padding: 0;
+}
+
+.tabs ul, .tabs2 ul, .tabs3 ul {
+    margin: 0;
+    padding: 0;
+}
+
+.tabs li, .tabs2 li, .tabs3 li {
+    display: inline-block;
+}
+
+.tabs a, .tabs2 a, .tabs3 a {
+    color: #B0BEC5 !important;
+    background: transparent !important;
+    padding: 10px 16px !important;
+    border-bottom: 3px solid transparent;
+    display: block;
+}
+
+.tabs a:hover, .tabs2 a:hover, .tabs3 a:hover {
+    color: #fff !important;
+    background: var(--menu-hover) !important;
+}
+
+.tabs .current a, .tabs2 .current a, .tabs3 .current a {
+    color: #fff !important;
+    border-bottom: 3px solid var(--primary-color) !important;
+    background: transparent !important;
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media (max-width: 768px) {
+    .contents {
+        padding: 16px;
+    }
+
+    #side-nav {
+        width: 100% !important;
+    }
+
+    .sm-dox a {
+        padding: 10px 12px !important;
+    }
+}
+
+/* ============================================
+   NAMESPACE/CLASS LIST
+   ============================================ */
+
+.classindex dl {
+    padding: 12px;
+}
+
+.classindex dd {
+    margin-left: 20px;
+}
+
+.namespaceList td {
+    padding: 8px 12px;
+}
+
+/* Icon styles */
+.icona {
+    width: 24px;
+    height: 24px;
+}
+
+.icon {
+    background-color: var(--primary-color);
+    border-radius: 4px;
+}
+
+/* ============================================
+   BREADCRUMB NAVIGATION
+   ============================================ */
+
+.navpath {
+    background: var(--bg-light);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.navpath li {
+    background: transparent;
+}
+
+.navpath li a {
+    color: var(--text-color);
+    padding: 6px 12px;
+}
+
+.navpath li a:hover {
+    background: var(--primary-light);
+}

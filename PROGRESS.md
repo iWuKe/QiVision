@@ -198,7 +198,10 @@ Tests    █████████████████░░░ 87%
 | **Barcode/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 一维码/二维码 |
 | **Defect/VariationModel.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 变差模型缺陷检测 (Halcon 风格) |
 | **Texture/Texture.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 纹理分析 (LBP/GLCM/Gabor) |
-| **Calib/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P2** | 相机标定 |
+| **Calib/CameraModel.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 相机模型（内参+畸变） |
+| **Calib/Undistort.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 畸变校正 |
+| **Calib/CalibBoard.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 标定板检测 |
+| **Calib/CameraCalib.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 相机标定（张正友法） |
 
 ---
 

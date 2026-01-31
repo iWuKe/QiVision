@@ -63,6 +63,17 @@ inline uint8_t ClampU8(double val) {
     return static_cast<uint8_t>(Clamp(val, 0.0, 255.0));
 }
 
+bool RequireGrayU8(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+        throw UnsupportedException(std::string(funcName) +
+                                   " requires single-channel UInt8 image");
+    }
+    return true;
+}
+
 } // anonymous namespace
 
 // =============================================================================
@@ -1349,15 +1360,26 @@ void EntropyImage(const QImage& image, QImage& output,
 // =============================================================================
 
 void HistogramEqualize(const QImage& image, QImage& output) {
+    if (!RequireGrayU8(image, "HistogramEqualize")) {
+        output = QImage();
+        return;
+    }
     output = Internal::HistogramEqualize(image);
 }
 
 QImage HistogramEqualize(const QImage& image) {
+    if (!RequireGrayU8(image, "HistogramEqualize")) {
+        return QImage();
+    }
     return Internal::HistogramEqualize(image);
 }
 
 void ApplyCLAHE(const QImage& image, QImage& output,
                 int32_t tileSize, double clipLimit) {
+    if (!RequireGrayU8(image, "ApplyCLAHE")) {
+        output = QImage();
+        return;
+    }
     Internal::CLAHEParams params;
     params.tileGridSizeX = tileSize;
     params.tileGridSizeY = tileSize;
@@ -1366,6 +1388,9 @@ void ApplyCLAHE(const QImage& image, QImage& output,
 }
 
 QImage ApplyCLAHE(const QImage& image, int32_t tileSize, double clipLimit) {
+    if (!RequireGrayU8(image, "ApplyCLAHE")) {
+        return QImage();
+    }
     Internal::CLAHEParams params;
     params.tileGridSizeX = tileSize;
     params.tileGridSizeY = tileSize;
@@ -1376,6 +1401,10 @@ QImage ApplyCLAHE(const QImage& image, int32_t tileSize, double clipLimit) {
 void ContrastStretch(const QImage& image, QImage& output,
                      double lowPercentile, double highPercentile,
                      double outputMin, double outputMax) {
+    if (!RequireGrayU8(image, "ContrastStretch")) {
+        output = QImage();
+        return;
+    }
     output = Internal::ContrastStretch(image, lowPercentile, highPercentile,
                                        outputMin, outputMax);
 }
@@ -1383,33 +1412,59 @@ void ContrastStretch(const QImage& image, QImage& output,
 QImage ContrastStretch(const QImage& image,
                        double lowPercentile, double highPercentile,
                        double outputMin, double outputMax) {
+    if (!RequireGrayU8(image, "ContrastStretch")) {
+        return QImage();
+    }
     return Internal::ContrastStretch(image, lowPercentile, highPercentile,
                                      outputMin, outputMax);
 }
 
 void AutoContrast(const QImage& image, QImage& output) {
+    if (!RequireGrayU8(image, "AutoContrast")) {
+        output = QImage();
+        return;
+    }
     output = Internal::AutoContrast(image);
 }
 
 QImage AutoContrast(const QImage& image) {
+    if (!RequireGrayU8(image, "AutoContrast")) {
+        return QImage();
+    }
     return Internal::AutoContrast(image);
 }
 
 void NormalizeImage(const QImage& image, QImage& output,
                     double outputMin, double outputMax) {
+    if (!RequireGrayU8(image, "NormalizeImage")) {
+        output = QImage();
+        return;
+    }
     output = Internal::NormalizeImage(image, outputMin, outputMax);
 }
 
 QImage NormalizeImage(const QImage& image, double outputMin, double outputMax) {
+    if (!RequireGrayU8(image, "NormalizeImage")) {
+        return QImage();
+    }
     return Internal::NormalizeImage(image, outputMin, outputMax);
 }
 
 void HistogramMatch(const QImage& image, QImage& output,
                     const QImage& reference) {
+    if (!RequireGrayU8(image, "HistogramMatch") ||
+        !RequireGrayU8(reference, "HistogramMatch")) {
+        output = QImage();
+        return;
+    }
     output = Internal::HistogramMatchToImage(image, reference);
 }
 
 QImage HistogramMatch(const QImage& image, const QImage& reference) {
+    if (!RequireGrayU8(image, "HistogramMatch") ||
+        !RequireGrayU8(reference, "HistogramMatch")) {
+        return QImage();
+    }
     return Internal::HistogramMatchToImage(image, reference);
 }
 

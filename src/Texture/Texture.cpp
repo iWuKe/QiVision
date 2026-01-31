@@ -18,6 +18,27 @@ namespace Qi::Vision::Texture {
 // LBP Implementation
 // =============================================================================
 
+namespace {
+
+bool RequireGrayU8(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+        throw UnsupportedException(std::string(funcName) +
+                                   " requires single-channel UInt8 image");
+    }
+    return true;
+}
+
+void RequirePositive(int32_t value, const char* name, const char* funcName) {
+    if (value <= 0) {
+        throw InvalidArgumentException(std::string(funcName) + ": " + name + " must be > 0");
+    }
+}
+
+} // anonymous namespace
+
 // LBP lookup table for uniform patterns
 static const int32_t LBP_UNIFORM_TABLE[256] = {
     0, 1, 1, 2, 1, 58, 2, 3, 1, 58, 58, 58, 2, 58, 3, 4,
@@ -91,11 +112,9 @@ static int32_t GetRIMapping(uint8_t pattern) {
 }
 
 void ComputeLBP(const QImage& image, QImage& lbpImage, LBPType type) {
-    if (image.Empty()) {
-        throw Exception("Input image is empty");
-    }
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw Exception("LBP requires single-channel UInt8 image");
+    if (!RequireGrayU8(image, "ComputeLBP")) {
+        lbpImage = QImage();
+        return;
     }
 
     int32_t width = image.Width();
@@ -165,11 +184,12 @@ void ComputeLBP(const QImage& image, QImage& lbpImage, LBPType type) {
 
 void ComputeLBPExtended(const QImage& image, QImage& lbpImage,
                         int32_t radius, int32_t numPoints, LBPType type) {
-    if (image.Empty()) {
-        throw Exception("Input image is empty");
+    if (!RequireGrayU8(image, "ComputeLBPExtended")) {
+        lbpImage = QImage();
+        return;
     }
     if (radius < 1 || numPoints < 4) {
-        throw Exception("Invalid radius or numPoints");
+        throw InvalidArgumentException("ComputeLBPExtended: invalid radius or numPoints");
     }
 
     // For now, use simple version for radius=1, numPoints=8
@@ -234,10 +254,6 @@ void ComputeLBPExtended(const QImage& image, QImage& lbpImage,
 int32_t ComputeLBPHistogram(const QImage& lbpImage,
                             std::vector<double>& histogram,
                             LBPType type) {
-    if (lbpImage.Empty()) {
-        throw Exception("LBP image is empty");
-    }
-
     int32_t numBins;
     switch (type) {
         case LBPType::Standard: numBins = 256; break;
@@ -245,6 +261,14 @@ int32_t ComputeLBPHistogram(const QImage& lbpImage,
         case LBPType::RotationInvariant: numBins = 36; break;
         case LBPType::UniformRI: numBins = 10; break;
         default: numBins = 256;
+    }
+
+    if (lbpImage.Empty()) {
+        histogram.assign(numBins, 0.0);
+        return numBins;
+    }
+    if (lbpImage.Type() != PixelType::UInt8 || lbpImage.Channels() != 1) {
+        throw UnsupportedException("ComputeLBPHistogram requires single-channel UInt8 image");
     }
 
     histogram.assign(numBins, 0.0);
@@ -279,10 +303,6 @@ int32_t ComputeLBPHistogram(const QImage& lbpImage,
                             const QRegion& region,
                             std::vector<double>& histogram,
                             LBPType type) {
-    if (lbpImage.Empty()) {
-        throw Exception("LBP image is empty");
-    }
-
     int32_t numBins;
     switch (type) {
         case LBPType::Standard: numBins = 256; break;
@@ -290,6 +310,18 @@ int32_t ComputeLBPHistogram(const QImage& lbpImage,
         case LBPType::RotationInvariant: numBins = 36; break;
         case LBPType::UniformRI: numBins = 10; break;
         default: numBins = 256;
+    }
+
+    if (lbpImage.Empty()) {
+        histogram.assign(numBins, 0.0);
+        return numBins;
+    }
+    if (lbpImage.Type() != PixelType::UInt8 || lbpImage.Channels() != 1) {
+        throw UnsupportedException("ComputeLBPHistogram requires single-channel UInt8 image");
+    }
+    if (region.Empty()) {
+        histogram.assign(numBins, 0.0);
+        return numBins;
     }
 
     histogram.assign(numBins, 0.0);
@@ -327,11 +359,15 @@ void ComputeGLCM(const QImage& image,
                  int32_t distance,
                  GLCMDirection direction,
                  int32_t numLevels) {
-    if (image.Empty()) {
-        throw Exception("Input image is empty");
+    if (!RequireGrayU8(image, "ComputeGLCM")) {
+        glcm.clear();
+        return;
+    }
+    if (distance < 1) {
+        throw InvalidArgumentException("ComputeGLCM: distance must be > 0");
     }
     if (numLevels < 2 || numLevels > 256) {
-        throw Exception("numLevels must be between 2 and 256");
+        throw InvalidArgumentException("ComputeGLCM: numLevels must be between 2 and 256");
     }
 
     int32_t width = image.Width();
@@ -422,9 +458,27 @@ void ComputeGLCM(const QImage& image,
                  int32_t distance,
                  GLCMDirection direction,
                  int32_t numLevels) {
+    if (!RequireGrayU8(image, "ComputeGLCM")) {
+        glcm.clear();
+        return;
+    }
+    if (distance < 1) {
+        throw InvalidArgumentException("ComputeGLCM: distance must be > 0");
+    }
+    if (numLevels < 2 || numLevels > 256) {
+        throw InvalidArgumentException("ComputeGLCM: numLevels must be between 2 and 256");
+    }
+    if (region.Empty()) {
+        glcm.assign(numLevels, std::vector<double>(numLevels, 0.0));
+        return;
+    }
     // For simplicity, use bounding box of region
     // Full implementation would check region membership
     Rect2i bbox = region.BoundingBox();
+    if (bbox.width <= 0 || bbox.height <= 0) {
+        glcm.assign(numLevels, std::vector<double>(numLevels, 0.0));
+        return;
+    }
     QImage subImage = image.SubImage(bbox.x, bbox.y, bbox.width, bbox.height);
     ComputeGLCM(subImage, glcm, distance, direction, numLevels);
 }
@@ -509,6 +563,9 @@ GLCMFeatures ComputeGLCMFeatures(const QImage& image,
 // =============================================================================
 
 void CreateGaborKernel(const GaborParams& params, QImage& kernel) {
+    if (params.sigma <= 0.0 || params.lambda <= 0.0) {
+        throw InvalidArgumentException("CreateGaborKernel: sigma and lambda must be > 0");
+    }
     int32_t size = params.kernelSize;
     if (size <= 0) {
         size = static_cast<int32_t>(std::ceil(params.sigma * 6)) | 1;  // Odd
@@ -547,6 +604,10 @@ void CreateGaborKernel(const GaborParams& params, QImage& kernel) {
 
 void ApplyGaborFilter(const QImage& image, QImage& output,
                       const GaborParams& params) {
+    if (!RequireGrayU8(image, "ApplyGaborFilter")) {
+        output = QImage();
+        return;
+    }
     QImage kernel;
     CreateGaborKernel(params, kernel);
 
@@ -593,6 +654,11 @@ void ApplyGaborFilterBank(const QImage& image,
                           int32_t numOrientations,
                           double sigma,
                           double lambda) {
+    RequirePositive(numOrientations, "numOrientations", "ApplyGaborFilterBank");
+    if (image.Empty()) {
+        responses.clear();
+        return;
+    }
     responses.resize(numOrientations);
 
     for (int32_t i = 0; i < numOrientations; ++i) {
@@ -607,6 +673,10 @@ void ApplyGaborFilterBank(const QImage& image,
 
 void ComputeGaborEnergy(const QImage& image, QImage& energy,
                         const GaborParams& params) {
+    if (!RequireGrayU8(image, "ComputeGaborEnergy")) {
+        energy = QImage();
+        return;
+    }
     // Compute real (0° phase) and imaginary (90° phase) responses
     QImage realResp, imagResp;
 
@@ -643,8 +713,18 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
                                     double sigma,
                                     double lambda) {
     GaborFeatures f;
+    RequirePositive(numOrientations, "numOrientations", "ExtractGaborFeatures");
     f.meanEnergy.resize(numOrientations);
     f.stdEnergy.resize(numOrientations);
+
+    if (image.Empty()) {
+        f.dominantOrientation = 0.0;
+        f.orientationStrength = 0.0;
+        return f;
+    }
+    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+        throw UnsupportedException("ExtractGaborFeatures requires single-channel UInt8 image");
+    }
 
     int32_t width = image.Width();
     int32_t height = image.Height();
@@ -698,8 +778,21 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
                                     int32_t numOrientations,
                                     double sigma,
                                     double lambda) {
+    RequirePositive(numOrientations, "numOrientations", "ExtractGaborFeatures");
+    if (image.Empty() || region.Empty()) {
+        GaborFeatures f;
+        f.meanEnergy.resize(numOrientations);
+        f.stdEnergy.resize(numOrientations);
+        return f;
+    }
     // Use bounding box for simplicity
     Rect2i bbox = region.BoundingBox();
+    if (bbox.width <= 0 || bbox.height <= 0) {
+        GaborFeatures f;
+        f.meanEnergy.resize(numOrientations);
+        f.stdEnergy.resize(numOrientations);
+        return f;
+    }
     QImage subImage = image.SubImage(bbox.x, bbox.y, bbox.width, bbox.height);
     return ExtractGaborFeatures(subImage, numOrientations, sigma, lambda);
 }
@@ -711,7 +804,7 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
 double CompareLBPHistograms(const std::vector<double>& hist1,
                             const std::vector<double>& hist2) {
     if (hist1.size() != hist2.size()) {
-        throw Exception("Histogram sizes don't match");
+        throw InvalidArgumentException("CompareLBPHistograms: histogram sizes don't match");
     }
 
     // Chi-square distance
@@ -743,7 +836,7 @@ double CompareGLCMFeatures(const GLCMFeatures& f1, const GLCMFeatures& f2) {
 
 double CompareGaborFeatures(const GaborFeatures& f1, const GaborFeatures& f2) {
     if (f1.meanEnergy.size() != f2.meanEnergy.size()) {
-        throw Exception("Feature sizes don't match");
+        throw InvalidArgumentException("CompareGaborFeatures: feature sizes don't match");
     }
 
     double d = 0;
@@ -761,8 +854,11 @@ double CompareGaborFeatures(const GaborFeatures& f1, const GaborFeatures& f2) {
 
 int32_t SegmentByTextureLBP(const QImage& image, QImage& labels,
                             int32_t numClusters, int32_t windowSize) {
-    if (image.Empty()) {
-        throw Exception("Input image is empty");
+    RequirePositive(numClusters, "numClusters", "SegmentByTextureLBP");
+    RequirePositive(windowSize, "windowSize", "SegmentByTextureLBP");
+    if (!RequireGrayU8(image, "SegmentByTextureLBP")) {
+        labels = QImage();
+        return 0;
     }
 
     // Compute LBP
@@ -865,8 +961,13 @@ void DetectTextureAnomalies(const QImage& image,
                             QImage& anomalyMap,
                             int32_t windowSize,
                             LBPType type) {
-    if (image.Empty()) {
-        throw Exception("Input image is empty");
+    RequirePositive(windowSize, "windowSize", "DetectTextureAnomalies");
+    if (!RequireGrayU8(image, "DetectTextureAnomalies")) {
+        anomalyMap = QImage();
+        return;
+    }
+    if (referenceHist.empty()) {
+        throw InvalidArgumentException("DetectTextureAnomalies: referenceHist is empty");
     }
 
     // Compute LBP

@@ -8,6 +8,7 @@
 #include <QiVision/Segment/Segment.h>
 #include <QiVision/Internal/Threshold.h>
 #include <QiVision/Internal/Histogram.h>
+#include <QiVision/Core/Exception.h>
 
 namespace Qi::Vision::Segment {
 
@@ -16,6 +17,17 @@ namespace Qi::Vision::Segment {
 // =============================================================================
 
 namespace {
+
+bool RequireGrayU8(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+        throw UnsupportedException(std::string(funcName) +
+                                   " requires single-channel UInt8 image");
+    }
+    return true;
+}
 
 Internal::ThresholdType ToInternal(ThresholdType type) {
     switch (type) {
@@ -69,21 +81,35 @@ Internal::LightDark ToInternal(LightDark ld) {
 void Threshold(const QImage& src, QImage& dst,
                double threshold, double maxValue,
                ThresholdType type) {
+    if (!RequireGrayU8(src, "Threshold")) {
+        dst = QImage();
+        return;
+    }
     Internal::ThresholdGlobal(src, dst, threshold, maxValue, ToInternal(type));
 }
 
 QImage Threshold(const QImage& src, double threshold,
                  double maxValue, ThresholdType type) {
+    if (!RequireGrayU8(src, "Threshold")) {
+        return QImage();
+    }
     return Internal::ThresholdGlobal(src, threshold, maxValue, ToInternal(type));
 }
 
 void ThresholdRange(const QImage& src, QImage& dst,
                     double low, double high, double maxValue) {
+    if (!RequireGrayU8(src, "ThresholdRange")) {
+        dst = QImage();
+        return;
+    }
     Internal::ThresholdRange(src, dst, low, high, maxValue);
 }
 
 QImage ThresholdRange(const QImage& src, double low, double high,
                       double maxValue) {
+    if (!RequireGrayU8(src, "ThresholdRange")) {
+        return QImage();
+    }
     return Internal::ThresholdRange(src, low, high, maxValue);
 }
 
@@ -94,28 +120,58 @@ QImage ThresholdRange(const QImage& src, double low, double high,
 void ThresholdAuto(const QImage& src, QImage& dst,
                    AutoMethod method, double maxValue,
                    double* computedThreshold) {
+    if (!RequireGrayU8(src, "ThresholdAuto")) {
+        dst = QImage();
+        if (computedThreshold) {
+            *computedThreshold = 0.0;
+        }
+        return;
+    }
     Internal::ThresholdAuto(src, dst, ToInternal(method), maxValue, computedThreshold);
 }
 
 void ThresholdOtsu(const QImage& src, QImage& dst,
                    double maxValue, double* computedThreshold) {
+    if (!RequireGrayU8(src, "ThresholdOtsu")) {
+        dst = QImage();
+        if (computedThreshold) {
+            *computedThreshold = 0.0;
+        }
+        return;
+    }
     Internal::ThresholdOtsu(src, dst, maxValue, computedThreshold);
 }
 
 void ThresholdTriangle(const QImage& src, QImage& dst,
                        double maxValue, double* computedThreshold) {
+    if (!RequireGrayU8(src, "ThresholdTriangle")) {
+        dst = QImage();
+        if (computedThreshold) {
+            *computedThreshold = 0.0;
+        }
+        return;
+    }
     Internal::ThresholdTriangle(src, dst, maxValue, computedThreshold);
 }
 
 QImage ThresholdOtsu(const QImage& src, double maxValue) {
+    if (!RequireGrayU8(src, "ThresholdOtsu")) {
+        return QImage();
+    }
     return Internal::ThresholdOtsu(src, maxValue);
 }
 
 QImage ThresholdTriangle(const QImage& src, double maxValue) {
+    if (!RequireGrayU8(src, "ThresholdTriangle")) {
+        return QImage();
+    }
     return Internal::ThresholdTriangle(src, maxValue);
 }
 
 double ComputeAutoThreshold(const QImage& src, AutoMethod method) {
+    if (!RequireGrayU8(src, "ComputeAutoThreshold")) {
+        return 0.0;
+    }
     switch (method) {
         case AutoMethod::Otsu:
             return Internal::ComputeOtsuThreshold(src);
@@ -139,6 +195,10 @@ double ComputeAutoThreshold(const QImage& src, AutoMethod method) {
 
 void ThresholdAdaptive(const QImage& src, QImage& dst,
                        AdaptiveMethod method, int32_t blockSize, double C) {
+    if (!RequireGrayU8(src, "ThresholdAdaptive")) {
+        dst = QImage();
+        return;
+    }
     Internal::AdaptiveThresholdParams params;
     params.method = ToInternal(method);
     params.blockSize = blockSize;
@@ -152,12 +212,20 @@ void ThresholdAdaptive(const QImage& src, QImage& dst,
 
 void ThresholdMultiLevel(const QImage& src, QImage& dst,
                          const std::vector<double>& thresholds) {
+    if (!RequireGrayU8(src, "ThresholdMultiLevel")) {
+        dst = QImage();
+        return;
+    }
     Internal::ThresholdMultiLevel(src, dst, thresholds);
 }
 
 void ThresholdMultiLevel(const QImage& src, QImage& dst,
                          const std::vector<double>& thresholds,
                          const std::vector<double>& outputValues) {
+    if (!RequireGrayU8(src, "ThresholdMultiLevel")) {
+        dst = QImage();
+        return;
+    }
     Internal::ThresholdMultiLevel(src, dst, thresholds, outputValues);
 }
 
@@ -166,16 +234,28 @@ void ThresholdMultiLevel(const QImage& src, QImage& dst,
 // =============================================================================
 
 QRegion ThresholdToRegion(const QImage& src, double low, double high) {
+    if (!RequireGrayU8(src, "ThresholdToRegion")) {
+        return QRegion();
+    }
     return Internal::ThresholdToRegion(src, low, high);
 }
 
 QRegion ThresholdToRegion(const QImage& src, double threshold, bool above) {
+    if (!RequireGrayU8(src, "ThresholdToRegion")) {
+        return QRegion();
+    }
     return Internal::ThresholdToRegion(src, threshold, above);
 }
 
 QRegion ThresholdAutoToRegion(const QImage& src,
                                AutoMethod method, bool above,
                                double* computedThreshold) {
+    if (!RequireGrayU8(src, "ThresholdAutoToRegion")) {
+        if (computedThreshold) {
+            *computedThreshold = 0.0;
+        }
+        return QRegion();
+    }
     return Internal::ThresholdAutoToRegion(src, ToInternal(method), above, computedThreshold);
 }
 
@@ -185,16 +265,28 @@ QRegion ThresholdAutoToRegion(const QImage& src,
 
 QRegion DynThreshold(const QImage& image, const QImage& reference,
                      double offset, LightDark lightDark) {
+    if (!RequireGrayU8(image, "DynThreshold") || !RequireGrayU8(reference, "DynThreshold")) {
+        return QRegion();
+    }
     return Internal::DynThreshold(image, reference, offset, ToInternal(lightDark));
 }
 
 QRegion DynThreshold(const QImage& image, int32_t filterSize,
                      double offset, LightDark lightDark) {
+    if (!RequireGrayU8(image, "DynThreshold")) {
+        return QRegion();
+    }
     return Internal::DynThreshold(image, filterSize, offset, ToInternal(lightDark));
 }
 
 DualThresholdResult DualThreshold(const QImage& image,
                                    double lowThreshold, double highThreshold) {
+    if (!RequireGrayU8(image, "DualThreshold")) {
+        DualThresholdResult result;
+        result.lowThreshold = lowThreshold;
+        result.highThreshold = highThreshold;
+        return result;
+    }
     auto internal = Internal::DualThreshold(image, lowThreshold, highThreshold);
     DualThresholdResult result;
     result.lightRegion = internal.lightRegion;
@@ -207,16 +299,25 @@ DualThresholdResult DualThreshold(const QImage& image,
 
 QRegion VarThreshold(const QImage& image, int32_t windowSize,
                      double varianceThreshold, LightDark lightDark) {
+    if (!RequireGrayU8(image, "VarThreshold")) {
+        return QRegion();
+    }
     return Internal::VarThreshold(image, windowSize, varianceThreshold, ToInternal(lightDark));
 }
 
 QRegion CharThreshold(const QImage& image, double sigma,
                       double percent, LightDark lightDark) {
+    if (!RequireGrayU8(image, "CharThreshold")) {
+        return QRegion();
+    }
     return Internal::CharThreshold(image, sigma, percent, ToInternal(lightDark));
 }
 
 QRegion HysteresisThreshold(const QImage& image,
                             double lowThreshold, double highThreshold) {
+    if (!RequireGrayU8(image, "HysteresisThreshold")) {
+        return QRegion();
+    }
     return Internal::HysteresisThresholdToRegion(image, lowThreshold, highThreshold);
 }
 
@@ -225,16 +326,26 @@ QRegion HysteresisThreshold(const QImage& image,
 // =============================================================================
 
 QRegion ThresholdWithDomain(const QImage& image, double low, double high) {
+    if (!RequireGrayU8(image, "ThresholdWithDomain")) {
+        return QRegion();
+    }
     return Internal::ThresholdWithDomain(image, low, high);
 }
 
 QRegion DynThresholdWithDomain(const QImage& image, const QImage& reference,
-                                double offset, LightDark lightDark) {
+                               double offset, LightDark lightDark) {
+    if (!RequireGrayU8(image, "DynThresholdWithDomain") ||
+        !RequireGrayU8(reference, "DynThresholdWithDomain")) {
+        return QRegion();
+    }
     return Internal::DynThresholdWithDomain(image, reference, offset, ToInternal(lightDark));
 }
 
 QRegion ThresholdAdaptiveToRegion(const QImage& image,
-                                   AdaptiveMethod method, int32_t blockSize, double C) {
+                                 AdaptiveMethod method, int32_t blockSize, double C) {
+    if (!RequireGrayU8(image, "ThresholdAdaptiveToRegion")) {
+        return QRegion();
+    }
     Internal::AdaptiveThresholdParams params;
     params.method = ToInternal(method);
     params.blockSize = blockSize;

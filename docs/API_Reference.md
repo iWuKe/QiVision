@@ -1719,6 +1719,190 @@ auto result2 = Segment::Watershed(binaryImage, markers);
 
 ---
 
+### GMM (Gaussian Mixture Model)
+
+Soft clustering using Expectation-Maximization algorithm.
+
+#### GMMInit
+
+Initialization method for GMM.
+
+```cpp
+enum class GMMInit {
+    Random,     // Random initialization
+    KMeans      // Initialize with K-Means (recommended)
+};
+```
+
+---
+
+#### GMMCovType
+
+Covariance matrix type.
+
+```cpp
+enum class GMMCovType {
+    Full,       // Full covariance matrix (most flexible)
+    Diagonal,   // Diagonal only (faster, feature independence)
+    Spherical   // Single variance per component
+};
+```
+
+---
+
+#### GMMParams
+
+Parameters for GMM segmentation.
+
+```cpp
+struct GMMParams {
+    int32_t k = 2;                          // Number of Gaussian components
+    GMMFeature feature = GMMFeature::Gray;  // Feature space (same as K-Means)
+    GMMInit init = GMMInit::KMeans;         // Initialization method
+    GMMCovType covType = GMMCovType::Full;  // Covariance type
+    int32_t maxIterations = 100;            // Max EM iterations
+    double epsilon = 1e-4;                  // Convergence threshold
+    double regularization = 1e-6;           // Covariance regularization
+
+    static GMMParams Default(int32_t k = 2);
+    static GMMParams Color(int32_t k = 3);
+    static GMMParams Spatial(int32_t k = 2, double spatialWeight = 0.5);
+    static GMMParams Fast(int32_t k = 2);   // Uses diagonal covariance
+};
+```
+
+---
+
+#### GMMResult
+
+Result structure for GMM.
+
+```cpp
+struct GMMResult {
+    QImage labels;                              // Hard labels (most probable component)
+    std::vector<QImage> probabilities;          // Soft labels: P(k|x) for each component
+    std::vector<double> weights;                // Mixture weights (sum to 1)
+    std::vector<std::vector<double>> means;     // Component means
+    std::vector<std::vector<double>> covariances; // Covariances (flattened)
+    double logLikelihood = 0.0;                 // Final log-likelihood
+    int32_t iterations = 0;                     // Number of iterations
+    bool converged = false;                     // Whether EM converged
+};
+```
+
+---
+
+#### GMM
+
+Gaussian Mixture Model segmentation using EM algorithm.
+
+```cpp
+GMMResult GMM(const QImage& image, const GMMParams& params);
+GMMResult GMM(const QImage& image, int32_t k,
+              GMMFeature feature = GMMFeature::Gray);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Input image (grayscale or color) |
+| k | int32_t | Number of Gaussian components |
+| params | GMMParams | Full parameter set |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| GMMResult | Labels, probabilities, model parameters |
+
+**Example**
+```cpp
+// Basic GMM segmentation
+auto result = GMM(grayImage, 3);
+
+// Access soft labels (probability maps)
+for (int k = 0; k < result.probabilities.size(); ++k) {
+    QImage prob = result.probabilities[k];  // P(component k | pixel)
+}
+
+// Check model parameters
+std::cout << "Converged: " << result.converged << "\n";
+std::cout << "Component 0 mean: " << result.means[0][0] << "\n";
+```
+
+---
+
+#### GMMSegment
+
+Returns colored image based on most probable component.
+
+```cpp
+QImage GMMSegment(const QImage& image, int32_t k,
+                  GMMFeature feature = GMMFeature::Gray);
+QImage GMMSegment(const QImage& image, const GMMParams& params);
+```
+
+---
+
+#### GMMToRegions
+
+Converts GMM result to regions (hard assignment).
+
+```cpp
+void GMMToRegions(const QImage& image, int32_t k,
+                  std::vector<QRegion>& regions,
+                  GMMFeature feature = GMMFeature::Gray);
+```
+
+---
+
+#### GMMProbabilities
+
+Returns probability maps for each component.
+
+```cpp
+void GMMProbabilities(const QImage& image, int32_t k,
+                      std::vector<QImage>& probMaps,
+                      GMMFeature feature = GMMFeature::Gray);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| probMaps | std::vector<QImage>& | [out] Probability maps (k images, UInt8, 0-255) |
+
+---
+
+#### GMMClassify
+
+Classify pixels using a pre-trained GMM model.
+
+```cpp
+QImage GMMClassify(const QImage& image, const GMMResult& model,
+                   GMMFeature feature = GMMFeature::Gray);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | New image to classify |
+| model | const GMMResult& | Pre-trained model from GMM() |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| QImage | Labels image (Int16) |
+
+**Example**
+```cpp
+// Train on reference image
+auto model = GMM(referenceImage, 2);
+
+// Apply to new images
+QImage labels = GMMClassify(newImage, model);
+```
+
+---
+
 ## 7. Blob
 
 **Namespace**: `Qi::Vision::Blob`

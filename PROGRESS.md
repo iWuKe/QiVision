@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-02 (Segment Watershed)
+> 最后更新: 2026-02-02 (Segment GMM)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -183,7 +183,7 @@ Tests    █████████████████░░░ 87%
 | **IO/ImageIO.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像读写 (PNG/JPEG/BMP/RAW) |
 | **Color/ColorConvert.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 颜色转换 (RGB/HSV/Lab/YCrCb) |
 | **Filter/Filter.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 滤波+增强 (Gauss/Median/Sobel/CLAHE/HistogramEq) |
-| **Segment/Segment.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 图像分割 (Threshold/Otsu/Adaptive/DynThreshold/K-Means/Watershed) |
+| **Segment/Segment.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 图像分割 (Threshold/Otsu/Adaptive/DynThreshold/K-Means/Watershed/GMM) |
 | **Display/Display.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像显示与绘制 (Halcon 风格 API) |
 | **GUI/Window.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 窗口调试 (Win32/X11, macOS/Android stub, AutoResize) |
 | **Blob/Blob.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P0** | Blob 分析 (Connection, SelectShape, InnerCircle, FillUp, CountHoles等) |
@@ -255,6 +255,31 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-02 (Segment GMM)
+
+- **Segment/Segment.h 模块** (新增 GMM 高斯混合模型)
+  - 新增 `GMM()`: EM 算法高斯混合模型分割
+  - 新增 `GMMSegment()`: 返回分割图像
+  - 新增 `GMMToRegions()`: 返回硬分配区域
+  - 新增 `GMMProbabilities()`: 返回概率图（软标签）
+  - 新增 `GMMClassify()`: 使用训练好的模型分类新图像
+  - **GMMParams 参数结构**:
+    - `k`: 高斯分量数
+    - `feature`: 特征空间（与 K-Means 共用 GMMFeature）
+    - `init`: 初始化方法（Random/KMeans）
+    - `covType`: 协方差类型（Full/Diagonal/Spherical）
+    - `maxIterations/epsilon/regularization`: EM 控制参数
+  - **GMMResult 结果结构**:
+    - `labels`: 硬标签（最可能的分量）
+    - `probabilities`: 软标签（每个分量的概率图）
+    - `weights/means/covariances`: 模型参数
+    - `logLikelihood/iterations/converged`: 收敛信息
+  - 支持 K-Means 初始化（更稳定的收敛）
+  - 支持三种协方差类型以平衡精度和速度
+  - 使用 log-sum-exp 技巧保证数值稳定性
+  - Cholesky 分解计算协方差逆和行列式
+  - OpenMP 并行加速 E 步计算
 
 ### 2026-02-02 (Segment Watershed)
 

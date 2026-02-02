@@ -769,4 +769,204 @@ QIVISION_API QImage DistanceTransform(const QImage& binaryImage);
  */
 QIVISION_API QImage DistanceTransform(const QRegion& region);
 
+// =============================================================================
+// GMM (Gaussian Mixture Model) Segmentation
+// =============================================================================
+
+/**
+ * @brief GMM feature space (same as K-Means for consistency)
+ */
+using GMMFeature = KMeansFeature;
+
+/**
+ * @brief GMM initialization method
+ */
+enum class GMMInit {
+    Random,     ///< Random initialization
+    KMeans      ///< Initialize with K-Means (recommended, more stable)
+};
+
+/**
+ * @brief Covariance type for GMM
+ */
+enum class GMMCovType {
+    Full,       ///< Full covariance matrix (most flexible, slower)
+    Diagonal,   ///< Diagonal covariance (faster, assumes feature independence)
+    Spherical   ///< Spherical covariance (single variance per component)
+};
+
+/**
+ * @brief Gaussian Mixture Model result
+ */
+struct QIVISION_API GMMResult {
+    QImage labels;                                  ///< Hard labels (most probable component)
+    std::vector<QImage> probabilities;              ///< Soft labels: P(k|x) for each component k
+    std::vector<double> weights;                    ///< Mixture weights (pi_k), sum to 1
+    std::vector<std::vector<double>> means;         ///< Component means (k x dim)
+    std::vector<std::vector<double>> covariances;   ///< Covariances (flattened, depends on cov_type)
+    double logLikelihood = 0.0;                     ///< Final log-likelihood
+    int32_t iterations = 0;                         ///< Number of iterations
+    bool converged = false;                         ///< Whether EM converged
+};
+
+/**
+ * @brief GMM parameters
+ */
+struct QIVISION_API GMMParams {
+    int32_t k = 2;                                  ///< Number of Gaussian components
+    GMMFeature feature = GMMFeature::Gray;          ///< Feature space
+    GMMInit init = GMMInit::KMeans;                 ///< Initialization method
+    GMMCovType covType = GMMCovType::Full;          ///< Covariance type
+    int32_t maxIterations = 100;                    ///< Maximum EM iterations
+    double epsilon = 1e-4;                          ///< Convergence threshold (log-likelihood change)
+    double regularization = 1e-6;                   ///< Covariance regularization (prevent singularity)
+    double spatialWeight = 0.5;                     ///< Weight for spatial features (0-1)
+
+    /// Default parameters
+    static GMMParams Default(int32_t k = 2) {
+        GMMParams p;
+        p.k = k;
+        return p;
+    }
+
+    /// Parameters for color segmentation
+    static GMMParams Color(int32_t k = 3) {
+        GMMParams p;
+        p.k = k;
+        p.feature = GMMFeature::HSV;
+        return p;
+    }
+
+    /// Parameters with spatial features
+    static GMMParams Spatial(int32_t k = 2, double spatialWeight = 0.5) {
+        GMMParams p;
+        p.k = k;
+        p.feature = GMMFeature::GraySpatial;
+        p.spatialWeight = spatialWeight;
+        return p;
+    }
+
+    /// Fast parameters (diagonal covariance)
+    static GMMParams Fast(int32_t k = 2) {
+        GMMParams p;
+        p.k = k;
+        p.covType = GMMCovType::Diagonal;
+        return p;
+    }
+};
+
+/**
+ * @brief Gaussian Mixture Model segmentation (EM algorithm)
+ *
+ * GMM provides soft clustering where each pixel has a probability
+ * of belonging to each Gaussian component. This is useful for:
+ * - Overlapping distributions (foreground/background modeling)
+ * - Probabilistic segmentation
+ * - Color/texture modeling with uncertainty
+ *
+ * @param image Input image (grayscale or color)
+ * @param params GMM parameters
+ * @return GMMResult containing labels, probabilities, and model parameters
+ *
+ * @code
+ * // Basic grayscale GMM segmentation
+ * auto result = GMM(grayImage, GMMParams::Default(3));
+ *
+ * // Color segmentation with soft labels
+ * auto result = GMM(colorImage, GMMParams::Color(5));
+ * // Access probability map for component 0
+ * QImage prob0 = result.probabilities[0];
+ * @endcode
+ */
+QIVISION_API GMMResult GMM(const QImage& image, const GMMParams& params);
+
+/**
+ * @brief GMM segmentation (simple interface)
+ *
+ * @param image Input image
+ * @param k Number of Gaussian components
+ * @param feature Feature space
+ * @return GMMResult
+ */
+QIVISION_API GMMResult GMM(const QImage& image, int32_t k,
+                           GMMFeature feature = GMMFeature::Gray);
+
+/**
+ * @brief Segment image using GMM and return hard-labeled image
+ *
+ * Returns an image where each pixel is colored according to its
+ * most probable Gaussian component.
+ *
+ * @param image Input image
+ * @param k Number of components
+ * @param feature Feature space
+ * @return Segmented image with component colors
+ */
+QIVISION_API QImage GMMSegment(const QImage& image, int32_t k,
+                               GMMFeature feature = GMMFeature::Gray);
+
+/**
+ * @brief Segment image using GMM (full parameters)
+ */
+QIVISION_API QImage GMMSegment(const QImage& image, const GMMParams& params);
+
+/**
+ * @brief GMM segmentation to regions (hard assignment)
+ *
+ * @param image Input image
+ * @param k Number of components
+ * @param regions Output regions (one per component)
+ * @param feature Feature space
+ */
+QIVISION_API void GMMToRegions(const QImage& image, int32_t k,
+                               std::vector<QRegion>& regions,
+                               GMMFeature feature = GMMFeature::Gray);
+
+/**
+ * @brief GMM segmentation to regions (full parameters)
+ */
+QIVISION_API void GMMToRegions(const QImage& image, const GMMParams& params,
+                               std::vector<QRegion>& regions);
+
+/**
+ * @brief Get probability maps from GMM
+ *
+ * Returns probability images where each pixel value represents
+ * the probability P(component k | pixel) scaled to [0, 255].
+ *
+ * @param image Input image
+ * @param k Number of components
+ * @param probMaps Output probability maps (k images, UInt8)
+ * @param feature Feature space
+ *
+ * @code
+ * std::vector<QImage> probs;
+ * GMMProbabilities(image, 2, probs);
+ * // probs[0]: probability of foreground
+ * // probs[1]: probability of background
+ * @endcode
+ */
+QIVISION_API void GMMProbabilities(const QImage& image, int32_t k,
+                                   std::vector<QImage>& probMaps,
+                                   GMMFeature feature = GMMFeature::Gray);
+
+/**
+ * @brief Get probability maps from GMM (full parameters)
+ */
+QIVISION_API void GMMProbabilities(const QImage& image, const GMMParams& params,
+                                   std::vector<QImage>& probMaps);
+
+/**
+ * @brief Classify pixels using trained GMM model
+ *
+ * Applies a pre-trained GMM model to a new image.
+ *
+ * @param image Input image to classify
+ * @param model Pre-trained GMMResult containing model parameters
+ * @param feature Feature space (must match training)
+ * @return Labels image with component assignments
+ */
+QIVISION_API QImage GMMClassify(const QImage& image, const GMMResult& model,
+                                GMMFeature feature = GMMFeature::Gray);
+
 } // namespace Qi::Vision::Segment

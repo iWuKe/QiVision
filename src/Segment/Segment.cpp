@@ -1785,4 +1785,1011 @@ WatershedResult WatershedGradient(const QImage& image, const QImage* markers,
     return result;
 }
 
+// =============================================================================
+// GMM (Gaussian Mixture Model) Implementation
+// =============================================================================
+
+namespace {
+
+// GMM Gaussian component
+struct GMMComponent {
+    std::vector<double> mean;           // Mean vector
+    std::vector<double> covariance;     // Covariance (flattened)
+    std::vector<double> covInverse;     // Inverse covariance (for full)
+    double covDet = 1.0;                // Determinant of covariance
+    double weight = 0.0;                // Mixture weight
+
+    void Init(int32_t dim, GMMCovType covType) {
+        mean.resize(dim, 0.0);
+        switch (covType) {
+            case GMMCovType::Full:
+                covariance.resize(dim * dim, 0.0);
+                covInverse.resize(dim * dim, 0.0);
+                // Initialize to identity
+                for (int32_t i = 0; i < dim; ++i) {
+                    covariance[i * dim + i] = 1.0;
+                    covInverse[i * dim + i] = 1.0;
+                }
+                break;
+            case GMMCovType::Diagonal:
+                covariance.resize(dim, 1.0);  // Diagonal elements only
+                covInverse.resize(dim, 1.0);
+                break;
+            case GMMCovType::Spherical:
+                covariance.resize(1, 1.0);    // Single variance
+                covInverse.resize(1, 1.0);
+                break;
+        }
+        covDet = 1.0;
+    }
+};
+
+// Compute log of Gaussian PDF
+double GMMLogPdf(const double* x, const GMMComponent& comp, int32_t dim,
+                 GMMCovType covType) {
+    // Compute (x - mean)
+    std::vector<double> diff(dim);
+    for (int32_t i = 0; i < dim; ++i) {
+        diff[i] = x[i] - comp.mean[i];
+    }
+
+    // Compute Mahalanobis distance: (x-mu)^T * Sigma^-1 * (x-mu)
+    double mahal = 0.0;
+
+    switch (covType) {
+        case GMMCovType::Full: {
+            // Full covariance: diff^T * covInverse * diff
+            for (int32_t i = 0; i < dim; ++i) {
+                double sum = 0.0;
+                for (int32_t j = 0; j < dim; ++j) {
+                    sum += comp.covInverse[i * dim + j] * diff[j];
+                }
+                mahal += diff[i] * sum;
+            }
+            break;
+        }
+        case GMMCovType::Diagonal: {
+            // Diagonal: sum of diff[i]^2 / var[i]
+            for (int32_t i = 0; i < dim; ++i) {
+                mahal += diff[i] * diff[i] * comp.covInverse[i];
+            }
+            break;
+        }
+        case GMMCovType::Spherical: {
+            // Spherical: sum of diff[i]^2 / var
+            double invVar = comp.covInverse[0];
+            for (int32_t i = 0; i < dim; ++i) {
+                mahal += diff[i] * diff[i] * invVar;
+            }
+            break;
+        }
+    }
+
+    // log N(x|mu,Sigma) = -0.5 * (d*log(2*pi) + log|Sigma| + mahal)
+    static const double LOG_2PI = 1.8378770664093453;  // log(2*pi)
+    double logPdf = -0.5 * (dim * LOG_2PI + std::log(std::max(comp.covDet, 1e-300)) + mahal);
+
+    return logPdf;
+}
+
+// Compute inverse and determinant of symmetric positive-definite matrix
+bool InvertSymmetricMatrix(const double* A, double* Ainv, double& det, int32_t n,
+                           double regularization) {
+    // Simple Cholesky decomposition for small matrices
+    // A = L * L^T, then A^-1 = L^-T * L^-1
+
+    std::vector<double> L(n * n, 0.0);
+
+    // Cholesky decomposition with regularization
+    for (int32_t i = 0; i < n; ++i) {
+        for (int32_t j = 0; j <= i; ++j) {
+            double sum = A[i * n + j];
+            for (int32_t k = 0; k < j; ++k) {
+                sum -= L[i * n + k] * L[j * n + k];
+            }
+            if (i == j) {
+                // Diagonal element with regularization
+                sum += regularization;
+                if (sum <= 0) {
+                    return false;  // Not positive definite
+                }
+                L[i * n + j] = std::sqrt(sum);
+            } else {
+                L[i * n + j] = sum / L[j * n + j];
+            }
+        }
+    }
+
+    // Determinant = product of L[i][i]^2
+    det = 1.0;
+    for (int32_t i = 0; i < n; ++i) {
+        det *= L[i * n + i] * L[i * n + i];
+    }
+
+    // Invert L (lower triangular)
+    std::vector<double> Linv(n * n, 0.0);
+    for (int32_t i = 0; i < n; ++i) {
+        Linv[i * n + i] = 1.0 / L[i * n + i];
+        for (int32_t j = i + 1; j < n; ++j) {
+            double sum = 0.0;
+            for (int32_t k = i; k < j; ++k) {
+                sum -= L[j * n + k] * Linv[k * n + i];
+            }
+            Linv[j * n + i] = sum / L[j * n + j];
+        }
+    }
+
+    // A^-1 = L^-T * L^-1
+    for (int32_t i = 0; i < n; ++i) {
+        for (int32_t j = 0; j < n; ++j) {
+            double sum = 0.0;
+            for (int32_t k = std::max(i, j); k < n; ++k) {
+                sum += Linv[k * n + i] * Linv[k * n + j];
+            }
+            Ainv[i * n + j] = sum;
+        }
+    }
+
+    return true;
+}
+
+// Update component covariance and compute inverse/determinant
+void UpdateComponentCovariance(GMMComponent& comp, int32_t dim, GMMCovType covType,
+                               double regularization) {
+    switch (covType) {
+        case GMMCovType::Full: {
+            // Invert full covariance matrix
+            if (!InvertSymmetricMatrix(comp.covariance.data(), comp.covInverse.data(),
+                                       comp.covDet, dim, regularization)) {
+                // Reset to identity if singular
+                comp.covDet = 1.0;
+                for (int32_t i = 0; i < dim; ++i) {
+                    for (int32_t j = 0; j < dim; ++j) {
+                        comp.covariance[i * dim + j] = (i == j) ? 1.0 : 0.0;
+                        comp.covInverse[i * dim + j] = (i == j) ? 1.0 : 0.0;
+                    }
+                }
+            }
+            break;
+        }
+        case GMMCovType::Diagonal: {
+            // Diagonal: determinant = product, inverse = 1/var
+            comp.covDet = 1.0;
+            for (int32_t i = 0; i < dim; ++i) {
+                double var = std::max(comp.covariance[i], regularization);
+                comp.covariance[i] = var;
+                comp.covInverse[i] = 1.0 / var;
+                comp.covDet *= var;
+            }
+            break;
+        }
+        case GMMCovType::Spherical: {
+            // Spherical: single variance
+            double var = std::max(comp.covariance[0], regularization);
+            comp.covariance[0] = var;
+            comp.covInverse[0] = 1.0 / var;
+            comp.covDet = std::pow(var, dim);
+            break;
+        }
+    }
+}
+
+// Extract features from image (reuse from K-Means)
+void ExtractGMMFeatures(const QImage& image, GMMFeature feature, double spatialWeight,
+                        std::vector<std::vector<double>>& samples, int32_t& featureDim) {
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+    int32_t channels = image.Channels();
+    bool isColor = (channels >= 3);
+
+    // Determine feature dimension
+    switch (feature) {
+        case GMMFeature::Gray:
+            featureDim = 1;
+            break;
+        case GMMFeature::RGB:
+        case GMMFeature::HSV:
+        case GMMFeature::Lab:
+            featureDim = 3;
+            break;
+        case GMMFeature::GraySpatial:
+            featureDim = 3;  // intensity + x + y
+            break;
+        case GMMFeature::RGBSpatial:
+            featureDim = 5;  // RGB + x + y
+            break;
+    }
+
+    samples.resize(width * height);
+
+    // Spatial normalization factors
+    double xNorm = (width > 1) ? 255.0 / (width - 1) : 1.0;
+    double yNorm = (height > 1) ? 255.0 / (height - 1) : 1.0;
+
+    const uint8_t* data = static_cast<const uint8_t*>(image.Data());
+    size_t stride = image.Stride();
+
+    for (int32_t y = 0; y < height; ++y) {
+        const uint8_t* row = data + y * stride;
+
+        for (int32_t x = 0; x < width; ++x) {
+            std::vector<double>& sample = samples[y * width + x];
+            sample.resize(featureDim);
+
+            switch (feature) {
+                case GMMFeature::Gray: {
+                    if (isColor) {
+                        // Convert RGB to grayscale
+                        double r = row[x * channels];
+                        double g = row[x * channels + 1];
+                        double b = row[x * channels + 2];
+                        sample[0] = 0.299 * r + 0.587 * g + 0.114 * b;
+                    } else {
+                        sample[0] = row[x];
+                    }
+                    break;
+                }
+                case GMMFeature::RGB: {
+                    if (isColor) {
+                        sample[0] = row[x * channels];
+                        sample[1] = row[x * channels + 1];
+                        sample[2] = row[x * channels + 2];
+                    } else {
+                        sample[0] = sample[1] = sample[2] = row[x];
+                    }
+                    break;
+                }
+                case GMMFeature::HSV: {
+                    double r, g, b;
+                    if (isColor) {
+                        r = row[x * channels] / 255.0;
+                        g = row[x * channels + 1] / 255.0;
+                        b = row[x * channels + 2] / 255.0;
+                    } else {
+                        r = g = b = row[x] / 255.0;
+                    }
+                    double maxC = std::max({r, g, b});
+                    double minC = std::min({r, g, b});
+                    double delta = maxC - minC;
+
+                    // V
+                    double v = maxC;
+
+                    // S
+                    double s = (maxC > 0) ? delta / maxC : 0;
+
+                    // H
+                    double h = 0;
+                    if (delta > 0) {
+                        if (maxC == r) {
+                            h = 60.0 * std::fmod((g - b) / delta + 6.0, 6.0);
+                        } else if (maxC == g) {
+                            h = 60.0 * ((b - r) / delta + 2.0);
+                        } else {
+                            h = 60.0 * ((r - g) / delta + 4.0);
+                        }
+                    }
+
+                    sample[0] = h / 360.0 * 255.0;
+                    sample[1] = s * 255.0;
+                    sample[2] = v * 255.0;
+                    break;
+                }
+                case GMMFeature::Lab: {
+                    double r, g, b;
+                    if (isColor) {
+                        r = row[x * channels] / 255.0;
+                        g = row[x * channels + 1] / 255.0;
+                        b = row[x * channels + 2] / 255.0;
+                    } else {
+                        r = g = b = row[x] / 255.0;
+                    }
+
+                    // Gamma correction
+                    auto gamma = [](double c) {
+                        return (c > 0.04045) ? std::pow((c + 0.055) / 1.055, 2.4) : c / 12.92;
+                    };
+                    r = gamma(r);
+                    g = gamma(g);
+                    b = gamma(b);
+
+                    // RGB to XYZ (D65)
+                    double X = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
+                    double Y = (0.2126729 * r + 0.7151522 * g + 0.0721750 * b);
+                    double Z = (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883;
+
+                    // XYZ to Lab
+                    auto f = [](double t) {
+                        const double delta = 6.0 / 29.0;
+                        return (t > delta * delta * delta) ?
+                               std::cbrt(t) : t / (3 * delta * delta) + 4.0 / 29.0;
+                    };
+                    double fX = f(X);
+                    double fY = f(Y);
+                    double fZ = f(Z);
+
+                    sample[0] = (116.0 * fY - 16.0);       // L: [0, 100]
+                    sample[1] = (500.0 * (fX - fY) + 128); // a: [-128, 127] -> [0, 255]
+                    sample[2] = (200.0 * (fY - fZ) + 128); // b: [-128, 127] -> [0, 255]
+                    break;
+                }
+                case GMMFeature::GraySpatial: {
+                    if (isColor) {
+                        double r = row[x * channels];
+                        double g = row[x * channels + 1];
+                        double b = row[x * channels + 2];
+                        sample[0] = 0.299 * r + 0.587 * g + 0.114 * b;
+                    } else {
+                        sample[0] = row[x];
+                    }
+                    sample[1] = x * xNorm * spatialWeight;
+                    sample[2] = y * yNorm * spatialWeight;
+                    break;
+                }
+                case GMMFeature::RGBSpatial: {
+                    if (isColor) {
+                        sample[0] = row[x * channels];
+                        sample[1] = row[x * channels + 1];
+                        sample[2] = row[x * channels + 2];
+                    } else {
+                        sample[0] = sample[1] = sample[2] = row[x];
+                    }
+                    sample[3] = x * xNorm * spatialWeight;
+                    sample[4] = y * yNorm * spatialWeight;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// Initialize GMM with K-Means
+void InitGMMWithKMeans(const std::vector<std::vector<double>>& samples,
+                       std::vector<GMMComponent>& components, int32_t k, int32_t dim,
+                       GMMCovType covType, std::mt19937& rng) {
+    int64_t n = static_cast<int64_t>(samples.size());
+    if (n == 0) return;
+
+    // K-Means++ initialization for means
+    std::vector<int32_t> centerIndices;
+    centerIndices.reserve(k);
+
+    // First center: random
+    std::uniform_int_distribution<int64_t> dist(0, n - 1);
+    centerIndices.push_back(static_cast<int32_t>(dist(rng)));
+
+    // Remaining centers
+    std::vector<double> minDistSq(n, std::numeric_limits<double>::max());
+
+    for (int32_t c = 1; c < k; ++c) {
+        // Update minimum distances to existing centers
+        int32_t lastCenter = centerIndices.back();
+        for (int64_t i = 0; i < n; ++i) {
+            double d = 0;
+            for (int32_t j = 0; j < dim; ++j) {
+                double diff = samples[i][j] - samples[lastCenter][j];
+                d += diff * diff;
+            }
+            minDistSq[i] = std::min(minDistSq[i], d);
+        }
+
+        // Sample proportional to distance squared
+        double total = 0;
+        for (int64_t i = 0; i < n; ++i) {
+            total += minDistSq[i];
+        }
+
+        std::uniform_real_distribution<double> fdist(0, total);
+        double r = fdist(rng);
+        double cumSum = 0;
+        int64_t chosen = n - 1;
+        for (int64_t i = 0; i < n; ++i) {
+            cumSum += minDistSq[i];
+            if (cumSum >= r) {
+                chosen = i;
+                break;
+            }
+        }
+        centerIndices.push_back(static_cast<int32_t>(chosen));
+    }
+
+    // Run a few iterations of K-Means to get initial assignments
+    std::vector<int32_t> assignments(n);
+    std::vector<std::vector<double>> centers(k, std::vector<double>(dim, 0));
+
+    // Initial centers
+    for (int32_t c = 0; c < k; ++c) {
+        centers[c] = samples[centerIndices[c]];
+    }
+
+    // K-Means iterations
+    for (int iter = 0; iter < 10; ++iter) {
+        // Assign samples to nearest center
+        for (int64_t i = 0; i < n; ++i) {
+            double bestDist = std::numeric_limits<double>::max();
+            int32_t bestC = 0;
+            for (int32_t c = 0; c < k; ++c) {
+                double d = 0;
+                for (int32_t j = 0; j < dim; ++j) {
+                    double diff = samples[i][j] - centers[c][j];
+                    d += diff * diff;
+                }
+                if (d < bestDist) {
+                    bestDist = d;
+                    bestC = c;
+                }
+            }
+            assignments[i] = bestC;
+        }
+
+        // Update centers
+        std::vector<int64_t> counts(k, 0);
+        for (auto& c : centers) {
+            std::fill(c.begin(), c.end(), 0.0);
+        }
+        for (int64_t i = 0; i < n; ++i) {
+            int32_t c = assignments[i];
+            for (int32_t j = 0; j < dim; ++j) {
+                centers[c][j] += samples[i][j];
+            }
+            counts[c]++;
+        }
+        for (int32_t c = 0; c < k; ++c) {
+            if (counts[c] > 0) {
+                for (int32_t j = 0; j < dim; ++j) {
+                    centers[c][j] /= counts[c];
+                }
+            }
+        }
+    }
+
+    // Initialize GMM components from K-Means result
+    for (int32_t c = 0; c < k; ++c) {
+        components[c].mean = centers[c];
+        components[c].weight = 1.0 / k;
+
+        // Compute initial covariance from assigned samples
+        std::vector<double> cov;
+        switch (covType) {
+            case GMMCovType::Full:
+                cov.resize(dim * dim, 0.0);
+                break;
+            case GMMCovType::Diagonal:
+                cov.resize(dim, 0.0);
+                break;
+            case GMMCovType::Spherical:
+                cov.resize(1, 0.0);
+                break;
+        }
+
+        int64_t count = 0;
+        for (int64_t i = 0; i < n; ++i) {
+            if (assignments[i] == c) {
+                count++;
+                switch (covType) {
+                    case GMMCovType::Full:
+                        for (int32_t p = 0; p < dim; ++p) {
+                            for (int32_t q = 0; q < dim; ++q) {
+                                cov[p * dim + q] += (samples[i][p] - centers[c][p]) *
+                                                    (samples[i][q] - centers[c][q]);
+                            }
+                        }
+                        break;
+                    case GMMCovType::Diagonal:
+                        for (int32_t p = 0; p < dim; ++p) {
+                            double diff = samples[i][p] - centers[c][p];
+                            cov[p] += diff * diff;
+                        }
+                        break;
+                    case GMMCovType::Spherical:
+                        for (int32_t p = 0; p < dim; ++p) {
+                            double diff = samples[i][p] - centers[c][p];
+                            cov[0] += diff * diff;
+                        }
+                        break;
+                }
+            }
+        }
+
+        // Normalize covariance
+        if (count > 1) {
+            switch (covType) {
+                case GMMCovType::Full:
+                    for (auto& v : cov) v /= count;
+                    break;
+                case GMMCovType::Diagonal:
+                    for (auto& v : cov) v /= count;
+                    break;
+                case GMMCovType::Spherical:
+                    cov[0] /= (count * dim);
+                    break;
+            }
+        } else {
+            // Default variance if no samples
+            switch (covType) {
+                case GMMCovType::Full:
+                    for (int32_t p = 0; p < dim; ++p) {
+                        cov[p * dim + p] = 100.0;
+                    }
+                    break;
+                case GMMCovType::Diagonal:
+                    std::fill(cov.begin(), cov.end(), 100.0);
+                    break;
+                case GMMCovType::Spherical:
+                    cov[0] = 100.0;
+                    break;
+            }
+        }
+
+        components[c].covariance = cov;
+    }
+}
+
+// Initialize GMM randomly
+void InitGMMRandom(const std::vector<std::vector<double>>& samples,
+                   std::vector<GMMComponent>& components, int32_t k, int32_t dim,
+                   GMMCovType covType, std::mt19937& rng) {
+    int64_t n = static_cast<int64_t>(samples.size());
+    if (n == 0) return;
+
+    // Compute overall mean and variance
+    std::vector<double> globalMean(dim, 0.0);
+    for (int64_t i = 0; i < n; ++i) {
+        for (int32_t j = 0; j < dim; ++j) {
+            globalMean[j] += samples[i][j];
+        }
+    }
+    for (int32_t j = 0; j < dim; ++j) {
+        globalMean[j] /= n;
+    }
+
+    std::vector<double> globalVar(dim, 0.0);
+    for (int64_t i = 0; i < n; ++i) {
+        for (int32_t j = 0; j < dim; ++j) {
+            double diff = samples[i][j] - globalMean[j];
+            globalVar[j] += diff * diff;
+        }
+    }
+    for (int32_t j = 0; j < dim; ++j) {
+        globalVar[j] /= n;
+    }
+
+    // Random initialization
+    std::uniform_int_distribution<int64_t> dist(0, n - 1);
+
+    for (int32_t c = 0; c < k; ++c) {
+        // Random sample as mean
+        components[c].mean = samples[dist(rng)];
+        components[c].weight = 1.0 / k;
+
+        // Initial covariance from global variance
+        switch (covType) {
+            case GMMCovType::Full:
+                for (int32_t p = 0; p < dim; ++p) {
+                    components[c].covariance[p * dim + p] = globalVar[p];
+                }
+                break;
+            case GMMCovType::Diagonal:
+                for (int32_t p = 0; p < dim; ++p) {
+                    components[c].covariance[p] = globalVar[p];
+                }
+                break;
+            case GMMCovType::Spherical: {
+                double avgVar = 0;
+                for (int32_t p = 0; p < dim; ++p) avgVar += globalVar[p];
+                components[c].covariance[0] = avgVar / dim;
+                break;
+            }
+        }
+    }
+}
+
+} // anonymous namespace
+
+// Main GMM function
+GMMResult GMM(const QImage& image, const GMMParams& params) {
+    GMMResult result;
+
+    if (image.Empty()) {
+        return result;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("GMM: invalid image");
+    }
+    if (params.k < 1) {
+        throw InvalidArgumentException("GMM: k must be >= 1");
+    }
+
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+    int64_t n = static_cast<int64_t>(width) * height;
+    int32_t k = params.k;
+
+    // Extract features
+    std::vector<std::vector<double>> samples;
+    int32_t dim;
+    ExtractGMMFeatures(image, params.feature, params.spatialWeight, samples, dim);
+
+    // Initialize random generator
+    std::random_device rd;
+    std::mt19937 rng(rd());
+
+    // Initialize components
+    std::vector<GMMComponent> components(k);
+    for (int32_t c = 0; c < k; ++c) {
+        components[c].Init(dim, params.covType);
+    }
+
+    // Initialize using K-Means or random
+    if (params.init == GMMInit::KMeans) {
+        InitGMMWithKMeans(samples, components, k, dim, params.covType, rng);
+    } else {
+        InitGMMRandom(samples, components, k, dim, params.covType, rng);
+    }
+
+    // Update covariance inverses and determinants
+    for (int32_t c = 0; c < k; ++c) {
+        UpdateComponentCovariance(components[c], dim, params.covType, params.regularization);
+    }
+
+    // EM algorithm
+    std::vector<std::vector<double>> responsibilities(n, std::vector<double>(k, 0.0));
+    double prevLogLik = -std::numeric_limits<double>::max();
+
+    for (int32_t iter = 0; iter < params.maxIterations; ++iter) {
+        // E-step: compute responsibilities
+        double logLik = 0.0;
+
+        #pragma omp parallel for reduction(+:logLik) schedule(static)
+        for (int64_t i = 0; i < n; ++i) {
+            // Compute log P(x|k) + log P(k) for each component
+            std::vector<double> logProbs(k);
+            double maxLogProb = -std::numeric_limits<double>::max();
+
+            for (int32_t c = 0; c < k; ++c) {
+                logProbs[c] = GMMLogPdf(samples[i].data(), components[c], dim, params.covType)
+                              + std::log(std::max(components[c].weight, 1e-300));
+                maxLogProb = std::max(maxLogProb, logProbs[c]);
+            }
+
+            // Log-sum-exp trick for numerical stability
+            double sumExp = 0.0;
+            for (int32_t c = 0; c < k; ++c) {
+                sumExp += std::exp(logProbs[c] - maxLogProb);
+            }
+            double logSumExp = maxLogProb + std::log(sumExp);
+
+            // Responsibilities: P(k|x) = P(x|k)*P(k) / sum_k P(x|k)*P(k)
+            for (int32_t c = 0; c < k; ++c) {
+                responsibilities[i][c] = std::exp(logProbs[c] - logSumExp);
+            }
+
+            logLik += logSumExp;
+        }
+
+        // Check convergence
+        result.iterations = iter + 1;
+        if (iter > 0 && std::abs(logLik - prevLogLik) < params.epsilon) {
+            result.converged = true;
+            result.logLikelihood = logLik;
+            break;
+        }
+        prevLogLik = logLik;
+        result.logLikelihood = logLik;
+
+        // M-step: update parameters
+        for (int32_t c = 0; c < k; ++c) {
+            double Nk = 0.0;  // Effective number of samples for component c
+
+            // Sum responsibilities
+            for (int64_t i = 0; i < n; ++i) {
+                Nk += responsibilities[i][c];
+            }
+
+            if (Nk < 1e-10) {
+                // Component has negligible responsibility, reset
+                std::uniform_int_distribution<int64_t> dist(0, n - 1);
+                components[c].mean = samples[dist(rng)];
+                components[c].weight = 1e-10;
+                continue;
+            }
+
+            // Update weight
+            components[c].weight = Nk / n;
+
+            // Update mean
+            std::fill(components[c].mean.begin(), components[c].mean.end(), 0.0);
+            for (int64_t i = 0; i < n; ++i) {
+                double r = responsibilities[i][c];
+                for (int32_t j = 0; j < dim; ++j) {
+                    components[c].mean[j] += r * samples[i][j];
+                }
+            }
+            for (int32_t j = 0; j < dim; ++j) {
+                components[c].mean[j] /= Nk;
+            }
+
+            // Update covariance
+            switch (params.covType) {
+                case GMMCovType::Full: {
+                    std::fill(components[c].covariance.begin(),
+                              components[c].covariance.end(), 0.0);
+                    for (int64_t i = 0; i < n; ++i) {
+                        double r = responsibilities[i][c];
+                        for (int32_t p = 0; p < dim; ++p) {
+                            double dp = samples[i][p] - components[c].mean[p];
+                            for (int32_t q = 0; q < dim; ++q) {
+                                double dq = samples[i][q] - components[c].mean[q];
+                                components[c].covariance[p * dim + q] += r * dp * dq;
+                            }
+                        }
+                    }
+                    for (auto& v : components[c].covariance) {
+                        v /= Nk;
+                    }
+                    break;
+                }
+                case GMMCovType::Diagonal: {
+                    std::fill(components[c].covariance.begin(),
+                              components[c].covariance.end(), 0.0);
+                    for (int64_t i = 0; i < n; ++i) {
+                        double r = responsibilities[i][c];
+                        for (int32_t p = 0; p < dim; ++p) {
+                            double d = samples[i][p] - components[c].mean[p];
+                            components[c].covariance[p] += r * d * d;
+                        }
+                    }
+                    for (auto& v : components[c].covariance) {
+                        v /= Nk;
+                    }
+                    break;
+                }
+                case GMMCovType::Spherical: {
+                    components[c].covariance[0] = 0.0;
+                    for (int64_t i = 0; i < n; ++i) {
+                        double r = responsibilities[i][c];
+                        for (int32_t p = 0; p < dim; ++p) {
+                            double d = samples[i][p] - components[c].mean[p];
+                            components[c].covariance[0] += r * d * d;
+                        }
+                    }
+                    components[c].covariance[0] /= (Nk * dim);
+                    break;
+                }
+            }
+
+            // Update covariance inverse and determinant
+            UpdateComponentCovariance(components[c], dim, params.covType, params.regularization);
+        }
+    }
+
+    // Create output labels (hard assignment)
+    result.labels = QImage(width, height, PixelType::Int16, ChannelType::Gray);
+    int16_t* labelData = static_cast<int16_t*>(result.labels.Data());
+    size_t labelStride = result.labels.Stride() / sizeof(int16_t);
+
+    for (int32_t y = 0; y < height; ++y) {
+        for (int32_t x = 0; x < width; ++x) {
+            int64_t i = y * width + x;
+            int16_t bestC = 0;
+            double bestResp = responsibilities[i][0];
+            for (int32_t c = 1; c < k; ++c) {
+                if (responsibilities[i][c] > bestResp) {
+                    bestResp = responsibilities[i][c];
+                    bestC = static_cast<int16_t>(c);
+                }
+            }
+            labelData[y * labelStride + x] = bestC;
+        }
+    }
+
+    // Create probability maps
+    result.probabilities.resize(k);
+    for (int32_t c = 0; c < k; ++c) {
+        result.probabilities[c] = QImage(width, height, PixelType::UInt8, ChannelType::Gray);
+        uint8_t* probData = static_cast<uint8_t*>(result.probabilities[c].Data());
+        size_t probStride = result.probabilities[c].Stride();
+
+        for (int32_t y = 0; y < height; ++y) {
+            for (int32_t x = 0; x < width; ++x) {
+                int64_t i = y * width + x;
+                probData[y * probStride + x] = static_cast<uint8_t>(
+                    std::round(responsibilities[i][c] * 255.0));
+            }
+        }
+    }
+
+    // Copy model parameters
+    result.weights.resize(k);
+    result.means.resize(k);
+    result.covariances.resize(k);
+    for (int32_t c = 0; c < k; ++c) {
+        result.weights[c] = components[c].weight;
+        result.means[c] = components[c].mean;
+        result.covariances[c] = components[c].covariance;
+    }
+
+    return result;
+}
+
+// Simple interface
+GMMResult GMM(const QImage& image, int32_t k, GMMFeature feature) {
+    GMMParams params;
+    params.k = k;
+    params.feature = feature;
+    return GMM(image, params);
+}
+
+// GMM segment (recolored image)
+QImage GMMSegment(const QImage& image, int32_t k, GMMFeature feature) {
+    GMMParams params;
+    params.k = k;
+    params.feature = feature;
+    return GMMSegment(image, params);
+}
+
+QImage GMMSegment(const QImage& image, const GMMParams& params) {
+    GMMResult result = GMM(image, params);
+
+    if (result.labels.Empty()) {
+        return QImage();
+    }
+
+    int32_t width = result.labels.Width();
+    int32_t height = result.labels.Height();
+    int32_t k = params.k;
+
+    // Generate colors for each component
+    std::vector<std::array<uint8_t, 3>> colors(k);
+    for (int32_t c = 0; c < k; ++c) {
+        // HSV to RGB with evenly spaced hues
+        double h = c * 360.0 / k;
+        double s = 0.8;
+        double v = 0.9;
+
+        int hi = static_cast<int>(h / 60.0) % 6;
+        double f = h / 60.0 - hi;
+        double p = v * (1 - s);
+        double q = v * (1 - f * s);
+        double t = v * (1 - (1 - f) * s);
+
+        double r, g, b;
+        switch (hi) {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            default: r = v; g = p; b = q; break;
+        }
+        colors[c] = {static_cast<uint8_t>(r * 255),
+                     static_cast<uint8_t>(g * 255),
+                     static_cast<uint8_t>(b * 255)};
+    }
+
+    // Create output image
+    QImage output(width, height, PixelType::UInt8, ChannelType::RGB);
+    const int16_t* labelData = static_cast<const int16_t*>(result.labels.Data());
+    size_t labelStride = result.labels.Stride() / sizeof(int16_t);
+    uint8_t* outData = static_cast<uint8_t*>(output.Data());
+    size_t outStride = output.Stride();
+
+    for (int32_t y = 0; y < height; ++y) {
+        for (int32_t x = 0; x < width; ++x) {
+            int16_t label = labelData[y * labelStride + x];
+            if (label >= 0 && label < k) {
+                outData[y * outStride + x * 3] = colors[label][0];
+                outData[y * outStride + x * 3 + 1] = colors[label][1];
+                outData[y * outStride + x * 3 + 2] = colors[label][2];
+            }
+        }
+    }
+
+    return output;
+}
+
+// GMM to regions
+void GMMToRegions(const QImage& image, int32_t k, std::vector<QRegion>& regions,
+                  GMMFeature feature) {
+    GMMParams params;
+    params.k = k;
+    params.feature = feature;
+    GMMToRegions(image, params, regions);
+}
+
+void GMMToRegions(const QImage& image, const GMMParams& params,
+                  std::vector<QRegion>& regions) {
+    GMMResult result = GMM(image, params);
+    LabelsToRegions(result.labels, params.k, regions);
+}
+
+// Get probability maps
+void GMMProbabilities(const QImage& image, int32_t k, std::vector<QImage>& probMaps,
+                      GMMFeature feature) {
+    GMMParams params;
+    params.k = k;
+    params.feature = feature;
+    GMMProbabilities(image, params, probMaps);
+}
+
+void GMMProbabilities(const QImage& image, const GMMParams& params,
+                      std::vector<QImage>& probMaps) {
+    GMMResult result = GMM(image, params);
+    probMaps = std::move(result.probabilities);
+}
+
+// Classify using trained model
+QImage GMMClassify(const QImage& image, const GMMResult& model, GMMFeature feature) {
+    if (image.Empty() || model.means.empty()) {
+        return QImage();
+    }
+
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+    int32_t k = static_cast<int32_t>(model.means.size());
+    int32_t dim = static_cast<int32_t>(model.means[0].size());
+
+    // Determine spatial weight (default 0.5 for spatial features)
+    double spatialWeight = 0.5;
+
+    // Extract features
+    std::vector<std::vector<double>> samples;
+    int32_t extractedDim;
+    ExtractGMMFeatures(image, feature, spatialWeight, samples, extractedDim);
+
+    if (extractedDim != dim) {
+        throw InvalidArgumentException("GMMClassify: feature dimension mismatch");
+    }
+
+    // Determine covariance type from model
+    GMMCovType covType;
+    if (model.covariances.empty() || model.covariances[0].empty()) {
+        covType = GMMCovType::Spherical;
+    } else if (model.covariances[0].size() == 1) {
+        covType = GMMCovType::Spherical;
+    } else if (model.covariances[0].size() == static_cast<size_t>(dim)) {
+        covType = GMMCovType::Diagonal;
+    } else {
+        covType = GMMCovType::Full;
+    }
+
+    // Reconstruct components
+    std::vector<GMMComponent> components(k);
+    for (int32_t c = 0; c < k; ++c) {
+        components[c].Init(dim, covType);
+        components[c].mean = model.means[c];
+        components[c].weight = model.weights[c];
+        components[c].covariance = model.covariances[c];
+        UpdateComponentCovariance(components[c], dim, covType, 1e-6);
+    }
+
+    // Classify each pixel
+    QImage labels(width, height, PixelType::Int16, ChannelType::Gray);
+    int16_t* labelData = static_cast<int16_t*>(labels.Data());
+    size_t labelStride = labels.Stride() / sizeof(int16_t);
+
+    int64_t n = static_cast<int64_t>(width) * height;
+
+    #pragma omp parallel for schedule(static)
+    for (int64_t i = 0; i < n; ++i) {
+        double bestLogProb = -std::numeric_limits<double>::max();
+        int16_t bestC = 0;
+
+        for (int32_t c = 0; c < k; ++c) {
+            double logProb = GMMLogPdf(samples[i].data(), components[c], dim, covType)
+                            + std::log(std::max(components[c].weight, 1e-300));
+            if (logProb > bestLogProb) {
+                bestLogProb = logProb;
+                bestC = static_cast<int16_t>(c);
+            }
+        }
+
+        int32_t y = static_cast<int32_t>(i / width);
+        int32_t x = static_cast<int32_t>(i % width);
+        labelData[y * labelStride + x] = bestC;
+    }
+
+    return labels;
+}
+
 } // namespace Qi::Vision::Segment

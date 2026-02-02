@@ -1,7 +1,7 @@
 # QiVision API Reference
 
-> Version: 0.14.0
-> Last Updated: 2026-01-30
+> Version: 0.15.0
+> Last Updated: 2026-02-02
 > Namespace: `Qi::Vision`
 
 Professional industrial machine vision library.
@@ -27,7 +27,8 @@ Professional industrial machine vision library.
 15. [Contour](#15-contour) - XLD contour operations
 16. [Defect](#16-defect) - Defect detection (Variation Model)
 17. [Texture](#17-texture) - Texture analysis (LBP, GLCM, Gabor)
-18. [Appendix](#appendix) - Types and constants
+18. [Barcode](#18-barcode) - Barcode and QR code reading (ZXing-cpp)
+19. [Appendix](#appendix) - Types and constants
 
 ---
 
@@ -5119,10 +5120,200 @@ void DetectTextureAnomalies(const QImage& image,
 
 ---
 
+## 18. Barcode
+
+**Namespace**: `Qi::Vision::Barcode`
+**Header**: `<QiVision/Barcode/Barcode.h>`
+
+Barcode and QR code reading powered by ZXing-cpp. Supports 1D barcodes (Code128, Code39, EAN-13, etc.) and 2D codes (QR Code, Data Matrix, PDF417, Aztec).
+
+---
+
+### Enums
+
+#### BarcodeFormat
+
+Barcode format types (bitmask, can be combined with `|`).
+
+```cpp
+enum class BarcodeFormat {
+    None        = 0,
+    // 1D Barcodes
+    Code128     = (1 << 0),
+    Code39      = (1 << 1),
+    Code93      = (1 << 2),
+    Codabar     = (1 << 3),
+    EAN8        = (1 << 4),
+    EAN13       = (1 << 5),
+    ITF         = (1 << 6),
+    UPCA        = (1 << 7),
+    UPCE        = (1 << 8),
+    // 2D Barcodes
+    QRCode      = (1 << 9),
+    DataMatrix  = (1 << 10),
+    PDF417      = (1 << 11),
+    Aztec       = (1 << 12),
+    // Groups
+    Linear      = Code128 | Code39 | ... | UPCE,
+    Matrix      = QRCode | DataMatrix | PDF417 | Aztec,
+    All         = Linear | Matrix
+};
+```
+
+#### Binarizer
+
+Binarization method for barcode detection.
+
+```cpp
+enum class Binarizer {
+    LocalAverage,    // Local average thresholding (default)
+    GlobalHistogram, // Global histogram-based (faster)
+    FixedThreshold,  // Fixed threshold
+    BoolCast         // Simple bool cast (for binary images)
+};
+```
+
+---
+
+### Structures
+
+#### BarcodeResult
+
+Single barcode detection result.
+
+```cpp
+struct BarcodeResult {
+    bool valid;                     // Decoding success
+    BarcodeFormat format;           // Detected format
+    std::string text;               // Decoded text content
+    std::string formatName;         // Format name as string
+    Point2d position;               // Center position
+    double angle;                   // Rotation angle [rad]
+    std::vector<Point2d> corners;   // Four corner points
+    int symbolVersion;              // QR/DataMatrix version
+    std::string ecLevel;            // Error correction level
+    bool isMirrored;                // Whether mirrored
+
+    explicit operator bool() const; // Check validity
+};
+```
+
+#### BarcodeParams
+
+Parameters for barcode reading.
+
+```cpp
+struct BarcodeParams {
+    BarcodeFormat formats = BarcodeFormat::All;
+    Binarizer binarizer = Binarizer::LocalAverage;
+    bool tryHarder = false;
+    bool tryRotate = true;
+    bool tryInvert = false;
+    bool tryDownscale = true;
+    int maxNumberOfSymbols = 1;
+    int minLineCount = 2;
+
+    // Factory methods
+    static BarcodeParams Default();
+    static BarcodeParams QR();
+    static BarcodeParams DataMatrix();
+    static BarcodeParams Linear();
+    static BarcodeParams Robust();
+};
+```
+
+---
+
+### ReadBarcodes
+
+Read all barcodes from image.
+
+```cpp
+std::vector<BarcodeResult> ReadBarcodes(
+    const QImage& image,
+    const BarcodeParams& params = BarcodeParams::Default());
+
+std::vector<BarcodeResult> ReadBarcodes(
+    const QImage& image,
+    BarcodeFormat format);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Input image (grayscale or color) |
+| params | const BarcodeParams& | Reading parameters |
+| format | BarcodeFormat | Specific format to search |
+
+**Returns**: Vector of detected barcodes
+
+---
+
+### ReadBarcode
+
+Read single barcode from image.
+
+```cpp
+BarcodeResult ReadBarcode(
+    const QImage& image,
+    const BarcodeParams& params = BarcodeParams::Default());
+
+BarcodeResult ReadBarcode(
+    const QImage& image,
+    BarcodeFormat format);
+```
+
+**Returns**: First detected barcode (check `.valid`)
+
+---
+
+### Convenience Functions
+
+```cpp
+std::vector<BarcodeResult> ReadQRCodes(const QImage& image);
+std::vector<BarcodeResult> ReadDataMatrix(const QImage& image);
+std::vector<BarcodeResult> ReadLinearCodes(const QImage& image);
+std::vector<BarcodeResult> ReadCode128(const QImage& image);
+```
+
+---
+
+### Utility Functions
+
+```cpp
+std::string FormatToString(BarcodeFormat format);
+BarcodeFormat StringToFormat(const std::string& name);
+bool IsAvailable();           // Always true
+std::string GetVersion();     // "ZXing-cpp 2.2.1"
+```
+
+---
+
+### Example
+
+```cpp
+#include <QiVision/Barcode/Barcode.h>
+using namespace Qi::Vision;
+
+// Read all barcodes
+auto results = Barcode::ReadBarcodes(image);
+for (const auto& r : results) {
+    std::cout << r.formatName << ": " << r.text << std::endl;
+}
+
+// Read only QR codes with robust settings
+auto params = Barcode::BarcodeParams::Robust();
+params.formats = Barcode::BarcodeFormat::QRCode;
+auto qrCodes = Barcode::ReadBarcodes(image, params);
+```
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.15.0 | 2026-02-02 | Add Barcode module (ZXing-cpp integration) |
 | 0.14.0 | 2026-01-30 | Add Defect and Texture modules |
 | 0.13.0 | 2026-01-29 | Add Contour module (XLD operations) |
 | 0.12.0 | 2026-01-29 | Add Hough module (line and circle detection) |

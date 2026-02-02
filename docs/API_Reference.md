@@ -1564,6 +1564,161 @@ void KMeansToRegions(const QImage& image, int32_t k,
 
 ---
 
+### Watershed Segmentation
+
+#### WatershedResult
+
+Result structure for watershed segmentation.
+
+```cpp
+struct WatershedResult {
+    QImage labels;                      // Label image (Int16, 0=background, -1=watershed, >0=regions)
+    std::vector<QRegion> regions;       // Segmented regions
+    QRegion watershedLines;             // Watershed boundary lines
+    int32_t numRegions = 0;             // Number of regions
+};
+```
+
+---
+
+#### Watershed
+
+Marker-controlled watershed segmentation.
+
+```cpp
+WatershedResult Watershed(const QImage& image, const QImage& markers);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Input grayscale or binary image |
+| markers | const QImage& | Marker image (Int16), >0 = seed regions |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| WatershedResult | Segmentation result with labels and regions |
+
+---
+
+#### WatershedBinary
+
+Watershed from binary image with automatic marker generation.
+
+```cpp
+WatershedResult WatershedBinary(const QImage& binaryImage, double minDistance = 10.0);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| binaryImage | const QImage& | Input binary image |
+| minDistance | double | Minimum distance between region centers |
+
+---
+
+#### WatershedRegion
+
+Watershed segmentation from a QRegion.
+
+```cpp
+WatershedResult WatershedRegion(const QRegion& region, double minDistance = 10.0);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| region | const QRegion& | Input region to segment |
+| minDistance | double | Minimum distance between region centers |
+
+---
+
+#### WatershedGradient
+
+Gradient-based watershed segmentation.
+
+```cpp
+WatershedResult WatershedGradient(
+    const QImage& image,
+    const QImage* markers = nullptr,
+    double gradientThreshold = 0.0
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Input grayscale image |
+| markers | const QImage* | Optional marker image (nullptr for auto) |
+| gradientThreshold | double | Minimum gradient for watershed lines |
+
+---
+
+#### DistanceTransform
+
+Computes distance transform of binary image/region.
+
+```cpp
+QImage DistanceTransform(const QImage& binaryImage);
+QImage DistanceTransform(const QRegion& region);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| binaryImage | const QImage& | Input binary image |
+| region | const QRegion& | Input region |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| QImage | Distance image (Float32), distance to background |
+
+---
+
+#### CreateWatershedMarkers
+
+Creates markers from distance transform for watershed.
+
+```cpp
+QImage CreateWatershedMarkers(
+    const QImage& distanceImage,
+    double minDistance = 10.0,
+    double minPeakValue = 5.0
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| distanceImage | const QImage& | Distance transform image (Float32) |
+| minDistance | double | Minimum distance between markers |
+| minPeakValue | double | Minimum peak height for markers |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| QImage | Marker image (Int16), each marker has unique label |
+
+**Example**
+```cpp
+// Separate touching objects in binary image
+auto result = Segment::WatershedBinary(binaryImage, 15.0);
+std::cout << "Found " << result.numRegions << " objects\n";
+
+for (const auto& region : result.regions) {
+    std::cout << "  Area: " << region.Area() << "\n";
+}
+
+// Manual marker-based watershed
+QImage markers = Segment::CreateWatershedMarkers(
+    Segment::DistanceTransform(binaryImage), 10.0, 5.0);
+auto result2 = Segment::Watershed(binaryImage, markers);
+```
+
+---
+
 ## 7. Blob
 
 **Namespace**: `Qi::Vision::Blob`

@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-02 (Segment K-Means)
+> 最后更新: 2026-02-02 (Segment Watershed)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -183,7 +183,7 @@ Tests    █████████████████░░░ 87%
 | **IO/ImageIO.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像读写 (PNG/JPEG/BMP/RAW) |
 | **Color/ColorConvert.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 颜色转换 (RGB/HSV/Lab/YCrCb) |
 | **Filter/Filter.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 滤波+增强 (Gauss/Median/Sobel/CLAHE/HistogramEq) |
-| **Segment/Segment.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 图像分割 (Threshold/Otsu/Adaptive/DynThreshold) |
+| **Segment/Segment.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 图像分割 (Threshold/Otsu/Adaptive/DynThreshold/K-Means/Watershed) |
 | **Display/Display.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 图像显示与绘制 (Halcon 风格 API) |
 | **GUI/Window.h** | ✅ | ✅ | ⬜ | - | ⬜ | **P0** | 窗口调试 (Win32/X11, macOS/Android stub, AutoResize) |
 | **Blob/Blob.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P0** | Blob 分析 (Connection, SelectShape, InnerCircle, FillUp, CountHoles等) |
@@ -255,6 +255,24 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-02 (Segment Watershed)
+
+- **Segment/Segment.h 模块** (新增 Watershed 分水岭分割)
+  - 新增 `Watershed()`: 标记控制的分水岭分割
+  - 新增 `WatershedBinary()`: 二值图像自动分割（自动生成标记）
+  - 新增 `WatershedRegion()`: 从 QRegion 分割
+  - 新增 `WatershedGradient()`: 基于梯度的分水岭分割
+  - 新增 `DistanceTransform()`: 距离变换（Chamfer 3-4 近似）
+  - 新增 `CreateWatershedMarkers()`: 从距离图创建标记
+  - **WatershedResult 结果结构**:
+    - `labels`: 标签图 (Int16, 0=背景, -1=分水岭线, >0=区域)
+    - `regions`: 分割的区域数组
+    - `watershedLines`: 分水岭边界线（作为 QRegion）
+    - `numRegions`: 区域数量
+  - 使用优先队列实现高效的泛洪算法
+  - 支持自动标记生成（基于距离变换的局部极大值）
+  - 典型应用：分离接触的对象（如细胞、颗粒等）
 
 ### 2026-02-02 (Segment K-Means)
 

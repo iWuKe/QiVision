@@ -656,4 +656,117 @@ QIVISION_API void KMeansToRegions(const QImage& image, const KMeansParams& param
 QIVISION_API void LabelsToRegions(const QImage& labels, int32_t k,
                      std::vector<QRegion>& regions);
 
+// =============================================================================
+// Watershed Segmentation
+// =============================================================================
+
+/**
+ * @brief Watershed segmentation result
+ */
+struct QIVISION_API WatershedResult {
+    QImage labels;                      ///< Label image (Int16, 0=background, -1=watershed, >0=regions)
+    std::vector<QRegion> regions;       ///< Segmented regions (excluding background)
+    QRegion watershedLines;             ///< Watershed boundary lines
+    int32_t numRegions = 0;             ///< Number of segmented regions
+};
+
+/**
+ * @brief Watershed segmentation (marker-based)
+ *
+ * Performs marker-controlled watershed segmentation.
+ * Markers define the initial "seeds" for flooding.
+ *
+ * @param image Input grayscale image
+ * @param markers Marker image (Int16):
+ *                - 0: Unknown/to be determined
+ *                - >0: Foreground markers (each connected component has unique label)
+ *                - Typically created from distance transform peaks
+ * @return WatershedResult containing labels and regions
+ *
+ * @code
+ * // Separate touching objects
+ * QRegion foreground = ThresholdToRegion(image, 128, 255);
+ * QImage dist = DistanceTransform(foreground);
+ * QImage markers = FindDistancePeaks(dist, 10);  // Find local maxima
+ * auto result = Watershed(image, markers);
+ * @endcode
+ */
+QIVISION_API WatershedResult Watershed(const QImage& image, const QImage& markers);
+
+/**
+ * @brief Watershed segmentation from binary image
+ *
+ * Automatically generates markers using distance transform.
+ * Useful for separating touching/overlapping objects.
+ *
+ * @param binaryImage Binary image (foreground objects to separate)
+ * @param minDistance Minimum distance between object centers (for marker detection)
+ * @return WatershedResult containing separated regions
+ *
+ * @code
+ * // Separate touching cells
+ * QRegion cells = ThresholdToRegion(image, 100, 255);
+ * QImage binary;
+ * RegionToMask(cells, binary);
+ * auto result = WatershedBinary(binary, 20);  // Min 20px between centers
+ * @endcode
+ */
+QIVISION_API WatershedResult WatershedBinary(const QImage& binaryImage, double minDistance = 10.0);
+
+/**
+ * @brief Watershed segmentation from region
+ *
+ * Separates connected components within a region using distance-based watershed.
+ *
+ * @param region Input region containing touching objects
+ * @param minDistance Minimum distance between object centers
+ * @return WatershedResult containing separated regions
+ */
+QIVISION_API WatershedResult WatershedRegion(const QRegion& region, double minDistance = 10.0);
+
+/**
+ * @brief Gradient-based watershed segmentation
+ *
+ * Performs watershed on gradient magnitude image.
+ * Watershed lines form at edges (high gradient).
+ *
+ * @param image Input grayscale image
+ * @param markers Optional marker image (nullptr for automatic)
+ * @param gradientThreshold Minimum gradient for watershed lines
+ * @return WatershedResult
+ */
+QIVISION_API WatershedResult WatershedGradient(const QImage& image,
+                                   const QImage* markers = nullptr,
+                                   double gradientThreshold = 0.0);
+
+/**
+ * @brief Create markers from distance transform
+ *
+ * Finds local maxima in distance transform as watershed markers.
+ *
+ * @param distanceImage Distance transform image (Float32)
+ * @param minDistance Minimum distance between markers
+ * @param minPeakValue Minimum distance value for a peak
+ * @return Marker image (Int16, each marker has unique label)
+ */
+QIVISION_API QImage CreateWatershedMarkers(const QImage& distanceImage,
+                              double minDistance = 10.0,
+                              double minPeakValue = 5.0);
+
+/**
+ * @brief Compute distance transform for watershed
+ *
+ * @param binaryImage Binary foreground image
+ * @return Distance transform image (Float32)
+ */
+QIVISION_API QImage DistanceTransform(const QImage& binaryImage);
+
+/**
+ * @brief Compute distance transform from region
+ *
+ * @param region Input region
+ * @return Distance transform image (Float32)
+ */
+QIVISION_API QImage DistanceTransform(const QRegion& region);
+
 } // namespace Qi::Vision::Segment

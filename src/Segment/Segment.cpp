@@ -10,7 +10,12 @@
 #include <QiVision/Internal/Histogram.h>
 #include <QiVision/Core/Exception.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
+#include <numeric>
+#include <random>
 
 namespace Qi::Vision::Segment {
 
@@ -566,6 +571,556 @@ QRegion MaskToRegion(const QImage& mask, double threshold) {
     }
     RequireFinite(threshold, "MaskToRegion: invalid threshold");
     return Internal::MaskToRegion(mask, threshold);
+}
+
+// =============================================================================
+// K-Means Clustering Implementation
+// =============================================================================
+
+namespace {
+
+// Feature extraction helpers
+struct FeatureExtractor {
+    KMeansFeature featureType;
+    double spatialWeight;
+    int32_t width, height;
+    int32_t featureDim;
+
+    FeatureExtractor(const QImage& image, KMeansFeature type, double sw)
+        : featureType(type), spatialWeight(sw),
+          width(image.Width()), height(image.Height()) {
+        switch (type) {
+            case KMeansFeature::Gray: featureDim = 1; break;
+            case KMeansFeature::RGB:
+            case KMeansFeature::HSV:
+            case KMeansFeature::Lab: featureDim = 3; break;
+            case KMeansFeature::GraySpatial: featureDim = 3; break;
+            case KMeansFeature::RGBSpatial: featureDim = 5; break;
+        }
+    }
+
+    void Extract(const QImage& image, std::vector<std::vector<double>>& features) const {
+        int64_t numPixels = static_cast<int64_t>(width) * height;
+        features.resize(numPixels);
+
+        const uint8_t* data = static_cast<const uint8_t*>(image.Data());
+        size_t stride = image.Stride();
+        int32_t channels = image.Channels();
+
+        // Normalization factors for spatial coordinates
+        double normX = (width > 1) ? 255.0 / (width - 1) : 0.0;
+        double normY = (height > 1) ? 255.0 / (height - 1) : 0.0;
+
+        for (int32_t y = 0; y < height; ++y) {
+            const uint8_t* row = data + y * stride;
+            for (int32_t x = 0; x < width; ++x) {
+                int64_t idx = static_cast<int64_t>(y) * width + x;
+                features[idx].resize(featureDim);
+
+                switch (featureType) {
+                    case KMeansFeature::Gray:
+                        features[idx][0] = row[x];
+                        break;
+
+                    case KMeansFeature::RGB:
+                        if (channels >= 3) {
+                            features[idx][0] = row[x * channels + 0];  // R
+                            features[idx][1] = row[x * channels + 1];  // G
+                            features[idx][2] = row[x * channels + 2];  // B
+                        } else {
+                            features[idx][0] = features[idx][1] = features[idx][2] = row[x];
+                        }
+                        break;
+
+                    case KMeansFeature::HSV:
+                        if (channels >= 3) {
+                            double r = row[x * channels + 0] / 255.0;
+                            double g = row[x * channels + 1] / 255.0;
+                            double b = row[x * channels + 2] / 255.0;
+                            double maxC = std::max({r, g, b});
+                            double minC = std::min({r, g, b});
+                            double delta = maxC - minC;
+
+                            // H (0-180 like OpenCV)
+                            double h = 0;
+                            if (delta > 1e-6) {
+                                if (maxC == r) h = 60 * std::fmod((g - b) / delta + 6, 6.0);
+                                else if (maxC == g) h = 60 * ((b - r) / delta + 2);
+                                else h = 60 * ((r - g) / delta + 4);
+                            }
+                            features[idx][0] = h / 2;  // Scale to 0-90
+                            features[idx][1] = (maxC > 1e-6) ? (delta / maxC) * 255 : 0;  // S
+                            features[idx][2] = maxC * 255;  // V
+                        } else {
+                            features[idx][0] = features[idx][1] = 0;
+                            features[idx][2] = row[x];
+                        }
+                        break;
+
+                    case KMeansFeature::Lab:
+                        if (channels >= 3) {
+                            // Simplified RGB to Lab conversion
+                            double r = row[x * channels + 0] / 255.0;
+                            double g = row[x * channels + 1] / 255.0;
+                            double b = row[x * channels + 2] / 255.0;
+
+                            // RGB to XYZ (D65)
+                            double x_ = 0.412453 * r + 0.357580 * g + 0.180423 * b;
+                            double y_ = 0.212671 * r + 0.715160 * g + 0.072169 * b;
+                            double z_ = 0.019334 * r + 0.119193 * g + 0.950227 * b;
+
+                            // Normalize
+                            x_ /= 0.95047;
+                            z_ /= 1.08883;
+
+                            auto f = [](double t) {
+                                return (t > 0.008856) ? std::cbrt(t) : (7.787 * t + 16.0/116.0);
+                            };
+
+                            double L = 116 * f(y_) - 16;
+                            double a = 500 * (f(x_) - f(y_));
+                            double b_ = 200 * (f(y_) - f(z_));
+
+                            features[idx][0] = L * 2.55;       // L: 0-100 -> 0-255
+                            features[idx][1] = a + 128;        // a: -128~127 -> 0-255
+                            features[idx][2] = b_ + 128;       // b: -128~127 -> 0-255
+                        } else {
+                            features[idx][0] = row[x];
+                            features[idx][1] = features[idx][2] = 128;
+                        }
+                        break;
+
+                    case KMeansFeature::GraySpatial:
+                        features[idx][0] = row[x];
+                        features[idx][1] = x * normX * spatialWeight;
+                        features[idx][2] = y * normY * spatialWeight;
+                        break;
+
+                    case KMeansFeature::RGBSpatial:
+                        if (channels >= 3) {
+                            features[idx][0] = row[x * channels + 0];
+                            features[idx][1] = row[x * channels + 1];
+                            features[idx][2] = row[x * channels + 2];
+                        } else {
+                            features[idx][0] = features[idx][1] = features[idx][2] = row[x];
+                        }
+                        features[idx][3] = x * normX * spatialWeight;
+                        features[idx][4] = y * normY * spatialWeight;
+                        break;
+                }
+            }
+        }
+    }
+};
+
+// Squared Euclidean distance
+double SquaredDistance(const std::vector<double>& a, const std::vector<double>& b) {
+    double sum = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        double d = a[i] - b[i];
+        sum += d * d;
+    }
+    return sum;
+}
+
+// K-Means++ initialization
+void KMeansPPInit(const std::vector<std::vector<double>>& features,
+                  int32_t k, std::vector<std::vector<double>>& centers,
+                  std::mt19937& rng) {
+    size_t n = features.size();
+    if (n == 0 || k <= 0) return;
+
+    centers.clear();
+    centers.reserve(k);
+
+    // First center: random
+    std::uniform_int_distribution<size_t> dist(0, n - 1);
+    centers.push_back(features[dist(rng)]);
+
+    // Remaining centers: probability proportional to D(x)^2
+    std::vector<double> minDist(n, std::numeric_limits<double>::max());
+
+    for (int32_t c = 1; c < k; ++c) {
+        // Update distances to nearest center
+        double totalDist = 0.0;
+        for (size_t i = 0; i < n; ++i) {
+            double d = SquaredDistance(features[i], centers.back());
+            if (d < minDist[i]) minDist[i] = d;
+            totalDist += minDist[i];
+        }
+
+        // Sample next center
+        std::uniform_real_distribution<double> realDist(0, totalDist);
+        double r = realDist(rng);
+        double cumSum = 0.0;
+        size_t nextIdx = 0;
+        for (size_t i = 0; i < n; ++i) {
+            cumSum += minDist[i];
+            if (cumSum >= r) {
+                nextIdx = i;
+                break;
+            }
+        }
+        centers.push_back(features[nextIdx]);
+    }
+}
+
+// Random initialization
+void RandomInit(const std::vector<std::vector<double>>& features,
+                int32_t k, std::vector<std::vector<double>>& centers,
+                std::mt19937& rng) {
+    size_t n = features.size();
+    if (n == 0 || k <= 0) return;
+
+    centers.clear();
+    centers.reserve(k);
+
+    std::vector<size_t> indices(n);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::shuffle(indices.begin(), indices.end(), rng);
+
+    for (int32_t i = 0; i < k && i < static_cast<int32_t>(n); ++i) {
+        centers.push_back(features[indices[i]]);
+    }
+}
+
+// Single K-Means run
+KMeansResult RunKMeans(const std::vector<std::vector<double>>& features,
+                       int32_t width, int32_t height, int32_t k,
+                       const std::vector<std::vector<double>>& initCenters,
+                       int32_t maxIterations, double epsilon) {
+    KMeansResult result;
+    size_t n = features.size();
+    int32_t dim = static_cast<int32_t>(initCenters[0].size());
+
+    // Initialize
+    result.centers = initCenters;
+    std::vector<int32_t> labels(n, 0);
+
+    for (int32_t iter = 0; iter < maxIterations; ++iter) {
+        // Assignment step
+        result.compactness = 0.0;
+        for (size_t i = 0; i < n; ++i) {
+            double minDist = std::numeric_limits<double>::max();
+            int32_t bestLabel = 0;
+            for (int32_t c = 0; c < k; ++c) {
+                double d = SquaredDistance(features[i], result.centers[c]);
+                if (d < minDist) {
+                    minDist = d;
+                    bestLabel = c;
+                }
+            }
+            labels[i] = bestLabel;
+            result.compactness += minDist;
+        }
+
+        // Update step
+        std::vector<std::vector<double>> newCenters(k, std::vector<double>(dim, 0.0));
+        std::vector<int64_t> counts(k, 0);
+
+        for (size_t i = 0; i < n; ++i) {
+            int32_t c = labels[i];
+            counts[c]++;
+            for (int32_t d = 0; d < dim; ++d) {
+                newCenters[c][d] += features[i][d];
+            }
+        }
+
+        // Compute means and check convergence
+        double maxMove = 0.0;
+        for (int32_t c = 0; c < k; ++c) {
+            if (counts[c] > 0) {
+                for (int32_t d = 0; d < dim; ++d) {
+                    newCenters[c][d] /= counts[c];
+                }
+            } else {
+                newCenters[c] = result.centers[c];  // Keep old center if empty
+            }
+            double move = std::sqrt(SquaredDistance(newCenters[c], result.centers[c]));
+            if (move > maxMove) maxMove = move;
+        }
+
+        result.centers = newCenters;
+        result.iterations = iter + 1;
+
+        if (maxMove < epsilon) {
+            result.converged = true;
+            break;
+        }
+    }
+
+    // Create label image (use Int16, supports up to 32767 clusters)
+    result.labels = QImage(width, height, PixelType::Int16, ChannelType::Gray);
+    int16_t* labelData = static_cast<int16_t*>(result.labels.Data());
+    size_t labelStride = result.labels.Stride() / sizeof(int16_t);
+
+    for (int32_t y = 0; y < height; ++y) {
+        for (int32_t x = 0; x < width; ++x) {
+            size_t idx = static_cast<size_t>(y) * width + x;
+            labelData[y * labelStride + x] = static_cast<int16_t>(labels[idx]);
+        }
+    }
+
+    // Compute cluster sizes
+    result.clusterSizes.assign(k, 0);
+    for (size_t i = 0; i < n; ++i) {
+        result.clusterSizes[labels[i]]++;
+    }
+
+    return result;
+}
+
+} // anonymous namespace
+
+KMeansResult KMeans(const QImage& image, const KMeansParams& params) {
+    KMeansResult result;
+
+    if (image.Empty()) {
+        return result;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("KMeans: invalid image");
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("KMeans: requires UInt8 image");
+    }
+    if (params.k < 1) {
+        throw InvalidArgumentException("KMeans: k must be >= 1");
+    }
+
+    // Check channel requirements
+    bool needsColor = (params.feature == KMeansFeature::RGB ||
+                       params.feature == KMeansFeature::HSV ||
+                       params.feature == KMeansFeature::Lab ||
+                       params.feature == KMeansFeature::RGBSpatial);
+    if (needsColor && image.Channels() < 3) {
+        throw InvalidArgumentException("KMeans: color feature requires 3-channel image");
+    }
+
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+    int64_t numPixels = static_cast<int64_t>(width) * height;
+
+    if (numPixels == 0) {
+        return result;
+    }
+
+    // Extract features
+    FeatureExtractor extractor(image, params.feature, params.spatialWeight);
+    std::vector<std::vector<double>> features;
+    extractor.Extract(image, features);
+
+    // Run multiple attempts
+    std::random_device rd;
+    std::mt19937 rng(rd());
+
+    KMeansResult bestResult;
+    bestResult.compactness = std::numeric_limits<double>::max();
+
+    for (int32_t attempt = 0; attempt < params.attempts; ++attempt) {
+        std::vector<std::vector<double>> centers;
+
+        if (params.init == KMeansInit::KMeansPP) {
+            KMeansPPInit(features, params.k, centers, rng);
+        } else {
+            RandomInit(features, params.k, centers, rng);
+        }
+
+        KMeansResult current = RunKMeans(features, width, height, params.k,
+                                         centers, params.maxIterations, params.epsilon);
+
+        if (current.compactness < bestResult.compactness) {
+            bestResult = std::move(current);
+        }
+    }
+
+    return bestResult;
+}
+
+KMeansResult KMeans(const QImage& image, int32_t k, KMeansFeature feature) {
+    KMeansParams params;
+    params.k = k;
+    params.feature = feature;
+    return KMeans(image, params);
+}
+
+QImage KMeansSegment(const QImage& image, int32_t k, KMeansFeature feature) {
+    KMeansParams params;
+    params.k = k;
+    params.feature = feature;
+    return KMeansSegment(image, params);
+}
+
+QImage KMeansSegment(const QImage& image, const KMeansParams& params) {
+    KMeansResult result = KMeans(image, params);
+
+    if (result.labels.Empty()) {
+        return QImage();
+    }
+
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+    int32_t channels = image.Channels();
+    int32_t k = params.k;
+
+    // Create output image with same format as input
+    QImage output(width, height, image.Type(),
+                  channels == 1 ? ChannelType::Gray : ChannelType::RGB);
+
+    uint8_t* outData = static_cast<uint8_t*>(output.Data());
+    size_t outStride = output.Stride();
+    const int16_t* labelData = static_cast<const int16_t*>(result.labels.Data());
+    size_t labelStride = result.labels.Stride() / sizeof(int16_t);
+
+    // Map centers back to image space
+    bool isGrayFeature = (params.feature == KMeansFeature::Gray ||
+                          params.feature == KMeansFeature::GraySpatial);
+
+    if (channels == 1 || isGrayFeature) {
+        // Grayscale output
+        std::vector<uint8_t> centerValues(k);
+        for (int32_t c = 0; c < k; ++c) {
+            centerValues[c] = static_cast<uint8_t>(
+                std::clamp(result.centers[c][0], 0.0, 255.0));
+        }
+
+        for (int32_t y = 0; y < height; ++y) {
+            for (int32_t x = 0; x < width; ++x) {
+                int32_t label = labelData[y * labelStride + x];
+                outData[y * outStride + x] = centerValues[label];
+            }
+        }
+    } else {
+        // Color output
+        std::vector<std::array<uint8_t, 3>> centerColors(k);
+        for (int32_t c = 0; c < k; ++c) {
+            if (params.feature == KMeansFeature::HSV) {
+                // Convert HSV center back to RGB
+                double h = result.centers[c][0] * 2;  // 0-180
+                double s = result.centers[c][1] / 255.0;
+                double v = result.centers[c][2] / 255.0;
+
+                double c_ = v * s;
+                double x_ = c_ * (1 - std::abs(std::fmod(h / 60.0, 2) - 1));
+                double m = v - c_;
+
+                double r, g, b;
+                if (h < 60) { r = c_; g = x_; b = 0; }
+                else if (h < 120) { r = x_; g = c_; b = 0; }
+                else if (h < 180) { r = 0; g = c_; b = x_; }
+                else if (h < 240) { r = 0; g = x_; b = c_; }
+                else if (h < 300) { r = x_; g = 0; b = c_; }
+                else { r = c_; g = 0; b = x_; }
+
+                centerColors[c][0] = static_cast<uint8_t>(std::clamp((r + m) * 255, 0.0, 255.0));
+                centerColors[c][1] = static_cast<uint8_t>(std::clamp((g + m) * 255, 0.0, 255.0));
+                centerColors[c][2] = static_cast<uint8_t>(std::clamp((b + m) * 255, 0.0, 255.0));
+            } else if (params.feature == KMeansFeature::Lab) {
+                // Convert Lab center back to RGB (simplified)
+                double L = result.centers[c][0] / 2.55;
+                double a = result.centers[c][1] - 128;
+                double b_ = result.centers[c][2] - 128;
+
+                auto fInv = [](double t) {
+                    double t3 = t * t * t;
+                    return (t3 > 0.008856) ? t3 : (t - 16.0/116.0) / 7.787;
+                };
+
+                double fy = (L + 16) / 116.0;
+                double fx = a / 500.0 + fy;
+                double fz = fy - b_ / 200.0;
+
+                double x_ = fInv(fx) * 0.95047;
+                double y_ = fInv(fy);
+                double z_ = fInv(fz) * 1.08883;
+
+                double r = 3.2406 * x_ - 1.5372 * y_ - 0.4986 * z_;
+                double g = -0.9689 * x_ + 1.8758 * y_ + 0.0415 * z_;
+                double b = 0.0557 * x_ - 0.2040 * y_ + 1.0570 * z_;
+
+                centerColors[c][0] = static_cast<uint8_t>(std::clamp(r * 255, 0.0, 255.0));
+                centerColors[c][1] = static_cast<uint8_t>(std::clamp(g * 255, 0.0, 255.0));
+                centerColors[c][2] = static_cast<uint8_t>(std::clamp(b * 255, 0.0, 255.0));
+            } else {
+                // RGB or RGBSpatial
+                centerColors[c][0] = static_cast<uint8_t>(std::clamp(result.centers[c][0], 0.0, 255.0));
+                centerColors[c][1] = static_cast<uint8_t>(std::clamp(result.centers[c][1], 0.0, 255.0));
+                centerColors[c][2] = static_cast<uint8_t>(std::clamp(result.centers[c][2], 0.0, 255.0));
+            }
+        }
+
+        for (int32_t y = 0; y < height; ++y) {
+            for (int32_t x = 0; x < width; ++x) {
+                int32_t label = labelData[y * labelStride + x];
+                outData[y * outStride + x * channels + 0] = centerColors[label][0];
+                outData[y * outStride + x * channels + 1] = centerColors[label][1];
+                outData[y * outStride + x * channels + 2] = centerColors[label][2];
+            }
+        }
+    }
+
+    return output;
+}
+
+void KMeansToRegions(const QImage& image, int32_t k,
+                     std::vector<QRegion>& regions, KMeansFeature feature) {
+    KMeansParams params;
+    params.k = k;
+    params.feature = feature;
+    KMeansToRegions(image, params, regions);
+}
+
+void KMeansToRegions(const QImage& image, const KMeansParams& params,
+                     std::vector<QRegion>& regions) {
+    KMeansResult result = KMeans(image, params);
+    LabelsToRegions(result.labels, params.k, regions);
+}
+
+void LabelsToRegions(const QImage& labels, int32_t k,
+                     std::vector<QRegion>& regions) {
+    regions.clear();
+    regions.resize(k);
+
+    if (labels.Empty()) return;
+    if (labels.Type() != PixelType::Int16) {
+        throw InvalidArgumentException("LabelsToRegions: requires Int16 label image");
+    }
+
+    int32_t width = labels.Width();
+    int32_t height = labels.Height();
+    const int16_t* data = static_cast<const int16_t*>(labels.Data());
+    size_t stride = labels.Stride() / sizeof(int16_t);
+
+    // Collect runs for each cluster
+    std::vector<std::vector<QRegion::Run>> allRuns(k);
+
+    for (int32_t y = 0; y < height; ++y) {
+        const int16_t* row = data + y * stride;
+
+        int32_t runStart = -1;
+        int32_t currentLabel = -1;
+
+        for (int32_t x = 0; x <= width; ++x) {
+            int32_t label = (x < width) ? static_cast<int32_t>(row[x]) : -1;
+
+            if (label != currentLabel) {
+                // End current run
+                if (runStart >= 0 && currentLabel >= 0 && currentLabel < k) {
+                    allRuns[currentLabel].push_back({y, runStart, x - 1});
+                }
+                // Start new run
+                runStart = x;
+                currentLabel = label;
+            }
+        }
+    }
+
+    // Create regions
+    for (int32_t c = 0; c < k; ++c) {
+        if (!allRuns[c].empty()) {
+            regions[c] = QRegion(std::move(allRuns[c]));
+        }
+    }
 }
 
 } // namespace Qi::Vision::Segment

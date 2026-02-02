@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-02 (Blob Hu Moments)
+> 最后更新: 2026-02-02 (Segment K-Means)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -255,6 +255,29 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-02 (Segment K-Means)
+
+- **Segment/Segment.h 模块** (新增 K-Means 聚类分割)
+  - 新增 `KMeans()`: K-Means 聚类分割主函数
+  - 新增 `KMeansSegment()`: 返回重着色图像（色彩量化/海报化效果）
+  - 新增 `KMeansToRegions()`: 返回每个聚类对应的区域
+  - 新增 `LabelsToRegions()`: 标签图转区域数组
+  - **KMeansParams 参数结构**:
+    - `k`: 聚类数
+    - `feature`: 特征空间 (Gray/RGB/HSV/Lab/GraySpatial/RGBSpatial)
+    - `init`: 初始化方法 (Random/KMeansPP)
+    - `maxIterations/epsilon/attempts`: 收敛控制
+    - `spatialWeight`: 空间坐标权重
+  - **KMeansResult 结果结构**:
+    - `labels`: 标签图 (Int16)
+    - `centers`: 聚类中心
+    - `clusterSizes`: 每个聚类的像素数
+    - `compactness`: 紧致度（距离平方和）
+    - `iterations/converged`: 收敛信息
+  - 支持 K-Means++ 初始化（更好的初始中心选择）
+  - 支持多次尝试选最优结果
+  - 支持颜色空间转换 (RGB↔HSV, RGB↔Lab)
 
 ### 2026-02-02 (Blob Hu Moments)
 

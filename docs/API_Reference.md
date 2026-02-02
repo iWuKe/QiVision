@@ -1458,6 +1458,112 @@ QRegion MaskToRegion(const QImage& mask, double threshold = 0);
 
 ---
 
+### K-Means Clustering
+
+K-Means clustering segmentation for image partitioning.
+
+#### KMeansFeature
+
+Feature space for clustering.
+
+```cpp
+enum class KMeansFeature {
+    Gray,           // Grayscale intensity only
+    RGB,            // RGB color space
+    HSV,            // HSV color space (better for color segmentation)
+    Lab,            // CIE Lab color space (perceptually uniform)
+    GraySpatial,    // Grayscale + spatial coordinates
+    RGBSpatial      // RGB + spatial coordinates
+};
+```
+
+#### KMeansParams
+
+K-Means clustering parameters.
+
+```cpp
+struct KMeansParams {
+    int32_t k = 2;                              // Number of clusters
+    KMeansFeature feature = KMeansFeature::Gray;// Feature space
+    KMeansInit init = KMeansInit::KMeansPP;     // Initialization method
+    int32_t maxIterations = 100;                // Maximum iterations
+    double epsilon = 1.0;                       // Convergence threshold
+    int32_t attempts = 3;                       // Number of attempts
+    double spatialWeight = 0.5;                 // Weight for spatial features
+
+    static KMeansParams Default(int32_t k = 2);
+    static KMeansParams Color(int32_t k = 3);
+    static KMeansParams Spatial(int32_t k = 2, double spatialWeight = 0.5);
+};
+```
+
+#### KMeans
+
+Performs K-Means clustering on image.
+
+```cpp
+KMeansResult KMeans(const QImage& image, const KMeansParams& params);
+KMeansResult KMeans(const QImage& image, int32_t k,
+                    KMeansFeature feature = KMeansFeature::Gray);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Input image (UInt8) |
+| k | int32_t | Number of clusters |
+| feature | KMeansFeature | Feature space |
+| params | KMeansParams | Full parameter set |
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| KMeansResult | Contains labels (Int16), centers, sizes, compactness |
+
+**Example**
+```cpp
+// Segment grayscale image into 3 levels
+auto result = KMeans(grayImage, 3);
+
+// Color segmentation using HSV
+auto result = KMeans(colorImage, KMeansParams::Color(5));
+```
+
+---
+
+#### KMeansSegment
+
+Segments image and returns recolored image (posterization).
+
+```cpp
+QImage KMeansSegment(const QImage& image, int32_t k,
+                     KMeansFeature feature = KMeansFeature::Gray);
+```
+
+**Returns**
+| Type | Description |
+|------|-------------|
+| QImage | Segmented image with cluster center colors |
+
+---
+
+#### KMeansToRegions
+
+Segments image and returns regions for each cluster.
+
+```cpp
+void KMeansToRegions(const QImage& image, int32_t k,
+                     std::vector<QRegion>& regions,
+                     KMeansFeature feature = KMeansFeature::Gray);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| regions | std::vector<QRegion>& | [out] Regions for each cluster (size = k) |
+
+---
+
 ## 7. Blob
 
 **Namespace**: `Qi::Vision::Blob`

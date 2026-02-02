@@ -498,4 +498,162 @@ QIVISION_API void RegionToMask(const QRegion& region, QImage& mask);
  */
 QIVISION_API QRegion MaskToRegion(const QImage& mask, double threshold = 0);
 
+// =============================================================================
+// K-Means Clustering Segmentation
+// =============================================================================
+
+/**
+ * @brief K-Means initialization method
+ */
+enum class KMeansInit {
+    Random,     ///< Random center selection
+    KMeansPP    ///< K-Means++ (better initialization, recommended)
+};
+
+/**
+ * @brief K-Means feature space
+ */
+enum class KMeansFeature {
+    Gray,           ///< Grayscale intensity only
+    RGB,            ///< RGB color space
+    HSV,            ///< HSV color space (better for color segmentation)
+    Lab,            ///< CIE Lab color space (perceptually uniform)
+    GraySpatial,    ///< Grayscale + spatial coordinates (x, y)
+    RGBSpatial      ///< RGB + spatial coordinates
+};
+
+/**
+ * @brief K-Means clustering result
+ */
+struct QIVISION_API KMeansResult {
+    QImage labels;                              ///< Label image (Int16, values 0 to k-1)
+    std::vector<std::vector<double>> centers;   ///< Cluster centers (k x feature_dim)
+    std::vector<int64_t> clusterSizes;          ///< Pixel count per cluster
+    double compactness = 0.0;                   ///< Sum of squared distances to centers
+    int32_t iterations = 0;                     ///< Actual iterations performed
+    bool converged = false;                     ///< True if converged before max iterations
+};
+
+/**
+ * @brief K-Means clustering parameters
+ */
+struct QIVISION_API KMeansParams {
+    int32_t k = 2;                              ///< Number of clusters
+    KMeansFeature feature = KMeansFeature::Gray;///< Feature space
+    KMeansInit init = KMeansInit::KMeansPP;     ///< Initialization method
+    int32_t maxIterations = 100;                ///< Maximum iterations
+    double epsilon = 1.0;                       ///< Convergence threshold (center movement)
+    int32_t attempts = 3;                       ///< Number of attempts with different seeds
+    double spatialWeight = 0.5;                 ///< Weight for spatial features (0-1)
+
+    static KMeansParams Default(int32_t k = 2) {
+        KMeansParams p;
+        p.k = k;
+        return p;
+    }
+
+    static KMeansParams Color(int32_t k = 3) {
+        KMeansParams p;
+        p.k = k;
+        p.feature = KMeansFeature::HSV;
+        return p;
+    }
+
+    static KMeansParams Spatial(int32_t k = 2, double spatialWeight = 0.5) {
+        KMeansParams p;
+        p.k = k;
+        p.feature = KMeansFeature::GraySpatial;
+        p.spatialWeight = spatialWeight;
+        return p;
+    }
+};
+
+/**
+ * @brief K-Means clustering segmentation
+ *
+ * Segments image into k clusters using K-Means algorithm.
+ *
+ * @param image Input image (grayscale or color)
+ * @param params K-Means parameters
+ * @return KMeansResult containing labels, centers, and statistics
+ *
+ * @code
+ * // Simple grayscale segmentation into 3 levels
+ * auto result = KMeans(grayImage, KMeansParams::Default(3));
+ *
+ * // Color segmentation using HSV
+ * auto result = KMeans(colorImage, KMeansParams::Color(5));
+ * @endcode
+ */
+QIVISION_API KMeansResult KMeans(const QImage& image, const KMeansParams& params);
+
+/**
+ * @brief K-Means clustering (simple interface)
+ *
+ * @param image Input image
+ * @param k Number of clusters
+ * @param feature Feature space
+ * @return KMeansResult
+ */
+QIVISION_API KMeansResult KMeans(const QImage& image, int32_t k,
+                    KMeansFeature feature = KMeansFeature::Gray);
+
+/**
+ * @brief Segment image using K-Means and return recolored image
+ *
+ * Each pixel is replaced with its cluster center value.
+ *
+ * @param image Input image
+ * @param k Number of clusters
+ * @param feature Feature space
+ * @return Segmented image with cluster colors
+ *
+ * @code
+ * QImage segmented = KMeansSegment(image, 4);  // Posterize to 4 colors
+ * @endcode
+ */
+QIVISION_API QImage KMeansSegment(const QImage& image, int32_t k,
+                     KMeansFeature feature = KMeansFeature::Gray);
+
+/**
+ * @brief Segment image using K-Means and return recolored image
+ */
+QIVISION_API QImage KMeansSegment(const QImage& image, const KMeansParams& params);
+
+/**
+ * @brief K-Means clustering to regions
+ *
+ * Segments image into k regions, one per cluster.
+ *
+ * @param image Input image
+ * @param k Number of clusters
+ * @param regions Output regions (size = k)
+ * @param feature Feature space
+ *
+ * @code
+ * std::vector<QRegion> regions;
+ * KMeansToRegions(image, 3, regions);
+ * // regions[0], regions[1], regions[2] are the 3 segmented regions
+ * @endcode
+ */
+QIVISION_API void KMeansToRegions(const QImage& image, int32_t k,
+                     std::vector<QRegion>& regions,
+                     KMeansFeature feature = KMeansFeature::Gray);
+
+/**
+ * @brief K-Means clustering to regions with full parameters
+ */
+QIVISION_API void KMeansToRegions(const QImage& image, const KMeansParams& params,
+                     std::vector<QRegion>& regions);
+
+/**
+ * @brief Convert K-Means label image to regions
+ *
+ * @param labels Label image from KMeansResult
+ * @param k Number of clusters
+ * @param regions Output regions
+ */
+QIVISION_API void LabelsToRegions(const QImage& labels, int32_t k,
+                     std::vector<QRegion>& regions);
+
 } // namespace Qi::Vision::Segment

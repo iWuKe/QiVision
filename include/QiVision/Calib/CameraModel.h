@@ -14,6 +14,7 @@
 
 #include <QiVision/Core/Types.h>
 #include <QiVision/Internal/Matrix.h>
+#include <QiVision/Core/Export.h>
 
 namespace Qi::Vision::Calib {
 
@@ -25,7 +26,7 @@ namespace Qi::Vision::Calib {
  * | 0  fy  cy |
  * | 0   0   1 |
  */
-struct CameraIntrinsics {
+struct QIVISION_API CameraIntrinsics {
     double fx = 1.0;    ///< Focal length X (pixels)
     double fy = 1.0;    ///< Focal length Y (pixels)
     double cx = 0.0;    ///< Principal point X (pixels)
@@ -51,7 +52,7 @@ struct CameraIntrinsics {
  *
  * where r^2 = x^2 + y^2, (x, y) are normalized coordinates
  */
-struct DistortionCoeffs {
+struct QIVISION_API DistortionCoeffs {
     double k1 = 0.0;    ///< Radial distortion k1
     double k2 = 0.0;    ///< Radial distortion k2
     double k3 = 0.0;    ///< Radial distortion k3
@@ -71,7 +72,7 @@ struct DistortionCoeffs {
 /**
  * @brief Complete camera model with intrinsics and distortion
  */
-class CameraModel {
+class QIVISION_API CameraModel {
 public:
     CameraModel() = default;
 

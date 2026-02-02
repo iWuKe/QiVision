@@ -173,6 +173,7 @@ namespace {
     template<typename Func>
     Profile1D ExtractArcProfileImpl(const QImage& image, const ArcProfileParams& params,
                                      Func interpolate) {
+        (void)image;
         Profile1D profile;
 
         double arcLength = params.ArcLength();
@@ -263,6 +264,7 @@ namespace {
     template<typename Func>
     Profile1D ExtractAnnularProfileImpl(const QImage& image, const AnnularProfileParams& params,
                                          Func interpolate) {
+        (void)image;
         Profile1D profile;
 
         double radialExtent = params.RadialExtent();

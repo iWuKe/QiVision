@@ -804,6 +804,7 @@ std::vector<QContour> PerspectiveTransformContours(
 // =============================================================================
 
 std::vector<HomographyDecomposition> DecomposeHomography(const Homography& H) {
+    (void)H;
     // Note: This is a simplified decomposition that assumes H is between
     // normalized image coordinates. A full implementation would use SVD.
 
@@ -818,6 +819,7 @@ std::vector<HomographyDecomposition> DecomposeHomography(const Homography& H) {
 std::vector<HomographyDecomposition> FilterDecompositionsByVisibility(
     const std::vector<HomographyDecomposition>& decompositions,
     const std::vector<Point2d>& srcPoints) {
+    (void)srcPoints;
 
     std::vector<HomographyDecomposition> valid;
 
@@ -992,7 +994,6 @@ Homography RefineHomographyLM(
             const double* h = current.Data();
             double w = h[6] * x + h[7] * y + h[8];
             double invW = 1.0 / w;
-            double invW2 = invW * invW;
 
             double Hx = h[0] * x + h[1] * y + h[2];
             double Hy = h[3] * x + h[4] * y + h[5];

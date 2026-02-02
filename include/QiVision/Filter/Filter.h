@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Filter.h
  * @brief Image filtering operations (Halcon-style API)
@@ -43,7 +45,7 @@ namespace Qi::Vision::Filter {
  * GaussFilter(image, smooth, 1.5);  // sigma = 1.5
  * @endcode
  */
-void GaussFilter(const QImage& image, QImage& output, double sigma);
+QIVISION_API void GaussFilter(const QImage& image, QImage& output, double sigma);
 
 /**
  * @brief Apply Gaussian filter with separate X/Y sigmas
@@ -54,7 +56,7 @@ void GaussFilter(const QImage& image, QImage& output, double sigma);
  * @param sigmaY Sigma in Y direction
  * @param borderMode Border handling mode: "reflect", "replicate", "constant"
  */
-void GaussFilter(const QImage& image, QImage& output, double sigmaX, double sigmaY,
+QIVISION_API void GaussFilter(const QImage& image, QImage& output, double sigmaX, double sigmaY,
                   const std::string& borderMode = "reflect");
 
 /**
@@ -69,7 +71,7 @@ void GaussFilter(const QImage& image, QImage& output, double sigmaX, double sigm
  * GaussImage(image, smooth, "5x5");
  * @endcode
  */
-void GaussImage(const QImage& image, QImage& output, const std::string& size);
+QIVISION_API void GaussImage(const QImage& image, QImage& output, const std::string& size);
 
 /**
  * @brief Apply mean (box) filter
@@ -82,13 +84,13 @@ void GaussImage(const QImage& image, QImage& output, const std::string& size);
  * @param height Kernel height
  * @param borderMode Border handling mode
  */
-void MeanImage(const QImage& image, QImage& output, int32_t width, int32_t height,
+QIVISION_API void MeanImage(const QImage& image, QImage& output, int32_t width, int32_t height,
                 const std::string& borderMode = "reflect");
 
 /**
  * @brief Apply mean filter with square kernel
  */
-void MeanImage(const QImage& image, QImage& output, int32_t size,
+QIVISION_API void MeanImage(const QImage& image, QImage& output, int32_t size,
                 const std::string& borderMode = "reflect");
 
 /**
@@ -107,13 +109,13 @@ void MeanImage(const QImage& image, QImage& output, int32_t size,
  * MedianImage(image, denoised, "circle", 2, "mirrored");
  * @endcode
  */
-void MedianImage(const QImage& image, QImage& output, const std::string& maskType,
+QIVISION_API void MedianImage(const QImage& image, QImage& output, const std::string& maskType,
                   int32_t radius, const std::string& marginMode = "mirrored");
 
 /**
  * @brief Apply median filter with rectangular mask
  */
-void MedianRect(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void MedianRect(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Apply bilateral filter (edge-preserving smoothing)
@@ -130,7 +132,7 @@ void MedianRect(const QImage& image, QImage& output, int32_t width, int32_t heig
  * BilateralFilter(image, smooth, 5.0, 30.0);
  * @endcode
  */
-void BilateralFilter(const QImage& image, QImage& output, double sigmaSpatial, double sigmaIntensity);
+QIVISION_API void BilateralFilter(const QImage& image, QImage& output, double sigmaSpatial, double sigmaIntensity);
 
 /**
  * @brief Apply bilateral filter with kernel size
@@ -141,7 +143,7 @@ void BilateralFilter(const QImage& image, QImage& output, double sigmaSpatial, d
  * @param sigmaSpatial Spatial sigma
  * @param sigmaIntensity Intensity sigma
  */
-void BilateralFilter(const QImage& image, QImage& output, int32_t size,
+QIVISION_API void BilateralFilter(const QImage& image, QImage& output, int32_t size,
                       double sigmaSpatial, double sigmaIntensity);
 
 /**
@@ -156,7 +158,7 @@ void BilateralFilter(const QImage& image, QImage& output, int32_t size,
  * @param height Kernel height (odd)
  * @param borderMode Border handling
  */
-void BinomialFilter(const QImage& image, QImage& output, int32_t width, int32_t height,
+QIVISION_API void BinomialFilter(const QImage& image, QImage& output, int32_t width, int32_t height,
                      const std::string& borderMode = "reflect");
 
 // =============================================================================
@@ -178,7 +180,7 @@ void BinomialFilter(const QImage& image, QImage& output, int32_t width, int32_t 
  * SobelAmp(image, edges, "sum_abs", 3);
  * @endcode
  */
-void SobelAmp(const QImage& image, QImage& output, const std::string& filterType = "sum_abs",
+QIVISION_API void SobelAmp(const QImage& image, QImage& output, const std::string& filterType = "sum_abs",
                int32_t size = 3);
 
 /**
@@ -191,7 +193,7 @@ void SobelAmp(const QImage& image, QImage& output, const std::string& filterType
  * @param dirType Direction type: "gradient" (edge normal), "tangent" (edge direction)
  * @param size Kernel size
  */
-void SobelDir(const QImage& image, QImage& output, const std::string& dirType = "gradient",
+QIVISION_API void SobelDir(const QImage& image, QImage& output, const std::string& dirType = "gradient",
                int32_t size = 3);
 
 /**
@@ -209,7 +211,7 @@ void SobelDir(const QImage& image, QImage& output, const std::string& dirType = 
  * PrewittAmp(image, edges, "sum_abs");
  * @endcode
  */
-void PrewittAmp(const QImage& image, QImage& output, const std::string& filterType = "sum_abs");
+QIVISION_API void PrewittAmp(const QImage& image, QImage& output, const std::string& filterType = "sum_abs");
 
 /**
  * @brief Compute Roberts cross gradient (2x2 diagonal derivative)
@@ -226,7 +228,7 @@ void PrewittAmp(const QImage& image, QImage& output, const std::string& filterTy
  * RobertsAmp(image, edges, "sum_abs");
  * @endcode
  */
-void RobertsAmp(const QImage& image, QImage& output, const std::string& filterType = "sum_abs");
+QIVISION_API void RobertsAmp(const QImage& image, QImage& output, const std::string& filterType = "sum_abs");
 
 /**
  * @brief Compute Gaussian derivative
@@ -245,7 +247,7 @@ void RobertsAmp(const QImage& image, QImage& output, const std::string& filterTy
  * DerivateGauss(image, gxx, 1.5, "xx");    // Second derivative in X
  * @endcode
  */
-void DerivateGauss(const QImage& image, QImage& output, double sigma, const std::string& component);
+QIVISION_API void DerivateGauss(const QImage& image, QImage& output, double sigma, const std::string& component);
 
 /**
  * @brief Compute gradient magnitude using Gaussian derivatives
@@ -254,7 +256,7 @@ void DerivateGauss(const QImage& image, QImage& output, double sigma, const std:
  * @param output Output gradient magnitude image
  * @param sigma Gaussian sigma
  */
-void GradientMagnitude(const QImage& image, QImage& output, double sigma);
+QIVISION_API void GradientMagnitude(const QImage& image, QImage& output, double sigma);
 
 /**
  * @brief Compute gradient direction using Gaussian derivatives
@@ -263,7 +265,7 @@ void GradientMagnitude(const QImage& image, QImage& output, double sigma);
  * @param output Output gradient direction image (radians)
  * @param sigma Gaussian sigma
  */
-void GradientDirection(const QImage& image, QImage& output, double sigma);
+QIVISION_API void GradientDirection(const QImage& image, QImage& output, double sigma);
 
 /**
  * @brief Apply Laplacian filter
@@ -272,7 +274,7 @@ void GradientDirection(const QImage& image, QImage& output, double sigma);
  * @param output Output Laplacian image
  * @param filterType Filter type: "3x3", "5x5", "n4" (4-connected), "n8" (8-connected)
  */
-void Laplace(const QImage& image, QImage& output, const std::string& filterType = "3x3");
+QIVISION_API void Laplace(const QImage& image, QImage& output, const std::string& filterType = "3x3");
 
 /**
  * @brief Apply Laplacian of Gaussian (LoG) filter
@@ -288,7 +290,7 @@ void Laplace(const QImage& image, QImage& output, const std::string& filterType 
  * LaplacianOfGaussian(image, log, 2.0);
  * @endcode
  */
-void LaplacianOfGaussian(const QImage& image, QImage& output, double sigma);
+QIVISION_API void LaplacianOfGaussian(const QImage& image, QImage& output, double sigma);
 
 // =============================================================================
 // Frequency Domain Filters
@@ -304,7 +306,7 @@ void LaplacianOfGaussian(const QImage& image, QImage& output, double sigma);
  * @param width Kernel width
  * @param height Kernel height
  */
-void HighpassImage(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void HighpassImage(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Apply lowpass filter
@@ -317,7 +319,7 @@ void HighpassImage(const QImage& image, QImage& output, int32_t width, int32_t h
  * @param width Kernel width
  * @param height Kernel height
  */
-void LowpassImage(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void LowpassImage(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 // =============================================================================
 // Enhancement Filters
@@ -339,7 +341,7 @@ void LowpassImage(const QImage& image, QImage& output, int32_t width, int32_t he
  * EmphasizeImage(image, sharp, 7, 7, 1.5);
  * @endcode
  */
-void EmphasizeImage(const QImage& image, QImage& output, int32_t width, int32_t height, double factor);
+QIVISION_API void EmphasizeImage(const QImage& image, QImage& output, int32_t width, int32_t height, double factor);
 
 /**
  * @brief Apply unsharp mask (sharpening)
@@ -350,7 +352,7 @@ void EmphasizeImage(const QImage& image, QImage& output, int32_t width, int32_t 
  * @param amount Sharpening amount (1.0 = standard)
  * @param threshold Threshold for detail (0 = sharpen everything)
  */
-void UnsharpMask(const QImage& image, QImage& output, double sigma, double amount = 1.0,
+QIVISION_API void UnsharpMask(const QImage& image, QImage& output, double sigma, double amount = 1.0,
                   double threshold = 0.0);
 
 /**
@@ -361,7 +363,7 @@ void UnsharpMask(const QImage& image, QImage& output, double sigma, double amoun
  * @param iterations Number of iterations
  * @param dt Time step
  */
-void ShockFilter(const QImage& image, QImage& output, int32_t iterations, double dt = 0.1);
+QIVISION_API void ShockFilter(const QImage& image, QImage& output, int32_t iterations, double dt = 0.1);
 
 // =============================================================================
 // Anisotropic Diffusion
@@ -386,7 +388,7 @@ void ShockFilter(const QImage& image, QImage& output, int32_t iterations, double
  * AnisoDiff(image, smooth, "pm1", 30.0, 0.25, 10);
  * @endcode
  */
-void AnisoDiff(const QImage& image, QImage& output, const std::string& mode,
+QIVISION_API void AnisoDiff(const QImage& image, QImage& output, const std::string& mode,
                 double contrast, double theta, int32_t iterations);
 
 // =============================================================================
@@ -406,7 +408,7 @@ void AnisoDiff(const QImage& image, QImage& output, const std::string& mode,
  * @param normalize If true, normalize kernel to sum to 1
  * @param borderMode Border handling
  */
-void ConvolImage(const QImage& image, QImage& output,
+QIVISION_API void ConvolImage(const QImage& image, QImage& output,
                   const std::vector<double>& kernel,
                   int32_t kernelWidth, int32_t kernelHeight,
                   bool normalize = false,
@@ -421,7 +423,7 @@ void ConvolImage(const QImage& image, QImage& output,
  * @param kernelY Vertical kernel
  * @param borderMode Border handling
  */
-void ConvolSeparable(const QImage& image, QImage& output,
+QIVISION_API void ConvolSeparable(const QImage& image, QImage& output,
                       const std::vector<double>& kernelX,
                       const std::vector<double>& kernelY,
                       const std::string& borderMode = "reflect");
@@ -439,17 +441,17 @@ void ConvolSeparable(const QImage& image, QImage& output,
  * @param height Kernel height
  * @param rank Rank (0 = minimum, width*height-1 = maximum)
  */
-void RankImage(const QImage& image, QImage& output, int32_t width, int32_t height, int32_t rank);
+QIVISION_API void RankImage(const QImage& image, QImage& output, int32_t width, int32_t height, int32_t rank);
 
 /**
  * @brief Apply minimum filter (gray erosion)
  */
-void MinImage(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void MinImage(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Apply maximum filter (gray dilation)
  */
-void MaxImage(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void MaxImage(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 // =============================================================================
 // Texture Filters
@@ -463,7 +465,7 @@ void MaxImage(const QImage& image, QImage& output, int32_t width, int32_t height
  * @param width Window width
  * @param height Window height
  */
-void StdDevImage(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void StdDevImage(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Compute local variance
@@ -473,7 +475,7 @@ void StdDevImage(const QImage& image, QImage& output, int32_t width, int32_t hei
  * @param width Window width
  * @param height Window height
  */
-void VarianceImage(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void VarianceImage(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Compute local entropy
@@ -484,7 +486,7 @@ void VarianceImage(const QImage& image, QImage& output, int32_t width, int32_t h
  * @param height Window height
  * @param numBins Number of histogram bins
  */
-void EntropyImage(const QImage& image, QImage& output, int32_t width, int32_t height,
+QIVISION_API void EntropyImage(const QImage& image, QImage& output, int32_t width, int32_t height,
                    int32_t numBins = 256);
 
 // =============================================================================
@@ -498,7 +500,7 @@ void EntropyImage(const QImage& image, QImage& output, int32_t width, int32_t he
  * @param size Kernel size (0 = auto-compute from sigma)
  * @return 1D Gaussian kernel
  */
-std::vector<double> GenGaussKernel(double sigma, int32_t size = 0);
+QIVISION_API std::vector<double> GenGaussKernel(double sigma, int32_t size = 0);
 
 /**
  * @brief Generate Gaussian derivative kernel
@@ -508,7 +510,7 @@ std::vector<double> GenGaussKernel(double sigma, int32_t size = 0);
  * @param size Kernel size (0 = auto)
  * @return 1D derivative kernel
  */
-std::vector<double> GenGaussDerivKernel(double sigma, int32_t order, int32_t size = 0);
+QIVISION_API std::vector<double> GenGaussDerivKernel(double sigma, int32_t order, int32_t size = 0);
 
 /**
  * @brief Compute optimal kernel size for sigma
@@ -516,7 +518,7 @@ std::vector<double> GenGaussDerivKernel(double sigma, int32_t order, int32_t siz
  * @param sigma Gaussian sigma
  * @return Recommended kernel size (odd number)
  */
-int32_t OptimalKernelSize(double sigma);
+QIVISION_API int32_t OptimalKernelSize(double sigma);
 
 // =============================================================================
 // Histogram Enhancement
@@ -536,12 +538,12 @@ int32_t OptimalKernelSize(double sigma);
  * HistogramEqualize(image, enhanced);
  * @endcode
  */
-void HistogramEqualize(const QImage& image, QImage& output);
+QIVISION_API void HistogramEqualize(const QImage& image, QImage& output);
 
 /**
  * @brief Apply histogram equalization (return version)
  */
-QImage HistogramEqualize(const QImage& image);
+QIVISION_API QImage HistogramEqualize(const QImage& image);
 
 /**
  * @brief Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
@@ -559,13 +561,13 @@ QImage HistogramEqualize(const QImage& image);
  * ApplyCLAHE(image, enhanced, 8, 40.0);
  * @endcode
  */
-void ApplyCLAHE(const QImage& image, QImage& output,
+QIVISION_API void ApplyCLAHE(const QImage& image, QImage& output,
                 int32_t tileSize = 8, double clipLimit = 40.0);
 
 /**
  * @brief Apply CLAHE (return version)
  */
-QImage ApplyCLAHE(const QImage& image,
+QIVISION_API QImage ApplyCLAHE(const QImage& image,
                   int32_t tileSize = 8, double clipLimit = 40.0);
 
 /**
@@ -585,14 +587,14 @@ QImage ApplyCLAHE(const QImage& image,
  * ContrastStretch(image, enhanced, 2.0, 98.0);  // 2% clip on each end
  * @endcode
  */
-void ContrastStretch(const QImage& image, QImage& output,
+QIVISION_API void ContrastStretch(const QImage& image, QImage& output,
                      double lowPercentile = 1.0, double highPercentile = 99.0,
                      double outputMin = 0, double outputMax = 255);
 
 /**
  * @brief Linear contrast stretching (return version)
  */
-QImage ContrastStretch(const QImage& image,
+QIVISION_API QImage ContrastStretch(const QImage& image,
                        double lowPercentile = 1.0, double highPercentile = 99.0,
                        double outputMin = 0, double outputMax = 255);
 
@@ -604,12 +606,12 @@ QImage ContrastStretch(const QImage& image,
  * @param image Input image
  * @param output Output enhanced image
  */
-void AutoContrast(const QImage& image, QImage& output);
+QIVISION_API void AutoContrast(const QImage& image, QImage& output);
 
 /**
  * @brief Auto contrast (return version)
  */
-QImage AutoContrast(const QImage& image);
+QIVISION_API QImage AutoContrast(const QImage& image);
 
 /**
  * @brief Normalize image to specified range
@@ -619,13 +621,13 @@ QImage AutoContrast(const QImage& image);
  * @param outputMin Output minimum value
  * @param outputMax Output maximum value
  */
-void NormalizeImage(const QImage& image, QImage& output,
+QIVISION_API void NormalizeImage(const QImage& image, QImage& output,
                     double outputMin = 0, double outputMax = 255);
 
 /**
  * @brief Normalize image (return version)
  */
-QImage NormalizeImage(const QImage& image,
+QIVISION_API QImage NormalizeImage(const QImage& image,
                       double outputMin = 0, double outputMax = 255);
 
 /**
@@ -635,12 +637,12 @@ QImage NormalizeImage(const QImage& image,
  * @param output Output image with matched histogram
  * @param reference Reference image
  */
-void HistogramMatch(const QImage& image, QImage& output,
+QIVISION_API void HistogramMatch(const QImage& image, QImage& output,
                     const QImage& reference);
 
 /**
  * @brief Match histogram (return version)
  */
-QImage HistogramMatch(const QImage& image, const QImage& reference);
+QIVISION_API QImage HistogramMatch(const QImage& image, const QImage& reference);
 
 } // namespace Qi::Vision::Filter

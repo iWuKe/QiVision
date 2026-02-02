@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file MatchTypes.h
  * @brief Common types and structures for template matching
@@ -104,7 +106,7 @@ enum class MatchMetric {
  * Contains position, orientation, scale and quality metrics
  * for a single template match.
  */
-struct MatchResult {
+struct QIVISION_API MatchResult {
     // Position (subpixel)
     double x = 0.0;             ///< X position (column) in image coordinates
     double y = 0.0;             ///< Y position (row) in image coordinates
@@ -166,7 +168,7 @@ struct MatchResult {
  * Used by GetShapeModelContoursWithQuality to return contour points
  * with their match status for Halcon-style visualization.
  */
-struct MatchedContourPoint {
+struct QIVISION_API MatchedContourPoint {
     double x = 0.0;              ///< X position in image coordinates
     double y = 0.0;              ///< Y position in image coordinates
     double quality = 0.0;        ///< Match quality [0, 1]
@@ -176,7 +178,7 @@ struct MatchedContourPoint {
 /**
  * @brief XLD contour with match quality for each point
  */
-struct MatchedContour {
+struct QIVISION_API MatchedContour {
     std::vector<MatchedContourPoint> points;
 
     size_t Size() const { return points.size(); }
@@ -190,7 +192,7 @@ struct MatchedContour {
 /**
  * @brief Parameters for template search
  */
-struct SearchParams {
+struct QIVISION_API SearchParams {
     // Score threshold
     double minScore = 0.9;          ///< Minimum score to accept [0, 1]
 
@@ -304,7 +306,7 @@ enum class MetricMode {
  * - NumLevels: pyramid levels (0 = auto)
  * - AngleStep: angle resolution (0 = auto)
  */
-struct ModelParams {
+struct QIVISION_API ModelParams {
     // =========================================================================
     // Contrast Parameters (edge extraction threshold)
     // =========================================================================
@@ -531,7 +533,7 @@ struct ModelParams {
 /**
  * @brief Single point in a shape model
  */
-struct ModelPoint {
+struct QIVISION_API ModelPoint {
     double x = 0.0;             ///< X position relative to model origin
     double y = 0.0;             ///< Y position relative to model origin
     double angle = 0.0;         ///< Gradient direction (radians)
@@ -556,7 +558,7 @@ struct ModelPoint {
 /**
  * @brief Statistics about a created model
  */
-struct ModelStats {
+struct QIVISION_API ModelStats {
     int32_t numPoints = 0;          ///< Total number of model points
     int32_t numLevels = 0;          ///< Number of pyramid levels
     double meanContrast = 0.0;      ///< Mean gradient magnitude
@@ -710,7 +712,7 @@ inline std::vector<MatchResult> FilterByScore(
 /**
  * @brief Timing parameters for shape model operations
  */
-struct ShapeModelTimingParams {
+struct QIVISION_API ShapeModelTimingParams {
     bool enableTiming = false;      ///< Enable timing measurements
     bool printTiming = false;       ///< Print timing info to stdout
 
@@ -722,7 +724,7 @@ struct ShapeModelTimingParams {
 /**
  * @brief Timing results for model creation
  */
-struct ShapeModelCreateTiming {
+struct QIVISION_API ShapeModelCreateTiming {
     double pyramidBuildMs = 0.0;
     double contrastAutoMs = 0.0;
     double extractPointsMs = 0.0;
@@ -738,7 +740,7 @@ struct ShapeModelCreateTiming {
 /**
  * @brief Timing results for model search
  */
-struct ShapeModelFindTiming {
+struct QIVISION_API ShapeModelFindTiming {
     double pyramidBuildMs = 0.0;
     double coarseSearchMs = 0.0;
     double pyramidRefineMs = 0.0;
@@ -776,6 +778,8 @@ inline double EstimateAngleStep(int32_t modelSize) {
  */
 inline int32_t EstimateOptimalLevels(int32_t imageWidth, int32_t imageHeight,
                                       int32_t templateWidth, int32_t templateHeight) {
+    (void)imageWidth;
+    (void)imageHeight;
     // Find how many times we can halve the template while keeping it >= 8 pixels
     int32_t minTemplateDim = std::min(templateWidth, templateHeight);
     int32_t levels = 1;

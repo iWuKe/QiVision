@@ -622,6 +622,7 @@ double ShapeModelImpl::ComputeScoreNearestNeighborAVX2(
     double x, double y, float cosR, float sinR, double scale,
     float greediness, double* outCoverage, bool useGridPoints) const
 {
+    (void)greediness;
     const auto& levelModel = levels_[level];
     const auto& pts = useGridPoints ? levelModel.gridPoints : levelModel.points;
     const size_t numPoints = pts.size();

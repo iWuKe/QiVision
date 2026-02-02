@@ -5,6 +5,7 @@
 
 #include <QiVision/Internal/Matrix.h>
 #include <QiVision/Core/QMatrix.h>
+#include <QiVision/Core/Exception.h>
 
 #include <cmath>
 #include <algorithm>
@@ -17,7 +18,7 @@ namespace Qi::Vision::Internal {
 
 double MatX::Determinant() const {
     if (rows_ != cols_) {
-        throw std::invalid_argument("Determinant requires square matrix");
+        throw InvalidArgumentException("MatX::Determinant: requires square matrix");
     }
 
     // Use specialized implementations for small matrices
@@ -59,13 +60,13 @@ double MatX::Determinant() const {
         default:
             // For larger matrices, use LU decomposition
             // For now, throw an error
-            throw std::invalid_argument("Determinant not implemented for matrices larger than 4x4");
+            throw UnsupportedException("MatX::Determinant: not implemented for matrices larger than 4x4");
     }
 }
 
 MatX MatX::Inverse() const {
     if (rows_ != cols_) {
-        throw std::invalid_argument("Inverse requires square matrix");
+        throw InvalidArgumentException("MatX::Inverse: requires square matrix");
     }
 
     switch (rows_) {
@@ -164,7 +165,7 @@ MatX MatX::Inverse() const {
         }
 
         default:
-            throw std::invalid_argument("Inverse not implemented for matrices larger than 4x4");
+            throw UnsupportedException("MatX::Inverse: not implemented for matrices larger than 4x4");
     }
 }
 

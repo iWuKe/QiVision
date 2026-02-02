@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <string>
 #include <functional>
+#include <QiVision/Core/Export.h>
 
 namespace Qi::Vision::Platform {
 
@@ -42,7 +43,7 @@ namespace Qi::Vision::Platform {
  *
  * Uses std::chrono::high_resolution_clock for best precision.
  */
-class Timer {
+class QIVISION_API Timer {
 public:
     using Clock = std::chrono::high_resolution_clock;
     using TimePoint = Clock::time_point;
@@ -125,7 +126,7 @@ private:
  *
  * Useful for quick profiling of code blocks.
  */
-class ScopedTimer {
+class QIVISION_API ScopedTimer {
 public:
     /**
      * @brief Construct and start timing
@@ -176,14 +177,14 @@ private:
  * @param warmup Number of warmup iterations (not counted)
  * @return Average time per iteration in milliseconds
  */
-double Benchmark(const std::function<void()>& func,
+QIVISION_API double Benchmark(const std::function<void()>& func,
                  size_t iterations = 100,
                  size_t warmup = 10);
 
 /**
  * @brief Benchmark result with statistics
  */
-struct BenchmarkResult {
+struct QIVISION_API BenchmarkResult {
     double minMs;       ///< Minimum time
     double maxMs;       ///< Maximum time
     double avgMs;       ///< Average time
@@ -199,7 +200,7 @@ struct BenchmarkResult {
  * @param warmup Number of warmup iterations
  * @return Detailed benchmark results
  */
-BenchmarkResult BenchmarkDetailed(const std::function<void()>& func,
+QIVISION_API BenchmarkResult BenchmarkDetailed(const std::function<void()>& func,
                                    size_t iterations = 100,
                                    size_t warmup = 10);
 
@@ -208,7 +209,7 @@ BenchmarkResult BenchmarkDetailed(const std::function<void()>& func,
  * @param name Name of the benchmark
  * @param result Benchmark result
  */
-void PrintBenchmarkResult(const std::string& name, const BenchmarkResult& result);
+QIVISION_API void PrintBenchmarkResult(const std::string& name, const BenchmarkResult& result);
 
 // ============================================================================
 // Convenience Functions
@@ -217,21 +218,21 @@ void PrintBenchmarkResult(const std::string& name, const BenchmarkResult& result
 /**
  * @brief Get current timestamp in milliseconds since epoch
  */
-int64_t GetTimestampMs();
+QIVISION_API int64_t GetTimestampMs();
 
 /**
  * @brief Get current timestamp in microseconds since epoch
  */
-int64_t GetTimestampUs();
+QIVISION_API int64_t GetTimestampUs();
 
 /**
  * @brief Sleep for specified milliseconds
  */
-void SleepMs(int64_t ms);
+QIVISION_API void SleepMs(int64_t ms);
 
 /**
  * @brief Sleep for specified microseconds
  */
-void SleepUs(int64_t us);
+QIVISION_API void SleepUs(int64_t us);
 
 } // namespace Qi::Vision::Platform

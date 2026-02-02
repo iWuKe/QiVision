@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Texture.h
  * @brief Texture analysis module
@@ -48,7 +50,7 @@ enum class LBPType {
  * - Neighbor < center: bit = 0
  * - 8 bits form the LBP code (0-255)
  */
-void ComputeLBP(const QImage& image, QImage& lbpImage,
+QIVISION_API void ComputeLBP(const QImage& image, QImage& lbpImage,
                 LBPType type = LBPType::Standard);
 
 /**
@@ -62,7 +64,7 @@ void ComputeLBP(const QImage& image, QImage& lbpImage,
  * Extended LBP with configurable radius and points.
  * Uses bilinear interpolation for non-integer positions.
  */
-void ComputeLBPExtended(const QImage& image, QImage& lbpImage,
+QIVISION_API void ComputeLBPExtended(const QImage& image, QImage& lbpImage,
                         int32_t radius = 1, int32_t numPoints = 8,
                         LBPType type = LBPType::Standard);
 
@@ -79,7 +81,7 @@ void ComputeLBPExtended(const QImage& image, QImage& lbpImage,
  * - RotationInvariant: 36 bins
  * - UniformRI: 10 bins (9 uniform + 1 non-uniform)
  */
-int32_t ComputeLBPHistogram(const QImage& lbpImage,
+QIVISION_API int32_t ComputeLBPHistogram(const QImage& lbpImage,
                             std::vector<double>& histogram,
                             LBPType type = LBPType::Standard);
 
@@ -91,7 +93,7 @@ int32_t ComputeLBPHistogram(const QImage& lbpImage,
  * @param type LBP type
  * @return Number of bins
  */
-int32_t ComputeLBPHistogram(const QImage& lbpImage,
+QIVISION_API int32_t ComputeLBPHistogram(const QImage& lbpImage,
                             const QRegion& region,
                             std::vector<double>& histogram,
                             LBPType type = LBPType::Standard);
@@ -103,7 +105,7 @@ int32_t ComputeLBPHistogram(const QImage& lbpImage,
 /**
  * @brief GLCM feature set
  */
-struct GLCMFeatures {
+struct QIVISION_API GLCMFeatures {
     double contrast = 0;        ///< Local intensity variation
     double dissimilarity = 0;   ///< Similar to contrast
     double homogeneity = 0;     ///< Closeness of distribution to diagonal
@@ -138,7 +140,7 @@ enum class GLCMDirection {
  * GLCM[i,j] = probability of pixel with value i having a neighbor
  * at given distance/direction with value j.
  */
-void ComputeGLCM(const QImage& image,
+QIVISION_API void ComputeGLCM(const QImage& image,
                  std::vector<std::vector<double>>& glcm,
                  int32_t distance = 1,
                  GLCMDirection direction = GLCMDirection::Horizontal,
@@ -147,7 +149,7 @@ void ComputeGLCM(const QImage& image,
 /**
  * @brief Compute GLCM for a region
  */
-void ComputeGLCM(const QImage& image,
+QIVISION_API void ComputeGLCM(const QImage& image,
                  const QRegion& region,
                  std::vector<std::vector<double>>& glcm,
                  int32_t distance = 1,
@@ -159,7 +161,7 @@ void ComputeGLCM(const QImage& image,
  * @param glcm GLCM matrix (from ComputeGLCM)
  * @return Feature set
  */
-GLCMFeatures ExtractGLCMFeatures(const std::vector<std::vector<double>>& glcm);
+QIVISION_API GLCMFeatures ExtractGLCMFeatures(const std::vector<std::vector<double>>& glcm);
 
 /**
  * @brief Compute GLCM features directly from image
@@ -171,7 +173,7 @@ GLCMFeatures ExtractGLCMFeatures(const std::vector<std::vector<double>>& glcm);
  *
  * Convenience function that combines ComputeGLCM and ExtractGLCMFeatures.
  */
-GLCMFeatures ComputeGLCMFeatures(const QImage& image,
+QIVISION_API GLCMFeatures ComputeGLCMFeatures(const QImage& image,
                                   int32_t distance = 1,
                                   GLCMDirection direction = GLCMDirection::Average,
                                   int32_t numLevels = 64);
@@ -179,7 +181,7 @@ GLCMFeatures ComputeGLCMFeatures(const QImage& image,
 /**
  * @brief Compute GLCM features for a region
  */
-GLCMFeatures ComputeGLCMFeatures(const QImage& image,
+QIVISION_API GLCMFeatures ComputeGLCMFeatures(const QImage& image,
                                   const QRegion& region,
                                   int32_t distance = 1,
                                   GLCMDirection direction = GLCMDirection::Average,
@@ -192,7 +194,7 @@ GLCMFeatures ComputeGLCMFeatures(const QImage& image,
 /**
  * @brief Gabor filter parameters
  */
-struct GaborParams {
+struct QIVISION_API GaborParams {
     double sigma = 3.0;         ///< Gaussian envelope sigma
     double theta = 0.0;         ///< Orientation (radians)
     double lambda = 8.0;        ///< Wavelength of sinusoid
@@ -213,7 +215,7 @@ struct GaborParams {
  * @param params Gabor parameters
  * @param kernel Output kernel (Float32 image)
  */
-void CreateGaborKernel(const GaborParams& params, QImage& kernel);
+QIVISION_API void CreateGaborKernel(const GaborParams& params, QImage& kernel);
 
 /**
  * @brief Apply Gabor filter
@@ -221,7 +223,7 @@ void CreateGaborKernel(const GaborParams& params, QImage& kernel);
  * @param output Filtered image (Float32)
  * @param params Gabor parameters
  */
-void ApplyGaborFilter(const QImage& image, QImage& output,
+QIVISION_API void ApplyGaborFilter(const QImage& image, QImage& output,
                       const GaborParams& params);
 
 /**
@@ -234,7 +236,7 @@ void ApplyGaborFilter(const QImage& image, QImage& output,
  *
  * Common setup: 4-8 orientations for texture analysis.
  */
-void ApplyGaborFilterBank(const QImage& image,
+QIVISION_API void ApplyGaborFilterBank(const QImage& image,
                           std::vector<QImage>& responses,
                           int32_t numOrientations = 8,
                           double sigma = 3.0,
@@ -248,13 +250,13 @@ void ApplyGaborFilterBank(const QImage& image,
  *
  * Computes sqrt(real² + imag²) using Gabor pair (0° and 90° phase).
  */
-void ComputeGaborEnergy(const QImage& image, QImage& energy,
+QIVISION_API void ComputeGaborEnergy(const QImage& image, QImage& energy,
                         const GaborParams& params);
 
 /**
  * @brief Gabor texture features
  */
-struct GaborFeatures {
+struct QIVISION_API GaborFeatures {
     std::vector<double> meanEnergy;     ///< Mean energy per orientation
     std::vector<double> stdEnergy;      ///< Std dev of energy per orientation
     double dominantOrientation = 0;     ///< Dominant texture orientation (degrees)
@@ -269,7 +271,7 @@ struct GaborFeatures {
  * @param lambda Wavelength
  * @return Gabor feature set
  */
-GaborFeatures ExtractGaborFeatures(const QImage& image,
+QIVISION_API GaborFeatures ExtractGaborFeatures(const QImage& image,
                                     int32_t numOrientations = 8,
                                     double sigma = 3.0,
                                     double lambda = 8.0);
@@ -277,7 +279,7 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
 /**
  * @brief Extract Gabor features for a region
  */
-GaborFeatures ExtractGaborFeatures(const QImage& image,
+QIVISION_API GaborFeatures ExtractGaborFeatures(const QImage& image,
                                     const QRegion& region,
                                     int32_t numOrientations = 8,
                                     double sigma = 3.0,
@@ -293,7 +295,7 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
  * @param hist2 Second histogram
  * @return Chi-square distance (0 = identical)
  */
-double CompareLBPHistograms(const std::vector<double>& hist1,
+QIVISION_API double CompareLBPHistograms(const std::vector<double>& hist1,
                             const std::vector<double>& hist2);
 
 /**
@@ -302,7 +304,7 @@ double CompareLBPHistograms(const std::vector<double>& hist1,
  * @param f2 Second feature set
  * @return Euclidean distance in feature space
  */
-double CompareGLCMFeatures(const GLCMFeatures& f1, const GLCMFeatures& f2);
+QIVISION_API double CompareGLCMFeatures(const GLCMFeatures& f1, const GLCMFeatures& f2);
 
 /**
  * @brief Compare two Gabor feature sets
@@ -310,7 +312,7 @@ double CompareGLCMFeatures(const GLCMFeatures& f1, const GLCMFeatures& f2);
  * @param f2 Second feature set
  * @return Euclidean distance in feature space
  */
-double CompareGaborFeatures(const GaborFeatures& f1, const GaborFeatures& f2);
+QIVISION_API double CompareGaborFeatures(const GaborFeatures& f1, const GaborFeatures& f2);
 
 // =============================================================================
 // Texture Segmentation
@@ -324,7 +326,7 @@ double CompareGaborFeatures(const GaborFeatures& f1, const GaborFeatures& f2);
  * @param windowSize Window size for local histogram (default 16)
  * @return Actual number of clusters found
  */
-int32_t SegmentByTextureLBP(const QImage& image, QImage& labels,
+QIVISION_API int32_t SegmentByTextureLBP(const QImage& image, QImage& labels,
                             int32_t numClusters = 2,
                             int32_t windowSize = 16);
 
@@ -336,7 +338,7 @@ int32_t SegmentByTextureLBP(const QImage& image, QImage& labels,
  * @param windowSize Window size for local analysis
  * @param type LBP type
  */
-void DetectTextureAnomalies(const QImage& image,
+QIVISION_API void DetectTextureAnomalies(const QImage& image,
                             const std::vector<double>& referenceHist,
                             QImage& anomalyMap,
                             int32_t windowSize = 16,

@@ -22,7 +22,14 @@
 
 // Use stb_image for reading (already included in QImage.cpp with IMPLEMENTATION)
 #include <stb/stb_image.h>
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
 #include <stb/stb_image_write.h>
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace Qi::Vision::IO {
 
@@ -180,10 +187,16 @@ bool IsSupportedImageFile(const std::string& filename) {
 // =============================================================================
 
 void ReadImage(const std::string& filename, QImage& image) {
+    if (filename.empty()) {
+        throw InvalidArgumentException("ReadImage: filename is empty");
+    }
     ReadImage(filename, image, ImageFormat::Auto);
 }
 
 void ReadImage(const std::string& filename, QImage& image, ImageFormat /*format*/) {
+    if (filename.empty()) {
+        throw InvalidArgumentException("ReadImage: filename is empty");
+    }
     // Use QImage::FromFile which already handles stb_image
     // This wraps it with Halcon-style naming
     try {
@@ -199,6 +212,9 @@ void ReadImageRaw(const std::string& filename, QImage& image,
                   ChannelType channelType,
                   int32_t headerBytes,
                   bool bigEndian) {
+    if (filename.empty()) {
+        throw InvalidArgumentException("ReadImageRaw: filename is empty");
+    }
     if (width <= 0 || height <= 0) {
         throw InvalidArgumentException("RAW read requires width and height");
     }
@@ -243,8 +259,12 @@ void ReadImageRaw(const std::string& filename, QImage& image,
 bool ReadImageMetadata(const std::string& filename, ImageMetadata& metadata) {
     int w, h, channels;
 
+    if (filename.empty()) {
+        throw InvalidArgumentException("ReadImageMetadata: filename is empty");
+    }
+
     if (stbi_info(filename.c_str(), &w, &h, &channels) == 0) {
-        return false;
+        throw IOException("Failed to read image metadata: " + filename);
     }
 
     metadata.width = w;
@@ -299,11 +319,29 @@ void ReadImageGray(const std::string& filename, QImage& image) {
 // =============================================================================
 
 bool WriteImage(const QImage& image, const std::string& filename) {
+    if (filename.empty()) {
+        throw InvalidArgumentException("WriteImage: filename is empty");
+    }
+    if (image.Empty()) {
+        throw InvalidArgumentException("WriteImage: image is empty");
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("WriteImage: invalid image");
+    }
     return WriteImage(image, filename, ImageFormat::Auto, std::vector<int>{});
 }
 
 bool WriteImage(const QImage& image, const std::string& filename,
                 ImageFormat format, const std::vector<int>& params) {
+    if (filename.empty()) {
+        throw InvalidArgumentException("WriteImage: filename is empty");
+    }
+    if (image.Empty()) {
+        throw InvalidArgumentException("WriteImage: image is empty");
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("WriteImage: invalid image");
+    }
     // Parse vector<int> params into local variables
     int32_t jpegQuality = 95;
     int32_t pngCompression = 6;
@@ -327,10 +365,6 @@ bool WriteImage(const QImage& image, const std::string& filename,
 
     (void)pngCompression;    // Reserved for future use
     (void)tiffCompression;   // Reserved for future use
-    if (image.Empty()) {
-        return false;
-    }
-
     // Determine format
     if (format == ImageFormat::Auto) {
         format = GetFormatFromFilename(filename);
@@ -380,13 +414,19 @@ bool WriteImage(const QImage& image, const std::string& filename,
 }
 
 bool WriteImageRaw(const QImage& image, const std::string& filename, bool bigEndian) {
+    if (filename.empty()) {
+        throw InvalidArgumentException("WriteImageRaw: filename is empty");
+    }
     if (image.Empty()) {
-        return false;
+        throw InvalidArgumentException("WriteImageRaw: image is empty");
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("WriteImageRaw: invalid image");
     }
 
     std::ofstream file(filename, std::ios::binary);
     if (!file) {
-        return false;
+        throw IOException("Cannot open file: " + filename);
     }
 
     int32_t w = image.Width();
@@ -428,7 +468,15 @@ void ReadSequence(const std::string& pattern,
                   int32_t step) {
     images.clear();
 
-    if (step <= 0) step = 1;
+    if (pattern.empty()) {
+        throw InvalidArgumentException("ReadSequence: pattern is empty");
+    }
+    if (step <= 0) {
+        throw InvalidArgumentException("ReadSequence: step must be > 0");
+    }
+    if (startIndex > endIndex) {
+        return;
+    }
 
     for (int32_t i = startIndex; i <= endIndex; i += step) {
         std::string filename = FormatFilename(pattern, i);
@@ -449,6 +497,13 @@ void ReadDirectory(const std::string& directory,
                    std::vector<QImage>& images,
                    const std::vector<std::string>& extensions) {
     images.clear();
+
+    if (directory.empty()) {
+        throw InvalidArgumentException("ReadDirectory: directory is empty");
+    }
+    if (!Platform::DirectoryExists(directory)) {
+        throw IOException("ReadDirectory: directory does not exist: " + directory);
+    }
 
     // Get list of files in directory
     auto files = ListDirectoryFiles(directory);
@@ -486,6 +541,9 @@ int32_t WriteSequence(const std::vector<QImage>& images,
                        const std::string& pattern,
                        int32_t startIndex,
                        const std::vector<int>& params) {
+    if (pattern.empty()) {
+        throw InvalidArgumentException("WriteSequence: pattern is empty");
+    }
     int32_t count = 0;
     int32_t index = startIndex;
 

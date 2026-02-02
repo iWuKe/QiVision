@@ -7,6 +7,7 @@
 
 #include <QiVision/Filter/Filter.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Constants.h>
 #include <QiVision/Internal/Convolution.h>
 #include <QiVision/Internal/Gradient.h>
 #include <QiVision/Internal/Gaussian.h>
@@ -43,16 +44,24 @@ BorderMode ParseBorderMode(const std::string& mode) {
         return BorderMode::Wrap;
     }
 
+    if (!lower.empty()) {
+        throw InvalidArgumentException("Unknown border mode: " + mode);
+    }
     return BorderMode::Reflect101;
 }
 
 int32_t ParseKernelSize(const std::string& size) {
-    if (size == "3x3" || size == "3") return 3;
-    if (size == "5x5" || size == "5") return 5;
-    if (size == "7x7" || size == "7") return 7;
-    if (size == "9x9" || size == "9") return 9;
-    if (size == "11x11" || size == "11") return 11;
-    return 3;  // Default
+    if (size.empty()) {
+        return 3;
+    }
+    std::string lower = size;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    if (lower == "3x3" || lower == "3") return 3;
+    if (lower == "5x5" || lower == "5") return 5;
+    if (lower == "7x7" || lower == "7") return 7;
+    if (lower == "9x9" || lower == "9") return 9;
+    if (lower == "11x11" || lower == "11") return 11;
+    throw InvalidArgumentException("Unknown kernel size: " + size);
 }
 
 inline double Clamp(double val, double minVal, double maxVal) {
@@ -67,9 +76,22 @@ bool RequireGrayU8(const QImage& image, const char* funcName) {
     if (image.Empty()) {
         return false;
     }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
     if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
         throw UnsupportedException(std::string(funcName) +
                                    " requires single-channel UInt8 image");
+    }
+    return true;
+}
+
+bool RequireValidImage(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
     }
     return true;
 }
@@ -152,9 +174,12 @@ void GaussFilter(const QImage& image, QImage& output, double sigma) {
 
 void GaussFilter(const QImage& image, QImage& output, double sigmaX, double sigmaY,
                   const std::string& borderMode) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "GaussFilter")) {
         output = QImage();
         return;
+    }
+    if (!std::isfinite(sigmaX) || !std::isfinite(sigmaY) || sigmaX <= 0.0 || sigmaY <= 0.0) {
+        throw InvalidArgumentException("GaussFilter: sigma must be > 0");
     }
 
     if (image.Type() != PixelType::UInt8) {
@@ -211,9 +236,12 @@ void GaussImage(const QImage& image, QImage& output, const std::string& size) {
 
 void MeanImage(const QImage& image, QImage& output, int32_t width, int32_t height,
                 const std::string& borderMode) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "MeanImage")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("MeanImage: width/height must be > 0");
     }
 
     if (image.Type() != PixelType::UInt8) {
@@ -265,9 +293,14 @@ void MeanImage(const QImage& image, QImage& output, int32_t size,
 
 void MedianImage(const QImage& image, QImage& output, const std::string& maskType,
                   int32_t radius, const std::string& marginMode) {
-    if (image.Empty()) {
+    (void)maskType;
+    (void)marginMode;
+    if (!RequireValidImage(image, "MedianImage")) {
         output = QImage();
         return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("MedianImage: radius must be > 0");
     }
 
     if (image.Type() != PixelType::UInt8) {
@@ -279,9 +312,12 @@ void MedianImage(const QImage& image, QImage& output, const std::string& maskTyp
 }
 
 void MedianRect(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "MedianRect")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("MedianRect: width/height must be > 0");
     }
 
     if (image.Type() != PixelType::UInt8) {
@@ -325,15 +361,26 @@ void MedianRect(const QImage& image, QImage& output, int32_t width, int32_t heig
 
 void BilateralFilter(const QImage& image, QImage& output,
                       double sigmaSpatial, double sigmaIntensity) {
+    if (!std::isfinite(sigmaSpatial) || !std::isfinite(sigmaIntensity) ||
+        sigmaSpatial <= 0.0 || sigmaIntensity <= 0.0) {
+        throw InvalidArgumentException("BilateralFilter: sigma must be > 0");
+    }
     int32_t size = OptimalKernelSize(sigmaSpatial);
     BilateralFilter(image, output, size, sigmaSpatial, sigmaIntensity);
 }
 
 void BilateralFilter(const QImage& image, QImage& output, int32_t size,
                       double sigmaSpatial, double sigmaIntensity) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "BilateralFilter")) {
         output = QImage();
         return;
+    }
+    if (size <= 0) {
+        throw InvalidArgumentException("BilateralFilter: size must be > 0");
+    }
+    if (!std::isfinite(sigmaSpatial) || !std::isfinite(sigmaIntensity) ||
+        sigmaSpatial <= 0.0 || sigmaIntensity <= 0.0) {
+        throw InvalidArgumentException("BilateralFilter: sigma must be > 0");
     }
 
     if (image.Type() != PixelType::UInt8) {
@@ -398,6 +445,13 @@ void BilateralFilter(const QImage& image, QImage& output, int32_t size,
 
 void BinomialFilter(const QImage& image, QImage& output, int32_t width, int32_t height,
                      const std::string& borderMode) {
+    if (!RequireValidImage(image, "BinomialFilter")) {
+        output = QImage();
+        return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("BinomialFilter: width/height must be > 0");
+    }
     // Binomial coefficients for different sizes
     auto getBinomial = [](int32_t n) -> std::vector<double> {
         std::vector<double> coeffs(n);
@@ -453,7 +507,7 @@ void BinomialFilter(const QImage& image, QImage& output, int32_t width, int32_t 
 
 void SobelAmp(const QImage& image, QImage& output,
                const std::string& filterType, int32_t size) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "SobelAmp")) {
         output = QImage();
         return;
     }
@@ -499,8 +553,17 @@ void SobelAmp(const QImage& image, QImage& output,
 
     std::string lowerType = filterType;
     std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
-
-    bool useSqrt = (lowerType == "sum_sqrt" || lowerType == "sqrt");
+    if (lowerType.empty()) {
+        lowerType = "sum_abs";
+    }
+    bool useSqrt = false;
+    if (lowerType == "sum_abs") {
+        useSqrt = false;
+    } else if (lowerType == "sum_sqrt" || lowerType == "sqrt") {
+        useSqrt = true;
+    } else {
+        throw InvalidArgumentException("SobelAmp: unknown filterType: " + filterType);
+    }
 
     for (int32_t y = 0; y < h; ++y) {
         uint8_t* row = static_cast<uint8_t*>(output.RowPtr(y));
@@ -522,7 +585,16 @@ void SobelAmp(const QImage& image, QImage& output,
 
 void SobelDir(const QImage& image, QImage& output,
                const std::string& dirType, int32_t size) {
-    if (image.Empty()) {
+    std::string lowerType = dirType;
+    std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
+    if (lowerType.empty()) {
+        lowerType = "gradient";
+    }
+    if (lowerType != "gradient" && lowerType != "tangent") {
+        throw InvalidArgumentException("SobelDir: unknown dirType: " + dirType);
+    }
+    bool tangent = (lowerType == "tangent");
+    if (!RequireValidImage(image, "SobelDir")) {
         output = QImage();
         return;
     }
@@ -566,13 +638,17 @@ void SobelDir(const QImage& image, QImage& output,
     for (int32_t y = 0; y < h; ++y) {
         float* row = static_cast<float*>(output.RowPtr(y));
         for (int32_t x = 0; x < w; ++x) {
-            row[x] = static_cast<float>(std::atan2(gy[y * w + x], gx[y * w + x]));
+            double angle = std::atan2(gy[y * w + x], gx[y * w + x]);
+            if (tangent) {
+                angle = NormalizeAngle(angle + HALF_PI);
+            }
+            row[x] = static_cast<float>(angle);
         }
     }
 }
 
 void PrewittAmp(const QImage& image, QImage& output, const std::string& filterType) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "PrewittAmp")) {
         output = QImage();
         return;
     }
@@ -617,7 +693,17 @@ void PrewittAmp(const QImage& image, QImage& output, const std::string& filterTy
 
     std::string lowerType = filterType;
     std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
-    bool useSqrt = (lowerType == "sum_sqrt" || lowerType == "sqrt");
+    if (lowerType.empty()) {
+        lowerType = "sum_abs";
+    }
+    bool useSqrt = false;
+    if (lowerType == "sum_abs") {
+        useSqrt = false;
+    } else if (lowerType == "sum_sqrt" || lowerType == "sqrt") {
+        useSqrt = true;
+    } else {
+        throw InvalidArgumentException("PrewittAmp: unknown filterType: " + filterType);
+    }
 
     for (int32_t y = 0; y < h; ++y) {
         uint8_t* row = static_cast<uint8_t*>(output.RowPtr(y));
@@ -632,7 +718,7 @@ void PrewittAmp(const QImage& image, QImage& output, const std::string& filterTy
 }
 
 void RobertsAmp(const QImage& image, QImage& output, const std::string& filterType) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "RobertsAmp")) {
         output = QImage();
         return;
     }
@@ -648,7 +734,17 @@ void RobertsAmp(const QImage& image, QImage& output, const std::string& filterTy
 
     std::string lowerType = filterType;
     std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
-    bool useSqrt = (lowerType == "sum_sqrt" || lowerType == "sqrt");
+    if (lowerType.empty()) {
+        lowerType = "sum_abs";
+    }
+    bool useSqrt = false;
+    if (lowerType == "sum_abs") {
+        useSqrt = false;
+    } else if (lowerType == "sum_sqrt" || lowerType == "sqrt") {
+        useSqrt = true;
+    } else {
+        throw InvalidArgumentException("RobertsAmp: unknown filterType: " + filterType);
+    }
 
     // Roberts cross kernels (2x2):
     // Gx: [[1, 0], [0, -1]]  (diagonal difference)
@@ -679,7 +775,10 @@ void RobertsAmp(const QImage& image, QImage& output, const std::string& filterTy
 
 void DerivateGauss(const QImage& image, QImage& output,
                     double sigma, const std::string& component) {
-    if (image.Empty()) {
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("DerivateGauss: sigma must be > 0");
+    }
+    if (!RequireValidImage(image, "DerivateGauss")) {
         output = QImage();
         return;
     }
@@ -693,6 +792,9 @@ void DerivateGauss(const QImage& image, QImage& output,
 
     std::string lowerComp = component;
     std::transform(lowerComp.begin(), lowerComp.end(), lowerComp.begin(), ::tolower);
+    if (lowerComp.empty()) {
+        throw InvalidArgumentException("DerivateGauss: component must be non-empty");
+    }
 
     std::vector<double> gaussKernel = GenGaussKernel(sigma);
     std::vector<double> derivKernel = GenGaussDerivKernel(sigma, 1);
@@ -739,9 +841,7 @@ void DerivateGauss(const QImage& image, QImage& output,
             derivKernel.data(), static_cast<int32_t>(derivKernel.size()),
             BorderMode::Reflect101);
     } else {
-        // Default: gradient magnitude
-        GradientMagnitude(image, output, sigma);
-        return;
+        throw InvalidArgumentException("DerivateGauss: unknown component: " + component);
     }
 
     output = QImage(w, h, PixelType::Float32, ChannelType::Gray);
@@ -749,7 +849,10 @@ void DerivateGauss(const QImage& image, QImage& output,
 }
 
 void GradientMagnitude(const QImage& image, QImage& output, double sigma) {
-    if (image.Empty()) {
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("GradientMagnitude: sigma must be > 0");
+    }
+    if (!RequireValidImage(image, "GradientMagnitude")) {
         output = QImage();
         return;
     }
@@ -775,7 +878,10 @@ void GradientMagnitude(const QImage& image, QImage& output, double sigma) {
 }
 
 void GradientDirection(const QImage& image, QImage& output, double sigma) {
-    if (image.Empty()) {
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("GradientDirection: sigma must be > 0");
+    }
+    if (!RequireValidImage(image, "GradientDirection")) {
         output = QImage();
         return;
     }
@@ -801,7 +907,7 @@ void GradientDirection(const QImage& image, QImage& output, double sigma) {
 }
 
 void Laplace(const QImage& image, QImage& output, const std::string& filterType) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "Laplace")) {
         output = QImage();
         return;
     }
@@ -815,21 +921,26 @@ void Laplace(const QImage& image, QImage& output, const std::string& filterType)
 
     std::string lower = filterType;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    if (lower.empty()) {
+        lower = "n4";
+    }
 
-    if (lower == "n4" || lower == "4") {
+    if (lower == "n4" || lower == "4" || lower == "3x3") {
         kernel = {0, 1, 0, 1, -4, 1, 0, 1, 0};
     } else if (lower == "n8" || lower == "8") {
         kernel = {1, 1, 1, 1, -8, 1, 1, 1, 1};
     } else {
-        // Default 3x3
-        kernel = {0, 1, 0, 1, -4, 1, 0, 1, 0};
+        throw InvalidArgumentException("Laplace: unknown filterType: " + filterType);
     }
 
     ConvolImage(image, output, kernel, 3, 3, false, "reflect");
 }
 
 void LaplacianOfGaussian(const QImage& image, QImage& output, double sigma) {
-    if (image.Empty()) {
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("LaplacianOfGaussian: sigma must be > 0");
+    }
+    if (!RequireValidImage(image, "LaplacianOfGaussian")) {
         output = QImage();
         return;
     }
@@ -860,9 +971,12 @@ void LaplacianOfGaussian(const QImage& image, QImage& output, double sigma) {
 // =============================================================================
 
 void HighpassImage(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "HighpassImage")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("HighpassImage: width/height must be > 0");
     }
 
     // Highpass = Original - Lowpass
@@ -888,6 +1002,9 @@ void HighpassImage(const QImage& image, QImage& output, int32_t width, int32_t h
 }
 
 void LowpassImage(const QImage& image, QImage& output, int32_t width, int32_t height) {
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("LowpassImage: width/height must be > 0");
+    }
     MeanImage(image, output, width, height);
 }
 
@@ -897,9 +1014,15 @@ void LowpassImage(const QImage& image, QImage& output, int32_t width, int32_t he
 
 void EmphasizeImage(const QImage& image, QImage& output,
                      int32_t width, int32_t height, double factor) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "EmphasizeImage")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("EmphasizeImage: width/height must be > 0");
+    }
+    if (!std::isfinite(factor)) {
+        throw InvalidArgumentException("EmphasizeImage: factor must be finite");
     }
 
     QImage lowpass;
@@ -926,9 +1049,18 @@ void EmphasizeImage(const QImage& image, QImage& output,
 
 void UnsharpMask(const QImage& image, QImage& output,
                   double sigma, double amount, double threshold) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "UnsharpMask")) {
         output = QImage();
         return;
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("UnsharpMask: sigma must be > 0");
+    }
+    if (!std::isfinite(amount) || amount < 0.0) {
+        throw InvalidArgumentException("UnsharpMask: amount must be >= 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("UnsharpMask: threshold must be >= 0");
     }
 
     QImage blurred;
@@ -959,9 +1091,15 @@ void UnsharpMask(const QImage& image, QImage& output,
 }
 
 void ShockFilter(const QImage& image, QImage& output, int32_t iterations, double dt) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "ShockFilter")) {
         output = QImage();
         return;
+    }
+    if (iterations <= 0) {
+        throw InvalidArgumentException("ShockFilter: iterations must be > 0");
+    }
+    if (!std::isfinite(dt) || dt <= 0.0) {
+        throw InvalidArgumentException("ShockFilter: dt must be > 0");
     }
 
     QImage current = image.Clone();
@@ -994,9 +1132,18 @@ void ShockFilter(const QImage& image, QImage& output, int32_t iterations, double
 
 void AnisoDiff(const QImage& image, QImage& output, const std::string& mode,
                 double contrast, double theta, int32_t iterations) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "AnisoDiff")) {
         output = QImage();
         return;
+    }
+    if (!std::isfinite(contrast) || contrast <= 0.0) {
+        throw InvalidArgumentException("AnisoDiff: contrast must be > 0");
+    }
+    if (!std::isfinite(theta) || theta <= 0.0) {
+        throw InvalidArgumentException("AnisoDiff: theta must be > 0");
+    }
+    if (iterations <= 0) {
+        throw InvalidArgumentException("AnisoDiff: iterations must be > 0");
     }
 
     if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
@@ -1008,7 +1155,17 @@ void AnisoDiff(const QImage& image, QImage& output, const std::string& mode,
 
     std::string lowerMode = mode;
     std::transform(lowerMode.begin(), lowerMode.end(), lowerMode.begin(), ::tolower);
-    bool usePM1 = (lowerMode == "pm1");
+    if (lowerMode.empty()) {
+        throw InvalidArgumentException("AnisoDiff: mode must be non-empty");
+    }
+    bool usePM1 = false;
+    if (lowerMode == "pm1") {
+        usePM1 = true;
+    } else if (lowerMode == "pm2") {
+        usePM1 = false;
+    } else {
+        throw InvalidArgumentException("AnisoDiff: unknown mode: " + mode);
+    }
 
     double k2 = contrast * contrast;
 
@@ -1080,9 +1237,15 @@ void ConvolImage(const QImage& image, QImage& output,
                   int32_t kernelWidth, int32_t kernelHeight,
                   bool normalize,
                   const std::string& borderMode) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "ConvolImage")) {
         output = QImage();
         return;
+    }
+    if (kernelWidth <= 0 || kernelHeight <= 0) {
+        throw InvalidArgumentException("ConvolImage: kernelWidth/Height must be > 0");
+    }
+    if (kernel.empty() || static_cast<int32_t>(kernel.size()) != kernelWidth * kernelHeight) {
+        throw InvalidArgumentException("ConvolImage: kernel size mismatch");
     }
 
     if (image.Type() != PixelType::UInt8) {
@@ -1134,9 +1297,12 @@ void ConvolSeparable(const QImage& image, QImage& output,
                       const std::vector<double>& kernelX,
                       const std::vector<double>& kernelY,
                       const std::string& borderMode) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "ConvolSeparable")) {
         output = QImage();
         return;
+    }
+    if (kernelX.empty() || kernelY.empty()) {
+        throw InvalidArgumentException("ConvolSeparable: kernels must be non-empty");
     }
 
     if (image.Type() != PixelType::UInt8) {
@@ -1183,9 +1349,15 @@ void ConvolSeparable(const QImage& image, QImage& output,
 
 void RankImage(const QImage& image, QImage& output,
                 int32_t width, int32_t height, int32_t rank) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "RankImage")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("RankImage: width/height must be > 0");
+    }
+    if (rank < 0) {
+        throw InvalidArgumentException("RankImage: rank must be >= 0");
     }
 
     if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
@@ -1236,9 +1408,12 @@ void MaxImage(const QImage& image, QImage& output, int32_t width, int32_t height
 // =============================================================================
 
 void StdDevImage(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "StdDevImage")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("StdDevImage: width/height must be > 0");
     }
 
     QImage variance;
@@ -1260,9 +1435,12 @@ void StdDevImage(const QImage& image, QImage& output, int32_t width, int32_t hei
 }
 
 void VarianceImage(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "VarianceImage")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("VarianceImage: width/height must be > 0");
     }
 
     if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
@@ -1306,9 +1484,15 @@ void VarianceImage(const QImage& image, QImage& output, int32_t width, int32_t h
 
 void EntropyImage(const QImage& image, QImage& output,
                    int32_t width, int32_t height, int32_t numBins) {
-    if (image.Empty()) {
+    if (!RequireValidImage(image, "EntropyImage")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("EntropyImage: width/height must be > 0");
+    }
+    if (numBins <= 0) {
+        throw InvalidArgumentException("EntropyImage: numBins must be > 0");
     }
 
     if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
@@ -1380,6 +1564,12 @@ void ApplyCLAHE(const QImage& image, QImage& output,
         output = QImage();
         return;
     }
+    if (tileSize <= 0) {
+        throw InvalidArgumentException("ApplyCLAHE: tileSize must be > 0");
+    }
+    if (!std::isfinite(clipLimit) || clipLimit <= 0.0) {
+        throw InvalidArgumentException("ApplyCLAHE: clipLimit must be > 0");
+    }
     Internal::CLAHEParams params;
     params.tileGridSizeX = tileSize;
     params.tileGridSizeY = tileSize;
@@ -1390,6 +1580,12 @@ void ApplyCLAHE(const QImage& image, QImage& output,
 QImage ApplyCLAHE(const QImage& image, int32_t tileSize, double clipLimit) {
     if (!RequireGrayU8(image, "ApplyCLAHE")) {
         return QImage();
+    }
+    if (tileSize <= 0) {
+        throw InvalidArgumentException("ApplyCLAHE: tileSize must be > 0");
+    }
+    if (!std::isfinite(clipLimit) || clipLimit <= 0.0) {
+        throw InvalidArgumentException("ApplyCLAHE: clipLimit must be > 0");
     }
     Internal::CLAHEParams params;
     params.tileGridSizeX = tileSize;
@@ -1405,6 +1601,13 @@ void ContrastStretch(const QImage& image, QImage& output,
         output = QImage();
         return;
     }
+    if (!std::isfinite(lowPercentile) || !std::isfinite(highPercentile) ||
+        lowPercentile < 0.0 || highPercentile > 100.0 || lowPercentile > highPercentile) {
+        throw InvalidArgumentException("ContrastStretch: invalid percentile range");
+    }
+    if (!std::isfinite(outputMin) || !std::isfinite(outputMax) || outputMax <= outputMin) {
+        throw InvalidArgumentException("ContrastStretch: outputMax must be > outputMin");
+    }
     output = Internal::ContrastStretch(image, lowPercentile, highPercentile,
                                        outputMin, outputMax);
 }
@@ -1414,6 +1617,13 @@ QImage ContrastStretch(const QImage& image,
                        double outputMin, double outputMax) {
     if (!RequireGrayU8(image, "ContrastStretch")) {
         return QImage();
+    }
+    if (!std::isfinite(lowPercentile) || !std::isfinite(highPercentile) ||
+        lowPercentile < 0.0 || highPercentile > 100.0 || lowPercentile > highPercentile) {
+        throw InvalidArgumentException("ContrastStretch: invalid percentile range");
+    }
+    if (!std::isfinite(outputMin) || !std::isfinite(outputMax) || outputMax <= outputMin) {
+        throw InvalidArgumentException("ContrastStretch: outputMax must be > outputMin");
     }
     return Internal::ContrastStretch(image, lowPercentile, highPercentile,
                                      outputMin, outputMax);
@@ -1440,12 +1650,18 @@ void NormalizeImage(const QImage& image, QImage& output,
         output = QImage();
         return;
     }
+    if (!std::isfinite(outputMin) || !std::isfinite(outputMax) || outputMax <= outputMin) {
+        throw InvalidArgumentException("NormalizeImage: outputMax must be > outputMin");
+    }
     output = Internal::NormalizeImage(image, outputMin, outputMax);
 }
 
 QImage NormalizeImage(const QImage& image, double outputMin, double outputMax) {
     if (!RequireGrayU8(image, "NormalizeImage")) {
         return QImage();
+    }
+    if (!std::isfinite(outputMin) || !std::isfinite(outputMax) || outputMax <= outputMin) {
+        throw InvalidArgumentException("NormalizeImage: outputMax must be > outputMin");
     }
     return Internal::NormalizeImage(image, outputMin, outputMax);
 }

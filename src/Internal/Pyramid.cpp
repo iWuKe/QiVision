@@ -17,13 +17,13 @@
  */
 
 #include <QiVision/Internal/Pyramid.h>
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Internal/Gaussian.h>
 #include <QiVision/Internal/Gradient.h>
 #include <QiVision/Internal/Interpolate.h>
 
 #include <cmath>
 #include <algorithm>
-#include <stdexcept>
 #include <cstring>
 
 #ifdef _OPENMP
@@ -79,7 +79,7 @@ inline bool ShouldUseParallel(int32_t width, int32_t height) {
  *   2. 垂直 pass 用 5 次连续 load，不要用 gather
  *   3. 用指针轮转代替模运算，模运算只在 dy 层做
  */
-static void FusedGaussianDownsample2x_RingBuffer(
+[[maybe_unused]] static void FusedGaussianDownsample2x_RingBuffer(
     const float* __restrict src, int32_t srcWidth, int32_t srcHeight,
     float* __restrict dst)
 {
@@ -347,7 +347,7 @@ static void FusedGaussianDownsample2x_Separable(
 // 非 AVX2 回退版本
 // =============================================================================
 
-static void FusedGaussianDownsample2x_Scalar(
+[[maybe_unused]] static void FusedGaussianDownsample2x_Scalar(
     const float* src, int32_t srcWidth, int32_t srcHeight,
     float* dst)
 {
@@ -440,21 +440,21 @@ static void FusedGaussianDownsample2x(
 
 const PyramidLevel& ImagePyramid::GetLevel(int32_t level) const {
     if (level < 0 || level >= static_cast<int32_t>(levels_.size())) {
-        throw std::out_of_range("Pyramid level index out of range");
+        throw OutOfRangeException("ImagePyramid::GetLevel: level out of range");
     }
     return levels_[level];
 }
 
 PyramidLevel& ImagePyramid::GetLevel(int32_t level) {
     if (level < 0 || level >= static_cast<int32_t>(levels_.size())) {
-        throw std::out_of_range("Pyramid level index out of range");
+        throw OutOfRangeException("ImagePyramid::GetLevel: level out of range");
     }
     return levels_[level];
 }
 
 const PyramidLevel& ImagePyramid::GetLevelByScale(double scale) const {
     if (levels_.empty()) {
-        throw std::runtime_error("Pyramid is empty");
+        throw InvalidArgumentException("ImagePyramid::GetLevelByScale: pyramid is empty");
     }
 
     int32_t bestLevel = 0;
@@ -477,14 +477,14 @@ const PyramidLevel& ImagePyramid::GetLevelByScale(double scale) const {
 
 const GradientPyramidLevel& GradientPyramid::GetLevel(int32_t level) const {
     if (level < 0 || level >= static_cast<int32_t>(levels_.size())) {
-        throw std::out_of_range("Gradient pyramid level index out of range");
+        throw OutOfRangeException("GradientPyramid::GetLevel: level out of range");
     }
     return levels_[level];
 }
 
 GradientPyramidLevel& GradientPyramid::GetLevel(int32_t level) {
     if (level < 0 || level >= static_cast<int32_t>(levels_.size())) {
-        throw std::out_of_range("Gradient pyramid level index out of range");
+        throw OutOfRangeException("GradientPyramid::GetLevel: level out of range");
     }
     return levels_[level];
 }

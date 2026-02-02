@@ -2,6 +2,7 @@
 #include <QiVision/Core/Exception.h>
 
 #include <algorithm>
+#include <cmath>
 #include <mutex>
 
 namespace Qi::Vision {
@@ -125,6 +126,9 @@ public:
 QRegion::QRegion() : impl_(std::make_shared<Impl>()) {}
 
 QRegion::QRegion(const Rect2i& rect) : impl_(std::make_shared<Impl>()) {
+    if (!rect.IsValid()) {
+        throw InvalidArgumentException("QRegion::QRegion: invalid rectangle");
+    }
     if (rect.width > 0 && rect.height > 0) {
         impl_->runs_.reserve(rect.height);
         for (int32_t y = rect.y; y < rect.y + rect.height; ++y) {
@@ -134,6 +138,11 @@ QRegion::QRegion(const Rect2i& rect) : impl_(std::make_shared<Impl>()) {
 }
 
 QRegion::QRegion(const std::vector<Run>& runs) : impl_(std::make_shared<Impl>()) {
+    for (const auto& run : runs) {
+        if (run.colEnd <= run.colBegin) {
+            throw InvalidArgumentException("QRegion::QRegion: invalid run");
+        }
+    }
     impl_->runs_ = runs;
     impl_->SortAndMerge();
 }
@@ -149,12 +158,18 @@ QRegion& QRegion::operator=(QRegion&& other) noexcept = default;
 // =============================================================================
 
 QRegion QRegion::Rectangle(int32_t x, int32_t y, int32_t width, int32_t height) {
+    if (width < 0 || height < 0) {
+        throw InvalidArgumentException("QRegion::Rectangle: width/height must be >= 0");
+    }
     return QRegion(Rect2i(x, y, width, height));
 }
 
 QRegion QRegion::Circle(int32_t cx, int32_t cy, int32_t radius) {
     QRegion region;
-    if (radius <= 0) return region;
+    if (radius < 0) {
+        throw InvalidArgumentException("QRegion::Circle: radius must be >= 0");
+    }
+    if (radius == 0) return region;
 
     region.impl_->runs_.reserve(2 * radius + 1);
 
@@ -171,11 +186,13 @@ QRegion QRegion::Circle(int32_t cx, int32_t cy, int32_t radius) {
 
 QRegion QRegion::Ellipse(int32_t cx, int32_t cy, int32_t radiusX, int32_t radiusY) {
     QRegion region;
-    if (radiusX <= 0 || radiusY <= 0) return region;
+    if (radiusX < 0 || radiusY < 0) {
+        throw InvalidArgumentException("QRegion::Ellipse: radius must be >= 0");
+    }
+    if (radiusX == 0 || radiusY == 0) return region;
 
     region.impl_->runs_.reserve(2 * radiusY + 1);
 
-    double rx2 = static_cast<double>(radiusX * radiusX);
     double ry2 = static_cast<double>(radiusY * radiusY);
 
     for (int32_t dy = -radiusY; dy <= radiusY; ++dy) {
@@ -321,6 +338,9 @@ QRegion QRegion::Complement() const {
 }
 
 QRegion QRegion::Complement(const Rect2i& bounds) const {
+    if (!bounds.IsValid()) {
+        throw InvalidArgumentException("QRegion::Complement: invalid bounds");
+    }
     QRegion boundsRegion(bounds);
     return boundsRegion.Difference(*this);
 }
@@ -330,6 +350,9 @@ QRegion QRegion::Complement(const Rect2i& bounds) const {
 // =============================================================================
 
 QRegion QRegion::Dilate(int32_t width, int32_t height) const {
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("QRegion::Dilate: width/height must be > 0");
+    }
     std::vector<Run> result;
     int32_t halfW = width / 2;
     int32_t halfH = height / 2;
@@ -348,6 +371,9 @@ QRegion QRegion::Dilate(int32_t width, int32_t height) const {
 }
 
 QRegion QRegion::Erode(int32_t width, int32_t height) const {
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("QRegion::Erode: width/height must be > 0");
+    }
     // Simplified: erode = complement of dilate of complement
     // This is not optimal but correct
     Rect2i bbox = BoundingBox();
@@ -360,10 +386,16 @@ QRegion QRegion::Erode(int32_t width, int32_t height) const {
 }
 
 QRegion QRegion::Opening(int32_t width, int32_t height) const {
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("QRegion::Opening: width/height must be > 0");
+    }
     return Erode(width, height).Dilate(width, height);
 }
 
 QRegion QRegion::Closing(int32_t width, int32_t height) const {
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("QRegion::Closing: width/height must be > 0");
+    }
     return Dilate(width, height).Erode(width, height);
 }
 
@@ -385,6 +417,9 @@ QRegion QRegion::Translate(int32_t dx, int32_t dy) const {
 }
 
 QRegion QRegion::Scale(double sx, double sy) const {
+    if (!std::isfinite(sx) || !std::isfinite(sy) || sx <= 0.0 || sy <= 0.0) {
+        throw InvalidArgumentException("QRegion::Scale: scale must be > 0");
+    }
     std::vector<Run> result;
 
     for (const auto& run : impl_->runs_) {

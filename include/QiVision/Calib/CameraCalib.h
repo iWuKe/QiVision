@@ -16,6 +16,7 @@
 #include <QiVision/Core/Types.h>
 #include <QiVision/Calib/CameraModel.h>
 #include <QiVision/Internal/Matrix.h>
+#include <QiVision/Core/Export.h>
 
 #include <vector>
 
@@ -46,7 +47,7 @@ inline bool operator&(CalibFlags a, CalibFlags b) {
 /**
  * @brief Extrinsic parameters for a single calibration image
  */
-struct ExtrinsicParams {
+struct QIVISION_API ExtrinsicParams {
     Internal::Mat33 R;      ///< Rotation matrix (3x3)
     Internal::Vec3 t;       ///< Translation vector
     Internal::Vec3 rvec;    ///< Rodrigues rotation vector (for optimization)
@@ -61,7 +62,7 @@ struct ExtrinsicParams {
 /**
  * @brief Result of camera calibration
  */
-struct CalibrationResult {
+struct QIVISION_API CalibrationResult {
     bool success = false;           ///< Whether calibration succeeded
     CameraModel camera;             ///< Calibrated camera model
     double rmsError = 0.0;          ///< RMS reprojection error (pixels)
@@ -89,7 +90,7 @@ struct CalibrationResult {
  * @param initialCamera Optional initial camera model (for UseIntrinsicGuess)
  * @return Calibration result
  */
-CalibrationResult CalibrateCamera(
+QIVISION_API CalibrationResult CalibrateCamera(
     const std::vector<std::vector<Point2d>>& imagePoints,
     const std::vector<std::vector<Point3d>>& objectPoints,
     const Size2i& imageSize,
@@ -111,7 +112,7 @@ CalibrationResult CalibrateCamera(
  * @param useExtrinsicGuess If true, use rvec/tvec as initial guess
  * @return true if successful
  */
-bool SolvePnP(
+QIVISION_API bool SolvePnP(
     const std::vector<Point3d>& objectPoints,
     const std::vector<Point2d>& imagePoints,
     const CameraModel& camera,
@@ -130,7 +131,7 @@ bool SolvePnP(
  * @param tvec Translation vector
  * @return Vector of per-point reprojection errors
  */
-std::vector<double> ComputeReprojectionErrors(
+QIVISION_API std::vector<double> ComputeReprojectionErrors(
     const std::vector<Point3d>& objectPoints,
     const std::vector<Point2d>& imagePoints,
     const CameraModel& camera,
@@ -147,7 +148,7 @@ std::vector<double> ComputeReprojectionErrors(
  * @param tvec Translation vector
  * @return Projected 2D points
  */
-std::vector<Point2d> ProjectPoints(
+QIVISION_API std::vector<Point2d> ProjectPoints(
     const std::vector<Point3d>& objectPoints,
     const CameraModel& camera,
     const Internal::Vec3& rvec,
@@ -160,7 +161,7 @@ std::vector<Point2d> ProjectPoints(
  * @param rvec Rotation vector (axis * angle)
  * @return 3x3 rotation matrix
  */
-Internal::Mat33 RodriguesToMatrix(const Internal::Vec3& rvec);
+QIVISION_API Internal::Mat33 RodriguesToMatrix(const Internal::Vec3& rvec);
 
 /**
  * @brief Convert rotation matrix to rotation vector (Rodrigues)
@@ -168,6 +169,6 @@ Internal::Mat33 RodriguesToMatrix(const Internal::Vec3& rvec);
  * @param R 3x3 rotation matrix
  * @return Rotation vector
  */
-Internal::Vec3 MatrixToRodrigues(const Internal::Mat33& R);
+QIVISION_API Internal::Vec3 MatrixToRodrigues(const Internal::Mat33& R);
 
 } // namespace Qi::Vision::Calib

@@ -302,6 +302,8 @@ std::vector<QContour> LinkCannyEdges(const std::vector<CannyEdgePoint>& edgePoin
                                       int32_t width, int32_t height,
                                       double minLength,
                                       int32_t minPoints) {
+    (void)width;
+    (void)height;
     if (edgePoints.empty()) {
         return {};
     }

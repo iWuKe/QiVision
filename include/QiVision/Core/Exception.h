@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Exception.h
  * @brief Exception classes for QiVision
@@ -13,7 +15,7 @@ namespace Qi::Vision {
 /**
  * @brief Base exception class for QiVision
  */
-class Exception : public std::runtime_error {
+class QIVISION_API Exception : public std::runtime_error {
 public:
     explicit Exception(const std::string& message)
         : std::runtime_error(message) {}
@@ -25,7 +27,7 @@ public:
 /**
  * @brief Invalid argument exception
  */
-class InvalidArgumentException : public Exception {
+class QIVISION_API InvalidArgumentException : public Exception {
 public:
     explicit InvalidArgumentException(const std::string& message)
         : Exception("Invalid argument: " + message) {}
@@ -34,7 +36,7 @@ public:
 /**
  * @brief Out of range exception
  */
-class OutOfRangeException : public Exception {
+class QIVISION_API OutOfRangeException : public Exception {
 public:
     explicit OutOfRangeException(const std::string& message)
         : Exception("Out of range: " + message) {}
@@ -43,7 +45,7 @@ public:
 /**
  * @brief Insufficient data for algorithm (e.g., not enough points for fitting)
  */
-class InsufficientDataException : public Exception {
+class QIVISION_API InsufficientDataException : public Exception {
 public:
     explicit InsufficientDataException(const std::string& message)
         : Exception("Insufficient data: " + message) {}
@@ -52,7 +54,7 @@ public:
 /**
  * @brief Algorithm failed to converge
  */
-class ConvergenceException : public Exception {
+class QIVISION_API ConvergenceException : public Exception {
 public:
     explicit ConvergenceException(const std::string& message)
         : Exception("Convergence failed: " + message) {}
@@ -61,7 +63,7 @@ public:
 /**
  * @brief File I/O exception
  */
-class IOException : public Exception {
+class QIVISION_API IOException : public Exception {
 public:
     explicit IOException(const std::string& message)
         : Exception("I/O error: " + message) {}
@@ -70,7 +72,7 @@ public:
 /**
  * @brief Unsupported operation or format
  */
-class UnsupportedException : public Exception {
+class QIVISION_API UnsupportedException : public Exception {
 public:
     explicit UnsupportedException(const std::string& message)
         : Exception("Unsupported: " + message) {}
@@ -79,7 +81,7 @@ public:
 /**
  * @brief Version mismatch for serialization
  */
-class VersionMismatchException : public Exception {
+class QIVISION_API VersionMismatchException : public Exception {
 public:
     explicit VersionMismatchException(const std::string& message)
         : Exception("Version mismatch: " + message) {}

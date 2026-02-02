@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-01-30 (ShapeModel AVX2 Score 优化)
+> 最后更新: 2026-02-02 (Blob Hu Moments)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -255,6 +255,20 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-02 (Blob Hu Moments)
+
+- **Blob/Blob.h 模块** (新增 Hu Moments 公开 API)
+  - 新增 `HuMoments(const QRegion&) -> std::array<double, 7>`: 返回 7 个 Hu 不变矩
+  - 新增 `HuMoments(const QRegion&, double& hu1, ..., double& hu7)`: Halcon 风格输出参数版本
+  - 新增 `HuMoments(const std::vector<QRegion>&, std::vector<std::array<double, 7>>&)`: 批量计算版本
+  - **Hu Moments 特性**:
+    - 旋转不变、缩放不变、平移不变
+    - 7 个描述符从归一化中心矩导出
+    - hu[6] 的符号可用于区分镜像图像
+    - 适用于形状识别和匹配
+  - 封装 Internal::ComputeHuMoments 为公开 API
+  - 更新 `docs/API_Reference.md` 添加 HuMoments 文档
 
 ### 2026-01-30 (ShapeModel AVX2 Score 优化)
 

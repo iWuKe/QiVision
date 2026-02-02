@@ -24,6 +24,9 @@ bool RequireGrayU8(const QImage& image, const char* funcName) {
     if (image.Empty()) {
         return false;
     }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
     if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
         throw UnsupportedException(std::string(funcName) +
                                    " requires single-channel UInt8 image");
@@ -34,6 +37,16 @@ bool RequireGrayU8(const QImage& image, const char* funcName) {
 void RequirePositive(int32_t value, const char* name, const char* funcName) {
     if (value <= 0) {
         throw InvalidArgumentException(std::string(funcName) + ": " + name + " must be > 0");
+    }
+}
+
+int32_t LbpNumBins(LBPType type) {
+    switch (type) {
+        case LBPType::Standard: return 256;
+        case LBPType::Uniform: return 59;
+        case LBPType::RotationInvariant: return 36;
+        case LBPType::UniformRI: return 10;
+        default: return 256;
     }
 }
 
@@ -254,14 +267,7 @@ void ComputeLBPExtended(const QImage& image, QImage& lbpImage,
 int32_t ComputeLBPHistogram(const QImage& lbpImage,
                             std::vector<double>& histogram,
                             LBPType type) {
-    int32_t numBins;
-    switch (type) {
-        case LBPType::Standard: numBins = 256; break;
-        case LBPType::Uniform: numBins = 59; break;
-        case LBPType::RotationInvariant: numBins = 36; break;
-        case LBPType::UniformRI: numBins = 10; break;
-        default: numBins = 256;
-    }
+    int32_t numBins = LbpNumBins(type);
 
     if (lbpImage.Empty()) {
         histogram.assign(numBins, 0.0);
@@ -303,14 +309,7 @@ int32_t ComputeLBPHistogram(const QImage& lbpImage,
                             const QRegion& region,
                             std::vector<double>& histogram,
                             LBPType type) {
-    int32_t numBins;
-    switch (type) {
-        case LBPType::Standard: numBins = 256; break;
-        case LBPType::Uniform: numBins = 59; break;
-        case LBPType::RotationInvariant: numBins = 36; break;
-        case LBPType::UniformRI: numBins = 10; break;
-        default: numBins = 256;
-    }
+    int32_t numBins = LbpNumBins(type);
 
     if (lbpImage.Empty()) {
         histogram.assign(numBins, 0.0);
@@ -563,7 +562,10 @@ GLCMFeatures ComputeGLCMFeatures(const QImage& image,
 // =============================================================================
 
 void CreateGaborKernel(const GaborParams& params, QImage& kernel) {
-    if (params.sigma <= 0.0 || params.lambda <= 0.0) {
+    if (!std::isfinite(params.sigma) || !std::isfinite(params.lambda) ||
+        !std::isfinite(params.theta) || !std::isfinite(params.psi) ||
+        !std::isfinite(params.gamma) ||
+        params.sigma <= 0.0 || params.lambda <= 0.0 || params.gamma <= 0.0) {
         throw InvalidArgumentException("CreateGaborKernel: sigma and lambda must be > 0");
     }
     int32_t size = params.kernelSize;
@@ -655,7 +657,10 @@ void ApplyGaborFilterBank(const QImage& image,
                           double sigma,
                           double lambda) {
     RequirePositive(numOrientations, "numOrientations", "ApplyGaborFilterBank");
-    if (image.Empty()) {
+    if (!std::isfinite(sigma) || !std::isfinite(lambda) || sigma <= 0.0 || lambda <= 0.0) {
+        throw InvalidArgumentException("ApplyGaborFilterBank: sigma/lambda must be > 0");
+    }
+    if (!RequireGrayU8(image, "ApplyGaborFilterBank")) {
         responses.clear();
         return;
     }
@@ -714,16 +719,16 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
                                     double lambda) {
     GaborFeatures f;
     RequirePositive(numOrientations, "numOrientations", "ExtractGaborFeatures");
+    if (!std::isfinite(sigma) || !std::isfinite(lambda) || sigma <= 0.0 || lambda <= 0.0) {
+        throw InvalidArgumentException("ExtractGaborFeatures: sigma/lambda must be > 0");
+    }
     f.meanEnergy.resize(numOrientations);
     f.stdEnergy.resize(numOrientations);
 
-    if (image.Empty()) {
+    if (!RequireGrayU8(image, "ExtractGaborFeatures")) {
         f.dominantOrientation = 0.0;
         f.orientationStrength = 0.0;
         return f;
-    }
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("ExtractGaborFeatures requires single-channel UInt8 image");
     }
 
     int32_t width = image.Width();
@@ -779,10 +784,14 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
                                     double sigma,
                                     double lambda) {
     RequirePositive(numOrientations, "numOrientations", "ExtractGaborFeatures");
-    if (image.Empty() || region.Empty()) {
-        GaborFeatures f;
-        f.meanEnergy.resize(numOrientations);
-        f.stdEnergy.resize(numOrientations);
+    if (!std::isfinite(sigma) || !std::isfinite(lambda) || sigma <= 0.0 || lambda <= 0.0) {
+        throw InvalidArgumentException("ExtractGaborFeatures: sigma/lambda must be > 0");
+    }
+    GaborFeatures f;
+    f.meanEnergy.resize(numOrientations);
+    f.stdEnergy.resize(numOrientations);
+
+    if (!RequireGrayU8(image, "ExtractGaborFeatures") || region.Empty()) {
         return f;
     }
     // Use bounding box for simplicity
@@ -968,6 +977,9 @@ void DetectTextureAnomalies(const QImage& image,
     }
     if (referenceHist.empty()) {
         throw InvalidArgumentException("DetectTextureAnomalies: referenceHist is empty");
+    }
+    if (static_cast<int32_t>(referenceHist.size()) != LbpNumBins(type)) {
+        throw InvalidArgumentException("DetectTextureAnomalies: referenceHist size mismatch");
     }
 
     // Compute LBP

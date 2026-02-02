@@ -14,6 +14,7 @@
  * Internal layer implementations (Canny, Steger).
  */
 
+#include <QiVision/Core/Export.h>
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/QContour.h>
 #include <QiVision/Core/QContourArray.h>
@@ -48,7 +49,7 @@ namespace Qi::Vision::Edge {
  *
  * @note If lowThreshold >= highThreshold, auto-threshold is used
  */
-void EdgesImage(
+QIVISION_API void EdgesImage(
     const QImage& image,
     QImage& edges,
     const std::string& filter = "canny",
@@ -82,7 +83,7 @@ void EdgesImage(
  *
  * @note Contours are sorted by length (longest first)
  */
-void EdgesSubPix(
+QIVISION_API void EdgesSubPix(
     const QImage& image,
     QContourArray& contours,
     const std::string& filter = "canny",
@@ -106,7 +107,7 @@ void EdgesSubPix(
  * EdgesSubPixAuto(image, contours, "canny", 1.5);
  * @endcode
  */
-void EdgesSubPixAuto(
+QIVISION_API void EdgesSubPixAuto(
     const QImage& image,
     QContourArray& contours,
     const std::string& filter = "canny",
@@ -145,7 +146,7 @@ void EdgesSubPixAuto(
  *
  * @note Subpixel accuracy is typically <0.02 pixels under good conditions
  */
-void LinesSubPix(
+QIVISION_API void LinesSubPix(
     const QImage& image,
     QContourArray& contours,
     double sigma = 1.5,
@@ -162,7 +163,7 @@ void LinesSubPix(
  * @param sigma Gaussian sigma
  * @param lightDark Line polarity
  */
-void LinesSubPixAuto(
+QIVISION_API void LinesSubPixAuto(
     const QImage& image,
     QContourArray& contours,
     double sigma = 1.5,
@@ -176,7 +177,7 @@ void LinesSubPixAuto(
 /**
  * @brief Canny edge detection parameters
  */
-struct CannyEdgeParams {
+struct QIVISION_API CannyEdgeParams {
     double sigma = 1.0;             ///< Gaussian smoothing sigma
     double lowThreshold = 20.0;     ///< Low threshold for hysteresis
     double highThreshold = 40.0;    ///< High threshold for hysteresis
@@ -207,7 +208,7 @@ struct CannyEdgeParams {
 /**
  * @brief Steger line detection parameters
  */
-struct StegerLineParams {
+struct QIVISION_API StegerLineParams {
     double sigma = 1.5;             ///< Gaussian sigma (line width sensitivity)
     double lowThreshold = 3.0;      ///< Low threshold for hysteresis
     double highThreshold = 8.0;     ///< High threshold for hysteresis
@@ -245,7 +246,7 @@ struct StegerLineParams {
  * @param contours Output edge contours
  * @param params Canny edge detection parameters
  */
-void DetectEdges(
+QIVISION_API void DetectEdges(
     const QImage& image,
     QContourArray& contours,
     const CannyEdgeParams& params
@@ -258,7 +259,7 @@ void DetectEdges(
  * @param contours Output line contours
  * @param params Steger line detection parameters
  */
-void DetectLines(
+QIVISION_API void DetectLines(
     const QImage& image,
     QContourArray& contours,
     const StegerLineParams& params
@@ -274,7 +275,7 @@ void DetectLines(
  * @param lineWidthPixels Expected line width in pixels
  * @return Recommended sigma value
  */
-double ComputeSigmaForLineWidth(double lineWidthPixels);
+QIVISION_API double ComputeSigmaForLineWidth(double lineWidthPixels);
 
 /**
  * @brief Estimate thresholds from image gradient statistics
@@ -284,7 +285,7 @@ double ComputeSigmaForLineWidth(double lineWidthPixels);
  * @param[out] lowThreshold Estimated low threshold
  * @param[out] highThreshold Estimated high threshold
  */
-void EstimateThresholds(
+QIVISION_API void EstimateThresholds(
     const QImage& image,
     double sigma,
     double& lowThreshold,

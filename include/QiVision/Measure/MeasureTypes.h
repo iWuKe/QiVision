@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file MeasureTypes.h
  * @brief Measure module type definitions
@@ -100,7 +102,7 @@ enum class ScoreMethod {
 /**
  * @brief Single edge measurement result
  */
-struct EdgeResult {
+struct QIVISION_API EdgeResult {
     // Position in image coordinates (subpixel)
     double row = 0.0;           ///< Y coordinate (row)
     double column = 0.0;        ///< X coordinate (column)
@@ -135,7 +137,7 @@ struct EdgeResult {
  * - IntraDistance -> intraDistance (width between edges of this pair)
  * - InterDistance -> interDistance (distance to next pair)
  */
-struct PairResult {
+struct QIVISION_API PairResult {
     EdgeResult first;           ///< First edge of pair
     EdgeResult second;          ///< Second edge of pair
 
@@ -164,7 +166,7 @@ struct PairResult {
 /**
  * @brief Measurement statistics
  */
-struct MeasureStats {
+struct QIVISION_API MeasureStats {
     int32_t numEdgesFound = 0;      ///< Total edges detected
     int32_t numEdgesReturned = 0;   ///< Edges after filtering
 
@@ -213,37 +215,37 @@ inline EdgeTransition FromEdgePolarity(EdgePolarity p) {
  * @param transition "positive", "negative", "all" (case-insensitive)
  * @return EdgeTransition enum value
  */
-EdgeTransition ParseTransition(const std::string& transition);
+QIVISION_API EdgeTransition ParseTransition(const std::string& transition);
 
 /**
  * @brief Parse Halcon select string to EdgeSelectMode
  * @param select "first", "last", "all" (case-insensitive)
  * @return EdgeSelectMode enum value
  */
-EdgeSelectMode ParseEdgeSelect(const std::string& select);
+QIVISION_API EdgeSelectMode ParseEdgeSelect(const std::string& select);
 
 /**
  * @brief Parse Halcon select string to PairSelectMode
  * @param select "first", "last", "all" (case-insensitive)
  * @return PairSelectMode enum value
  */
-PairSelectMode ParsePairSelect(const std::string& select);
+QIVISION_API PairSelectMode ParsePairSelect(const std::string& select);
 
 /**
  * @brief Parse Halcon interpolation string
  * @param interpolation "nearest", "bilinear", "bicubic" (case-insensitive)
  * @return ProfileInterpolation enum value
  */
-ProfileInterpolation ParseInterpolation(const std::string& interpolation);
+QIVISION_API ProfileInterpolation ParseInterpolation(const std::string& interpolation);
 
 /**
  * @brief Convert EdgeTransition to Halcon string
  */
-std::string TransitionToString(EdgeTransition t);
+QIVISION_API std::string TransitionToString(EdgeTransition t);
 
 /**
  * @brief Convert EdgeSelectMode to Halcon string
  */
-std::string EdgeSelectToString(EdgeSelectMode m);
+QIVISION_API std::string EdgeSelectToString(EdgeSelectMode m);
 
 } // namespace Qi::Vision::Measure

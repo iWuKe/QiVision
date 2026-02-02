@@ -27,9 +27,23 @@ Internal::CannyGradientOp ParseGradientOp(const std::string& filter) {
     std::string lower = filter;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
-    if (lower.find("scharr") != std::string::npos) {
+    if (lower.empty()) {
+        lower = "sobel";
+    }
+
+    bool hasScharr = lower.find("scharr") != std::string::npos;
+    bool hasSobel5 = lower.find("5x5") != std::string::npos ||
+                     lower.find("sobel5") != std::string::npos;
+    bool hasSobel = lower.find("sobel") != std::string::npos;
+    bool hasCanny = lower.find("canny") != std::string::npos;
+
+    if (!(hasScharr || hasSobel5 || hasSobel || hasCanny)) {
+        throw InvalidArgumentException("Unknown edge filter: " + filter);
+    }
+
+    if (hasScharr) {
         return Internal::CannyGradientOp::Scharr;
-    } else if (lower.find("5x5") != std::string::npos || lower.find("sobel5") != std::string::npos) {
+    } else if (hasSobel5) {
         return Internal::CannyGradientOp::Sobel5x5;
     }
     // Default: Sobel 3x3
@@ -40,6 +54,10 @@ Internal::LineType ParseLineType(const std::string& lightDark) {
     std::string lower = lightDark;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
+    if (lower.empty()) {
+        lower = "light";
+    }
+
     if (lower == "light" || lower == "bright" || lower == "ridge") {
         return Internal::LineType::Ridge;
     } else if (lower == "dark" || lower == "valley") {
@@ -48,8 +66,7 @@ Internal::LineType ParseLineType(const std::string& lightDark) {
         return Internal::LineType::Both;
     }
 
-    // Default: light lines (ridge)
-    return Internal::LineType::Ridge;
+    throw InvalidArgumentException("Unknown line type: " + lightDark);
 }
 
 Internal::CannyParams BuildCannyParams(const CannyEdgeParams& params) {
@@ -79,11 +96,40 @@ Internal::StegerParams BuildStegerParams(const StegerLineParams& params) {
     return sp;
 }
 
-void ValidateGrayscaleInput(const QImage& image, const char* funcName) {
+void ValidateCannyParams(const CannyEdgeParams& params, const char* funcName) {
+    if (!std::isfinite(params.sigma) || params.sigma <= 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": sigma must be > 0");
+    }
+    if (!std::isfinite(params.lowThreshold) || params.lowThreshold < 0.0 ||
+        !std::isfinite(params.highThreshold) || params.highThreshold < 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": thresholds must be >= 0");
+    }
+    if (params.minContourLength < 0.0 || params.minContourPoints < 0) {
+        throw InvalidArgumentException(std::string(funcName) + ": minContour must be >= 0");
+    }
+}
+
+void ValidateStegerParams(const StegerLineParams& params, const char* funcName) {
+    if (!std::isfinite(params.sigma) || params.sigma <= 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": sigma must be > 0");
+    }
+    if (!std::isfinite(params.lowThreshold) || params.lowThreshold < 0.0 ||
+        !std::isfinite(params.highThreshold) || params.highThreshold < 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": thresholds must be >= 0");
+    }
+    if (params.minLength < 0.0 || params.maxGap < 0.0 || params.maxAngleDiff < 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": minLength/maxGap/maxAngleDiff must be >= 0");
+    }
+}
+
+bool ValidateGrayscaleInput(const QImage& image, const char* funcName) {
     if (image.Empty()) {
-        throw InvalidArgumentException(std::string(funcName) + ": Input image is empty");
+        return false;
     }
 
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
     if (image.Type() != PixelType::UInt8) {
         throw UnsupportedException(std::string(funcName) + " only supports UInt8 images");
     }
@@ -91,6 +137,7 @@ void ValidateGrayscaleInput(const QImage& image, const char* funcName) {
     if (image.Channels() != 1) {
         throw UnsupportedException(std::string(funcName) + " requires single-channel grayscale image");
     }
+    return true;
 }
 
 } // anonymous namespace
@@ -107,12 +154,17 @@ void EdgesImage(
     double lowThreshold,
     double highThreshold
 ) {
-    if (image.Empty()) {
+    if (!ValidateGrayscaleInput(image, "EdgesImage")) {
         edges = QImage();
         return;
     }
-
-    ValidateGrayscaleInput(image, "EdgesImage");
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("EdgesImage: sigma must be > 0");
+    }
+    if (!std::isfinite(lowThreshold) || lowThreshold < 0.0 ||
+        !std::isfinite(highThreshold) || highThreshold < 0.0) {
+        throw InvalidArgumentException("EdgesImage: thresholds must be >= 0");
+    }
 
     // Build Canny parameters
     Internal::CannyParams params;
@@ -136,12 +188,17 @@ void EdgesSubPix(
     double lowThreshold,
     double highThreshold
 ) {
-    if (image.Empty()) {
+    if (!ValidateGrayscaleInput(image, "EdgesSubPix")) {
         contours = QContourArray();
         return;
     }
-
-    ValidateGrayscaleInput(image, "EdgesSubPix");
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("EdgesSubPix: sigma must be > 0");
+    }
+    if (!std::isfinite(lowThreshold) || lowThreshold < 0.0 ||
+        !std::isfinite(highThreshold) || highThreshold < 0.0) {
+        throw InvalidArgumentException("EdgesSubPix: thresholds must be >= 0");
+    }
 
     // Build Canny parameters
     Internal::CannyParams params;
@@ -174,6 +231,9 @@ void EdgesSubPixAuto(
     const std::string& filter,
     double sigma
 ) {
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("EdgesSubPixAuto: sigma must be > 0");
+    }
     // Use auto-threshold by passing low >= high
     EdgesSubPix(image, contours, filter, sigma, 0.0, 0.0);
 }
@@ -190,12 +250,17 @@ void LinesSubPix(
     double highThreshold,
     const std::string& lightDark
 ) {
-    if (image.Empty()) {
+    if (!ValidateGrayscaleInput(image, "LinesSubPix")) {
         contours = QContourArray();
         return;
     }
-
-    ValidateGrayscaleInput(image, "LinesSubPix");
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("LinesSubPix: sigma must be > 0");
+    }
+    if (!std::isfinite(lowThreshold) || lowThreshold < 0.0 ||
+        !std::isfinite(highThreshold) || highThreshold < 0.0) {
+        throw InvalidArgumentException("LinesSubPix: thresholds must be >= 0");
+    }
 
     // Build Steger parameters
     Internal::StegerParams params;
@@ -227,12 +292,13 @@ void LinesSubPixAuto(
     double sigma,
     const std::string& lightDark
 ) {
-    if (image.Empty()) {
+    if (!ValidateGrayscaleInput(image, "LinesSubPixAuto")) {
         contours = QContourArray();
         return;
     }
-
-    ValidateGrayscaleInput(image, "LinesSubPixAuto");
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("LinesSubPixAuto: sigma must be > 0");
+    }
 
     // Estimate thresholds based on image statistics
     double lowThreshold, highThreshold;
@@ -255,13 +321,12 @@ void DetectEdges(
     QContourArray& contours,
     const CannyEdgeParams& params
 ) {
-    if (image.Empty()) {
+    if (!ValidateGrayscaleInput(image, "DetectEdges")) {
         contours = QContourArray();
         return;
     }
 
-    ValidateGrayscaleInput(image, "DetectEdges");
-
+    ValidateCannyParams(params, "DetectEdges");
     Internal::CannyParams internalParams = BuildCannyParams(params);
 
     std::vector<QContour> edgeContours = Internal::DetectEdgesCanny(image, internalParams);
@@ -280,13 +345,12 @@ void DetectLines(
     QContourArray& contours,
     const StegerLineParams& params
 ) {
-    if (image.Empty()) {
+    if (!ValidateGrayscaleInput(image, "DetectLines")) {
         contours = QContourArray();
         return;
     }
 
-    ValidateGrayscaleInput(image, "DetectLines");
-
+    ValidateStegerParams(params, "DetectLines");
     Internal::StegerParams internalParams = BuildStegerParams(params);
 
     std::vector<QContour> lineContours = Internal::DetectStegerEdges(image, internalParams);
@@ -319,7 +383,8 @@ void EstimateThresholds(
     double& lowThreshold,
     double& highThreshold
 ) {
-    if (image.Empty() || image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+    if (image.Empty() || !image.IsValid() ||
+        image.Type() != PixelType::UInt8 || image.Channels() != 1) {
         lowThreshold = 20.0;
         highThreshold = 40.0;
         return;

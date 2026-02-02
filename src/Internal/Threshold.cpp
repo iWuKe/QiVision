@@ -1033,9 +1033,16 @@ DualThresholdResult DualThresholdAuto(const QImage& image, const std::string& me
         return result;
     }
 
+    std::string lower = method;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (lower.empty()) {
+        lower = "otsu";
+    }
+
     Histogram hist = ComputeHistogram(image);
 
-    if (method == "otsu" || method == "max_separability") {
+    if (lower == "otsu" || lower == "max_separability") {
         // Use multi-Otsu to get two thresholds
         auto thresholds = ComputeMultiOtsuThresholds(hist, 2);
         if (thresholds.size() >= 2 &&
@@ -1049,7 +1056,7 @@ DualThresholdResult DualThresholdAuto(const QImage& image, const std::string& me
             result.lowThreshold = t * 0.7;
             result.highThreshold = t * 1.3;
         }
-    } else if (method == "histogram_valley") {
+    } else if (lower == "histogram_valley") {
         // Find valleys in histogram
         auto valleys = FindHistogramValleys(hist, 10);
         if (valleys.size() >= 2) {
@@ -1066,10 +1073,7 @@ DualThresholdResult DualThresholdAuto(const QImage& image, const std::string& me
             result.highThreshold = t * 1.3;
         }
     } else {
-        // Default: use Otsu
-        double t = ComputeOtsuThreshold(hist);
-        result.lowThreshold = t * 0.7;
-        result.highThreshold = t * 1.3;
+        throw InvalidArgumentException("DualThresholdAuto: unknown method: " + method);
     }
 
     return DualThreshold(image, result.lowThreshold, result.highThreshold);

@@ -9,6 +9,7 @@
  */
 
 #include <QiVision/Core/QContour.h>
+#include <QiVision/Core/Export.h>
 #include <vector>
 #include <functional>
 
@@ -25,7 +26,7 @@ class QMatrix;
  * - Holes (inner contours, children of outer contours)
  * - Nested hierarchies
  */
-class QContourArray {
+class QIVISION_API QContourArray {
 public:
     // =========================================================================
     // Constructors

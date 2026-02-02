@@ -222,6 +222,7 @@ double SamplePixelWithStride(const T* data, int32_t width, int32_t height, int32
                              double x, double y,
                              InterpolationMethod method,
                              BorderMode borderMode, double borderValue) {
+    (void)method;
     // For simplicity, use bilinear for all methods (can extend later)
     return BilinearSampleWithStride(data, width, height, stride, x, y, borderMode, borderValue);
 }

@@ -7,6 +7,7 @@
 
 #include <QiVision/Core/Types.h>
 #include <QiVision/Core/Constants.h>
+#include <QiVision/Core/Export.h>
 
 #include <memory>
 #include <string>
@@ -25,7 +26,7 @@ class QRegion;
  * - 64-byte row alignment for SIMD
  * - Shallow copy by default, Clone() for deep copy
  */
-class QImage {
+class QIVISION_API QImage {
 public:
     // =========================================================================
     // Constructors

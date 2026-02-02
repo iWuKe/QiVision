@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Segment.h
  * @brief Image segmentation and thresholding (Halcon-style API)
@@ -80,7 +82,7 @@ enum class LightDark {
 /**
  * @brief Result of dual threshold operation
  */
-struct DualThresholdResult {
+struct QIVISION_API DualThresholdResult {
     QRegion lightRegion;        ///< Pixels > highThreshold
     QRegion darkRegion;         ///< Pixels < lowThreshold
     QRegion middleRegion;       ///< Pixels in [lowThreshold, highThreshold]
@@ -108,14 +110,14 @@ struct DualThresholdResult {
  * Threshold(image, binary, 128);  // Binary threshold at 128
  * @endcode
  */
-void Threshold(const QImage& src, QImage& dst,
+QIVISION_API void Threshold(const QImage& src, QImage& dst,
                double threshold, double maxValue = 255.0,
                ThresholdType type = ThresholdType::Binary);
 
 /**
  * @brief Apply global threshold (return version)
  */
-QImage Threshold(const QImage& src, double threshold,
+QIVISION_API QImage Threshold(const QImage& src, double threshold,
                  double maxValue = 255.0,
                  ThresholdType type = ThresholdType::Binary);
 
@@ -135,13 +137,13 @@ QImage Threshold(const QImage& src, double threshold,
  * ThresholdRange(image, binary, 100, 200);  // Keep pixels in [100, 200]
  * @endcode
  */
-void ThresholdRange(const QImage& src, QImage& dst,
+QIVISION_API void ThresholdRange(const QImage& src, QImage& dst,
                     double low, double high, double maxValue = 255.0);
 
 /**
  * @brief Range thresholding (return version)
  */
-QImage ThresholdRange(const QImage& src, double low, double high,
+QIVISION_API QImage ThresholdRange(const QImage& src, double low, double high,
                       double maxValue = 255.0);
 
 // =============================================================================
@@ -165,7 +167,7 @@ QImage ThresholdRange(const QImage& src, double low, double high,
  * ThresholdAuto(image, binary, AutoMethod::Otsu, 255.0, &thresh);
  * @endcode
  */
-void ThresholdAuto(const QImage& src, QImage& dst,
+QIVISION_API void ThresholdAuto(const QImage& src, QImage& dst,
                    AutoMethod method = AutoMethod::Otsu,
                    double maxValue = 255.0,
                    double* computedThreshold = nullptr);
@@ -173,26 +175,26 @@ void ThresholdAuto(const QImage& src, QImage& dst,
 /**
  * @brief Otsu auto-threshold (convenience)
  */
-void ThresholdOtsu(const QImage& src, QImage& dst,
+QIVISION_API void ThresholdOtsu(const QImage& src, QImage& dst,
                    double maxValue = 255.0,
                    double* computedThreshold = nullptr);
 
 /**
  * @brief Triangle auto-threshold (convenience)
  */
-void ThresholdTriangle(const QImage& src, QImage& dst,
+QIVISION_API void ThresholdTriangle(const QImage& src, QImage& dst,
                        double maxValue = 255.0,
                        double* computedThreshold = nullptr);
 
 /**
  * @brief Otsu threshold (return version)
  */
-QImage ThresholdOtsu(const QImage& src, double maxValue = 255.0);
+QIVISION_API QImage ThresholdOtsu(const QImage& src, double maxValue = 255.0);
 
 /**
  * @brief Triangle threshold (return version)
  */
-QImage ThresholdTriangle(const QImage& src, double maxValue = 255.0);
+QIVISION_API QImage ThresholdTriangle(const QImage& src, double maxValue = 255.0);
 
 /**
  * @brief Compute auto threshold value without applying
@@ -201,7 +203,7 @@ QImage ThresholdTriangle(const QImage& src, double maxValue = 255.0);
  * @param method Auto threshold method
  * @return Computed threshold value
  */
-double ComputeAutoThreshold(const QImage& src, AutoMethod method = AutoMethod::Otsu);
+QIVISION_API double ComputeAutoThreshold(const QImage& src, AutoMethod method = AutoMethod::Otsu);
 
 // =============================================================================
 // Adaptive Thresholding
@@ -218,7 +220,7 @@ double ComputeAutoThreshold(const QImage& src, AutoMethod method = AutoMethod::O
  * @param blockSize Block size (odd number)
  * @param C Constant to subtract from mean
  */
-void ThresholdAdaptive(const QImage& src, QImage& dst,
+QIVISION_API void ThresholdAdaptive(const QImage& src, QImage& dst,
                        AdaptiveMethod method, int32_t blockSize, double C);
 
 // =============================================================================
@@ -239,7 +241,7 @@ void ThresholdAdaptive(const QImage& src, QImage& dst,
  * ThresholdMultiLevel(image, labeled, {85, 170});  // 3 levels
  * @endcode
  */
-void ThresholdMultiLevel(const QImage& src, QImage& dst,
+QIVISION_API void ThresholdMultiLevel(const QImage& src, QImage& dst,
                          const std::vector<double>& thresholds);
 
 /**
@@ -250,7 +252,7 @@ void ThresholdMultiLevel(const QImage& src, QImage& dst,
  * @param thresholds N threshold values
  * @param outputValues N+1 output values
  */
-void ThresholdMultiLevel(const QImage& src, QImage& dst,
+QIVISION_API void ThresholdMultiLevel(const QImage& src, QImage& dst,
                          const std::vector<double>& thresholds,
                          const std::vector<double>& outputValues);
 
@@ -272,7 +274,7 @@ void ThresholdMultiLevel(const QImage& src, QImage& dst,
  * QRegion region = ThresholdToRegion(image, 100, 255);
  * @endcode
  */
-QRegion ThresholdToRegion(const QImage& src, double low, double high);
+QIVISION_API QRegion ThresholdToRegion(const QImage& src, double low, double high);
 
 /**
  * @brief Create region from binary threshold
@@ -282,7 +284,7 @@ QRegion ThresholdToRegion(const QImage& src, double low, double high);
  * @param above If true, region contains pixels > threshold; else pixels < threshold
  * @return Region
  */
-QRegion ThresholdToRegion(const QImage& src, double threshold, bool above = true);
+QIVISION_API QRegion ThresholdToRegion(const QImage& src, double threshold, bool above = true);
 
 /**
  * @brief Create region from auto-threshold
@@ -293,7 +295,7 @@ QRegion ThresholdToRegion(const QImage& src, double threshold, bool above = true
  * @param computedThreshold Output: computed threshold value
  * @return Region
  */
-QRegion ThresholdAutoToRegion(const QImage& src,
+QIVISION_API QRegion ThresholdAutoToRegion(const QImage& src,
                                AutoMethod method = AutoMethod::Otsu,
                                bool above = true,
                                double* computedThreshold = nullptr);
@@ -320,7 +322,7 @@ QRegion ThresholdAutoToRegion(const QImage& src,
  * QRegion defects = DynThreshold(image, smooth, 10, LightDark::Dark);
  * @endcode
  */
-QRegion DynThreshold(const QImage& image, const QImage& reference,
+QIVISION_API QRegion DynThreshold(const QImage& image, const QImage& reference,
                      double offset, LightDark lightDark = LightDark::Light);
 
 /**
@@ -334,7 +336,7 @@ QRegion DynThreshold(const QImage& image, const QImage& reference,
  * @param lightDark Selection mode
  * @return Region of selected pixels
  */
-QRegion DynThreshold(const QImage& image, int32_t filterSize,
+QIVISION_API QRegion DynThreshold(const QImage& image, int32_t filterSize,
                      double offset, LightDark lightDark = LightDark::Light);
 
 /**
@@ -347,7 +349,7 @@ QRegion DynThreshold(const QImage& image, int32_t filterSize,
  * @param highThreshold High threshold value
  * @return DualThresholdResult containing light, dark, and middle regions
  */
-DualThresholdResult DualThreshold(const QImage& image,
+QIVISION_API DualThresholdResult DualThreshold(const QImage& image,
                                    double lowThreshold, double highThreshold);
 
 /**
@@ -361,7 +363,7 @@ DualThresholdResult DualThreshold(const QImage& image,
  * @param lightDark Selection mode (Light = high variance, Dark = low variance)
  * @return Region of selected pixels
  */
-QRegion VarThreshold(const QImage& image, int32_t windowSize,
+QIVISION_API QRegion VarThreshold(const QImage& image, int32_t windowSize,
                      double varianceThreshold, LightDark lightDark = LightDark::Light);
 
 /**
@@ -375,7 +377,7 @@ QRegion VarThreshold(const QImage& image, int32_t windowSize,
  * @param lightDark "light" for dark text on light background
  * @return Region containing text
  */
-QRegion CharThreshold(const QImage& image, double sigma = 2.0,
+QIVISION_API QRegion CharThreshold(const QImage& image, double sigma = 2.0,
                       double percent = 95.0, LightDark lightDark = LightDark::Dark);
 
 /**
@@ -388,7 +390,7 @@ QRegion CharThreshold(const QImage& image, double sigma = 2.0,
  * @param highThreshold High threshold
  * @return Region with hysteresis-filtered foreground
  */
-QRegion HysteresisThreshold(const QImage& image,
+QIVISION_API QRegion HysteresisThreshold(const QImage& image,
                             double lowThreshold, double highThreshold);
 
 // =============================================================================
@@ -405,12 +407,12 @@ QRegion HysteresisThreshold(const QImage& image,
  * @param high Upper threshold
  * @return Region containing thresholded pixels within Domain
  */
-QRegion ThresholdWithDomain(const QImage& image, double low, double high);
+QIVISION_API QRegion ThresholdWithDomain(const QImage& image, double low, double high);
 
 /**
  * @brief Dynamic threshold with Domain support
  */
-QRegion DynThresholdWithDomain(const QImage& image, const QImage& reference,
+QIVISION_API QRegion DynThresholdWithDomain(const QImage& image, const QImage& reference,
                                 double offset, LightDark lightDark = LightDark::Light);
 
 /**
@@ -421,7 +423,7 @@ QRegion DynThresholdWithDomain(const QImage& image, const QImage& reference,
  * @param blockSize Block size (odd number)
  * @param C Constant to subtract from mean
  */
-QRegion ThresholdAdaptiveToRegion(const QImage& image,
+QIVISION_API QRegion ThresholdAdaptiveToRegion(const QImage& image,
                                    AdaptiveMethod method, int32_t blockSize, double C);
 
 // =============================================================================
@@ -431,30 +433,30 @@ QRegion ThresholdAdaptiveToRegion(const QImage& image,
 /**
  * @brief Invert binary image
  */
-void BinaryInvert(const QImage& src, QImage& dst, double maxValue = 255.0);
+QIVISION_API void BinaryInvert(const QImage& src, QImage& dst, double maxValue = 255.0);
 
 /**
  * @brief Binary AND of two images
  */
-void BinaryAnd(const QImage& src1, const QImage& src2, QImage& dst,
+QIVISION_API void BinaryAnd(const QImage& src1, const QImage& src2, QImage& dst,
                double maxValue = 255.0);
 
 /**
  * @brief Binary OR of two images
  */
-void BinaryOr(const QImage& src1, const QImage& src2, QImage& dst,
+QIVISION_API void BinaryOr(const QImage& src1, const QImage& src2, QImage& dst,
               double maxValue = 255.0);
 
 /**
  * @brief Binary XOR of two images
  */
-void BinaryXor(const QImage& src1, const QImage& src2, QImage& dst,
+QIVISION_API void BinaryXor(const QImage& src1, const QImage& src2, QImage& dst,
                double maxValue = 255.0);
 
 /**
  * @brief Binary difference (src1 AND NOT src2)
  */
-void BinaryDiff(const QImage& src1, const QImage& src2, QImage& dst,
+QIVISION_API void BinaryDiff(const QImage& src1, const QImage& src2, QImage& dst,
                 double maxValue = 255.0);
 
 // =============================================================================
@@ -464,36 +466,36 @@ void BinaryDiff(const QImage& src1, const QImage& src2, QImage& dst,
 /**
  * @brief Check if image appears to be binary
  */
-bool IsBinaryImage(const QImage& image, double tolerance = 1.0);
+QIVISION_API bool IsBinaryImage(const QImage& image, double tolerance = 1.0);
 
 /**
  * @brief Count non-zero pixels in image
  */
-uint64_t CountNonZero(const QImage& image);
+QIVISION_API uint64_t CountNonZero(const QImage& image);
 
 /**
  * @brief Count pixels in range
  */
-uint64_t CountInRange(const QImage& image, double low, double high);
+QIVISION_API uint64_t CountInRange(const QImage& image, double low, double high);
 
 /**
  * @brief Compute percentage of foreground pixels
  */
-double ComputeForegroundRatio(const QImage& image);
+QIVISION_API double ComputeForegroundRatio(const QImage& image);
 
 /**
  * @brief Apply mask to image
  */
-void ApplyMask(const QImage& src, const QImage& mask, QImage& dst);
+QIVISION_API void ApplyMask(const QImage& src, const QImage& mask, QImage& dst);
 
 /**
  * @brief Create mask from region
  */
-void RegionToMask(const QRegion& region, QImage& mask);
+QIVISION_API void RegionToMask(const QRegion& region, QImage& mask);
 
 /**
  * @brief Create region from mask
  */
-QRegion MaskToRegion(const QImage& mask, double threshold = 0);
+QIVISION_API QRegion MaskToRegion(const QImage& mask, double threshold = 0);
 
 } // namespace Qi::Vision::Segment

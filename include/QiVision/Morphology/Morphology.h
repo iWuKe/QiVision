@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Morphology.h
  * @brief Morphological operations (Halcon-style API)
@@ -51,7 +53,7 @@ enum class SEShape {
  *
  * Wraps Internal::StructElement with a cleaner public API.
  */
-class StructuringElement {
+class QIVISION_API StructuringElement {
 public:
     // =========================================================================
     // Constructors
@@ -252,7 +254,7 @@ private:
  * QRegion dilated = Dilation(region, se);
  * @endcode
  */
-QRegion Dilation(const QRegion& region, const StructuringElement& se);
+QIVISION_API QRegion Dilation(const QRegion& region, const StructuringElement& se);
 
 /**
  * @brief Dilate region with circular SE
@@ -263,7 +265,7 @@ QRegion Dilation(const QRegion& region, const StructuringElement& se);
  * @param radius Circle radius
  * @return Dilated region
  */
-QRegion DilationCircle(const QRegion& region, int32_t radius);
+QIVISION_API QRegion DilationCircle(const QRegion& region, int32_t radius);
 
 /**
  * @brief Dilate region with rectangular SE
@@ -275,7 +277,7 @@ QRegion DilationCircle(const QRegion& region, int32_t radius);
  * @param height SE height
  * @return Dilated region
  */
-QRegion DilationRectangle(const QRegion& region, int32_t width, int32_t height);
+QIVISION_API QRegion DilationRectangle(const QRegion& region, int32_t width, int32_t height);
 
 /**
  * @brief Erode region with structuring element
@@ -292,7 +294,7 @@ QRegion DilationRectangle(const QRegion& region, int32_t width, int32_t height);
  * QRegion eroded = Erosion(region, se);
  * @endcode
  */
-QRegion Erosion(const QRegion& region, const StructuringElement& se);
+QIVISION_API QRegion Erosion(const QRegion& region, const StructuringElement& se);
 
 /**
  * @brief Erode region with circular SE
@@ -303,7 +305,7 @@ QRegion Erosion(const QRegion& region, const StructuringElement& se);
  * @param radius Circle radius
  * @return Eroded region
  */
-QRegion ErosionCircle(const QRegion& region, int32_t radius);
+QIVISION_API QRegion ErosionCircle(const QRegion& region, int32_t radius);
 
 /**
  * @brief Erode region with rectangular SE
@@ -315,7 +317,7 @@ QRegion ErosionCircle(const QRegion& region, int32_t radius);
  * @param height SE height
  * @return Eroded region
  */
-QRegion ErosionRectangle(const QRegion& region, int32_t width, int32_t height);
+QIVISION_API QRegion ErosionRectangle(const QRegion& region, int32_t width, int32_t height);
 
 /**
  * @brief Opening operation (erosion followed by dilation)
@@ -332,7 +334,7 @@ QRegion ErosionRectangle(const QRegion& region, int32_t width, int32_t height);
  * QRegion opened = Opening(region, se);
  * @endcode
  */
-QRegion Opening(const QRegion& region, const StructuringElement& se);
+QIVISION_API QRegion Opening(const QRegion& region, const StructuringElement& se);
 
 /**
  * @brief Opening with circular SE
@@ -343,7 +345,7 @@ QRegion Opening(const QRegion& region, const StructuringElement& se);
  * @param radius Circle radius
  * @return Opened region
  */
-QRegion OpeningCircle(const QRegion& region, int32_t radius);
+QIVISION_API QRegion OpeningCircle(const QRegion& region, int32_t radius);
 
 /**
  * @brief Opening with rectangular SE
@@ -355,7 +357,7 @@ QRegion OpeningCircle(const QRegion& region, int32_t radius);
  * @param height SE height
  * @return Opened region
  */
-QRegion OpeningRectangle(const QRegion& region, int32_t width, int32_t height);
+QIVISION_API QRegion OpeningRectangle(const QRegion& region, int32_t width, int32_t height);
 
 /**
  * @brief Closing operation (dilation followed by erosion)
@@ -372,7 +374,7 @@ QRegion OpeningRectangle(const QRegion& region, int32_t width, int32_t height);
  * QRegion closed = Closing(region, se);
  * @endcode
  */
-QRegion Closing(const QRegion& region, const StructuringElement& se);
+QIVISION_API QRegion Closing(const QRegion& region, const StructuringElement& se);
 
 /**
  * @brief Closing with circular SE
@@ -383,7 +385,7 @@ QRegion Closing(const QRegion& region, const StructuringElement& se);
  * @param radius Circle radius
  * @return Closed region
  */
-QRegion ClosingCircle(const QRegion& region, int32_t radius);
+QIVISION_API QRegion ClosingCircle(const QRegion& region, int32_t radius);
 
 /**
  * @brief Closing with rectangular SE
@@ -395,7 +397,7 @@ QRegion ClosingCircle(const QRegion& region, int32_t radius);
  * @param height SE height
  * @return Closed region
  */
-QRegion ClosingRectangle(const QRegion& region, int32_t width, int32_t height);
+QIVISION_API QRegion ClosingRectangle(const QRegion& region, int32_t width, int32_t height);
 
 /**
  * @brief Morphological boundary
@@ -407,7 +409,7 @@ QRegion ClosingRectangle(const QRegion& region, int32_t width, int32_t height);
  * @param type Boundary type: "inner", "outer", "both"
  * @return Boundary region
  */
-QRegion Boundary(const QRegion& region, const std::string& type = "both");
+QIVISION_API QRegion Boundary(const QRegion& region, const std::string& type = "both");
 
 /**
  * @brief Morphological skeleton
@@ -418,7 +420,7 @@ QRegion Boundary(const QRegion& region, const std::string& type = "both");
  * @param region Input region
  * @return Skeleton region
  */
-QRegion Skeleton(const QRegion& region);
+QIVISION_API QRegion Skeleton(const QRegion& region);
 
 /**
  * @brief Morphological thinning
@@ -429,7 +431,7 @@ QRegion Skeleton(const QRegion& region);
  * @param maxIterations Maximum iterations (0 = until stable)
  * @return Thinned region
  */
-QRegion Thinning(const QRegion& region, int32_t maxIterations = 0);
+QIVISION_API QRegion Thinning(const QRegion& region, int32_t maxIterations = 0);
 
 /**
  * @brief Prune skeleton branches
@@ -440,7 +442,7 @@ QRegion Thinning(const QRegion& region, int32_t maxIterations = 0);
  * @param iterations Number of pruning iterations
  * @return Pruned skeleton
  */
-QRegion PruneSkeleton(const QRegion& skeleton, int32_t iterations = 1);
+QIVISION_API QRegion PruneSkeleton(const QRegion& skeleton, int32_t iterations = 1);
 
 /**
  * @brief Fill holes in region
@@ -450,7 +452,7 @@ QRegion PruneSkeleton(const QRegion& skeleton, int32_t iterations = 1);
  * @param region Input region
  * @return Region with holes filled
  */
-QRegion FillUp(const QRegion& region);
+QIVISION_API QRegion FillUp(const QRegion& region);
 
 /**
  * @brief Clear border-touching regions
@@ -461,7 +463,7 @@ QRegion FillUp(const QRegion& region);
  * @param bounds Image bounds
  * @return Region without border-touching parts
  */
-QRegion ClearBorder(const QRegion& region, const Rect2i& bounds);
+QIVISION_API QRegion ClearBorder(const QRegion& region, const Rect2i& bounds);
 
 // =============================================================================
 // Gray Morphology (Image Operations)
@@ -483,7 +485,7 @@ QRegion ClearBorder(const QRegion& region, const Rect2i& bounds);
  * GrayDilation(image, dilated, se);
  * @endcode
  */
-void GrayDilation(const QImage& image, QImage& output, const StructuringElement& se);
+QIVISION_API void GrayDilation(const QImage& image, QImage& output, const StructuringElement& se);
 
 /**
  * @brief Gray-scale dilation with circular SE
@@ -492,7 +494,7 @@ void GrayDilation(const QImage& image, QImage& output, const StructuringElement&
  * @param output Output dilated image
  * @param radius Circle radius
  */
-void GrayDilationCircle(const QImage& image, QImage& output, int32_t radius);
+QIVISION_API void GrayDilationCircle(const QImage& image, QImage& output, int32_t radius);
 
 /**
  * @brief Gray-scale dilation with rectangular SE
@@ -502,7 +504,7 @@ void GrayDilationCircle(const QImage& image, QImage& output, int32_t radius);
  * @param width SE width
  * @param height SE height
  */
-void GrayDilationRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void GrayDilationRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Gray-scale erosion
@@ -520,7 +522,7 @@ void GrayDilationRectangle(const QImage& image, QImage& output, int32_t width, i
  * GrayErosion(image, eroded, se);
  * @endcode
  */
-void GrayErosion(const QImage& image, QImage& output, const StructuringElement& se);
+QIVISION_API void GrayErosion(const QImage& image, QImage& output, const StructuringElement& se);
 
 /**
  * @brief Gray-scale erosion with circular SE
@@ -529,7 +531,7 @@ void GrayErosion(const QImage& image, QImage& output, const StructuringElement& 
  * @param output Output eroded image
  * @param radius Circle radius
  */
-void GrayErosionCircle(const QImage& image, QImage& output, int32_t radius);
+QIVISION_API void GrayErosionCircle(const QImage& image, QImage& output, int32_t radius);
 
 /**
  * @brief Gray-scale erosion with rectangular SE
@@ -539,7 +541,7 @@ void GrayErosionCircle(const QImage& image, QImage& output, int32_t radius);
  * @param width SE width
  * @param height SE height
  */
-void GrayErosionRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void GrayErosionRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Gray-scale opening
@@ -551,7 +553,7 @@ void GrayErosionRectangle(const QImage& image, QImage& output, int32_t width, in
  * @param output Output opened image
  * @param se Structuring element
  */
-void GrayOpening(const QImage& image, QImage& output, const StructuringElement& se);
+QIVISION_API void GrayOpening(const QImage& image, QImage& output, const StructuringElement& se);
 
 /**
  * @brief Gray-scale opening with circular SE
@@ -560,7 +562,7 @@ void GrayOpening(const QImage& image, QImage& output, const StructuringElement& 
  * @param output Output opened image
  * @param radius Circle radius
  */
-void GrayOpeningCircle(const QImage& image, QImage& output, int32_t radius);
+QIVISION_API void GrayOpeningCircle(const QImage& image, QImage& output, int32_t radius);
 
 /**
  * @brief Gray-scale opening with rectangular SE
@@ -570,7 +572,7 @@ void GrayOpeningCircle(const QImage& image, QImage& output, int32_t radius);
  * @param width SE width
  * @param height SE height
  */
-void GrayOpeningRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void GrayOpeningRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Gray-scale closing
@@ -582,7 +584,7 @@ void GrayOpeningRectangle(const QImage& image, QImage& output, int32_t width, in
  * @param output Output closed image
  * @param se Structuring element
  */
-void GrayClosing(const QImage& image, QImage& output, const StructuringElement& se);
+QIVISION_API void GrayClosing(const QImage& image, QImage& output, const StructuringElement& se);
 
 /**
  * @brief Gray-scale closing with circular SE
@@ -591,7 +593,7 @@ void GrayClosing(const QImage& image, QImage& output, const StructuringElement& 
  * @param output Output closed image
  * @param radius Circle radius
  */
-void GrayClosingCircle(const QImage& image, QImage& output, int32_t radius);
+QIVISION_API void GrayClosingCircle(const QImage& image, QImage& output, int32_t radius);
 
 /**
  * @brief Gray-scale closing with rectangular SE
@@ -601,7 +603,7 @@ void GrayClosingCircle(const QImage& image, QImage& output, int32_t radius);
  * @param width SE width
  * @param height SE height
  */
-void GrayClosingRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void GrayClosingRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Morphological gradient (dilation - erosion)
@@ -612,7 +614,7 @@ void GrayClosingRectangle(const QImage& image, QImage& output, int32_t width, in
  * @param output Output gradient image
  * @param se Structuring element
  */
-void GrayGradient(const QImage& image, QImage& output, const StructuringElement& se);
+QIVISION_API void GrayGradient(const QImage& image, QImage& output, const StructuringElement& se);
 
 /**
  * @brief Morphological gradient with rectangular SE
@@ -622,7 +624,7 @@ void GrayGradient(const QImage& image, QImage& output, const StructuringElement&
  * @param width SE width
  * @param height SE height
  */
-void GrayGradientRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void GrayGradientRectangle(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief White top-hat (original - opening)
@@ -640,7 +642,7 @@ void GrayGradientRectangle(const QImage& image, QImage& output, int32_t width, i
  * GrayTopHat(image, tophat, se);  // Extract small bright spots
  * @endcode
  */
-void GrayTopHat(const QImage& image, QImage& output, const StructuringElement& se);
+QIVISION_API void GrayTopHat(const QImage& image, QImage& output, const StructuringElement& se);
 
 /**
  * @brief White top-hat with circular SE
@@ -649,7 +651,7 @@ void GrayTopHat(const QImage& image, QImage& output, const StructuringElement& s
  * @param output Output top-hat image
  * @param radius Circle radius
  */
-void GrayTopHatCircle(const QImage& image, QImage& output, int32_t radius);
+QIVISION_API void GrayTopHatCircle(const QImage& image, QImage& output, int32_t radius);
 
 /**
  * @brief Black top-hat (closing - original)
@@ -661,7 +663,7 @@ void GrayTopHatCircle(const QImage& image, QImage& output, int32_t radius);
  * @param output Output black-hat image
  * @param se Structuring element
  */
-void GrayBlackHat(const QImage& image, QImage& output, const StructuringElement& se);
+QIVISION_API void GrayBlackHat(const QImage& image, QImage& output, const StructuringElement& se);
 
 /**
  * @brief Black top-hat with circular SE
@@ -670,7 +672,7 @@ void GrayBlackHat(const QImage& image, QImage& output, const StructuringElement&
  * @param output Output black-hat image
  * @param radius Circle radius
  */
-void GrayBlackHatCircle(const QImage& image, QImage& output, int32_t radius);
+QIVISION_API void GrayBlackHatCircle(const QImage& image, QImage& output, int32_t radius);
 
 /**
  * @brief Local range (max - min)
@@ -683,7 +685,7 @@ void GrayBlackHatCircle(const QImage& image, QImage& output, int32_t radius);
  * @param width Window width
  * @param height Window height
  */
-void GrayRange(const QImage& image, QImage& output, int32_t width, int32_t height);
+QIVISION_API void GrayRange(const QImage& image, QImage& output, int32_t width, int32_t height);
 
 /**
  * @brief Rolling ball background subtraction
@@ -700,7 +702,7 @@ void GrayRange(const QImage& image, QImage& output, int32_t width, int32_t heigh
  * RollingBall(image, corrected, 50);  // Remove uneven illumination
  * @endcode
  */
-void RollingBall(const QImage& image, QImage& output, int32_t radius);
+QIVISION_API void RollingBall(const QImage& image, QImage& output, int32_t radius);
 
 /**
  * @brief Gray-scale reconstruction by dilation
@@ -712,7 +714,7 @@ void RollingBall(const QImage& image, QImage& output, int32_t radius);
  * @param mask Constraint mask (upper bound)
  * @param output Output reconstructed image
  */
-void GrayReconstructDilation(const QImage& marker, const QImage& mask, QImage& output);
+QIVISION_API void GrayReconstructDilation(const QImage& marker, const QImage& mask, QImage& output);
 
 /**
  * @brief Gray-scale reconstruction by erosion
@@ -721,7 +723,7 @@ void GrayReconstructDilation(const QImage& marker, const QImage& mask, QImage& o
  * @param mask Constraint mask (lower bound)
  * @param output Output reconstructed image
  */
-void GrayReconstructErosion(const QImage& marker, const QImage& mask, QImage& output);
+QIVISION_API void GrayReconstructErosion(const QImage& marker, const QImage& mask, QImage& output);
 
 /**
  * @brief Fill holes in grayscale image
@@ -731,7 +733,7 @@ void GrayReconstructErosion(const QImage& marker, const QImage& mask, QImage& ou
  * @param image Input grayscale image
  * @param output Output image with holes filled
  */
-void GrayFillHoles(const QImage& image, QImage& output);
+QIVISION_API void GrayFillHoles(const QImage& image, QImage& output);
 
 // =============================================================================
 // Convenience Functions
@@ -744,7 +746,7 @@ void GrayFillHoles(const QImage& image, QImage& output);
  *
  * @return 3x3 cross element
  */
-StructuringElement SE_Cross3();
+QIVISION_API StructuringElement SE_Cross3();
 
 /**
  * @brief Create common 3x3 square structuring element
@@ -753,13 +755,13 @@ StructuringElement SE_Cross3();
  *
  * @return 3x3 square element
  */
-StructuringElement SE_Square3();
+QIVISION_API StructuringElement SE_Square3();
 
 /**
  * @brief Create common 5x5 disk structuring element
  *
  * @return 5x5 disk element
  */
-StructuringElement SE_Disk5();
+QIVISION_API StructuringElement SE_Disk5();
 
 } // namespace Qi::Vision::Morphology

@@ -433,7 +433,6 @@ QImage ApplyCLAHE(const QImage& image, const CLAHEParams& params) {
             auto& lut = tileLUTs[ty * tilesX + tx];
             lut.resize(256);
 
-            uint64_t cumSum = 0;
             uint64_t total = 0;
             for (int32_t i = 0; i < numBins; ++i) {
                 total += hist[i];

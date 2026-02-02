@@ -507,6 +507,7 @@ std::vector<Point2d> FilterByDistance(
     const std::vector<double>& strengths,
     double minDistance)
 {
+    (void)strengths;
     std::vector<Point2d> filtered;
 
     if (corners.empty()) {

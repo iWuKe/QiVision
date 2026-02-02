@@ -4,6 +4,7 @@
  */
 
 #include <QiVision/Calib/Undistort.h>
+#include <QiVision/Core/Exception.h>
 
 #include <cmath>
 #include <algorithm>
@@ -48,6 +49,17 @@ void Undistort(
     const CameraModel& camera,
     Internal::InterpolationMethod method)
 {
+    if (src.Empty()) {
+        dst = QImage();
+        return;
+    }
+    if (!src.IsValid()) {
+        throw InvalidArgumentException("Undistort: invalid image");
+    }
+    if (!camera.IsValid()) {
+        throw InvalidArgumentException("Undistort: invalid camera model");
+    }
+
     // Use original camera matrix and image size
     Undistort(src, dst, camera, camera.Intrinsics(),
               Size2i(src.Width(), src.Height()), method);
@@ -61,6 +73,25 @@ void Undistort(
     const Size2i& outputSize,
     Internal::InterpolationMethod method)
 {
+    if (src.Empty()) {
+        dst = QImage();
+        return;
+    }
+    if (!src.IsValid()) {
+        throw InvalidArgumentException("Undistort: invalid image");
+    }
+    if (!camera.IsValid()) {
+        throw InvalidArgumentException("Undistort: invalid camera model");
+    }
+    if (!std::isfinite(newCameraMatrix.fx) || !std::isfinite(newCameraMatrix.fy) ||
+        newCameraMatrix.fx <= 0.0 || newCameraMatrix.fy <= 0.0) {
+        throw InvalidArgumentException("Undistort: invalid newCameraMatrix");
+    }
+
+    if (outputSize.width < 0 || outputSize.height < 0) {
+        throw InvalidArgumentException("Undistort: outputSize must be >= 0");
+    }
+
     // Determine output size
     int32_t outW = (outputSize.width > 0) ? outputSize.width : src.Width();
     int32_t outH = (outputSize.height > 0) ? outputSize.height : src.Height();
@@ -77,12 +108,15 @@ UndistortMap InitUndistortMap(
     const Size2i& outputSize,
     const CameraIntrinsics* newCameraMatrix)
 {
+    if (!camera.IsValid()) {
+        throw InvalidArgumentException("InitUndistortMap: invalid camera model");
+    }
     UndistortMap map;
     map.width = outputSize.width;
     map.height = outputSize.height;
 
     if (map.width <= 0 || map.height <= 0) {
-        return map;
+        throw InvalidArgumentException("InitUndistortMap: outputSize must be positive");
     }
 
     size_t totalPixels = static_cast<size_t>(map.width) * map.height;
@@ -91,6 +125,9 @@ UndistortMap InitUndistortMap(
 
     // Use provided new camera matrix or the original
     CameraIntrinsics newK = newCameraMatrix ? *newCameraMatrix : camera.Intrinsics();
+    if (!std::isfinite(newK.fx) || !std::isfinite(newK.fy) || newK.fx <= 0.0 || newK.fy <= 0.0) {
+        throw InvalidArgumentException("InitUndistortMap: invalid new camera intrinsics");
+    }
     const CameraIntrinsics& origK = camera.Intrinsics();
     const DistortionCoeffs& dist = camera.Distortion();
 
@@ -151,8 +188,19 @@ void Remap(
     Internal::BorderMode borderMode,
     double borderValue)
 {
-    if (!map.IsValid()) {
+    if (src.Empty()) {
+        dst = QImage();
         return;
+    }
+    if (!src.IsValid()) {
+        throw InvalidArgumentException("Remap: invalid image");
+    }
+    if (!std::isfinite(borderValue)) {
+        throw InvalidArgumentException("Remap: invalid borderValue");
+    }
+
+    if (!map.IsValid()) {
+        throw InvalidArgumentException("Remap: invalid undistort map");
     }
 
     // Ensure dst has correct size
@@ -266,14 +314,22 @@ CameraIntrinsics GetOptimalNewCameraMatrix(
     double alpha,
     const Size2i& newImageSize)
 {
+    if (newImageSize.width < 0 || newImageSize.height < 0) {
+        throw InvalidArgumentException("GetOptimalNewCameraMatrix: newImageSize must be >= 0");
+    }
+
     const CameraIntrinsics& K = camera.Intrinsics();
     const DistortionCoeffs& dist = camera.Distortion();
 
     int32_t imgW = (newImageSize.width > 0) ? newImageSize.width : camera.ImageSize().width;
     int32_t imgH = (newImageSize.height > 0) ? newImageSize.height : camera.ImageSize().height;
 
+    if (imgW <= 0 || imgH <= 0) {
+        throw InvalidArgumentException("GetOptimalNewCameraMatrix: image size must be positive");
+    }
+
     // If no distortion, return original
-    if (dist.IsZero() || imgW <= 0 || imgH <= 0) {
+    if (dist.IsZero()) {
         return K;
     }
 
@@ -341,6 +397,9 @@ CameraIntrinsics GetOptimalNewCameraMatrix(
 }
 
 Point2d UndistortPoint(const Point2d& point, const CameraModel& camera) {
+    if (!point.IsValid()) {
+        throw InvalidArgumentException("UndistortPoint: invalid point");
+    }
     const CameraIntrinsics& K = camera.Intrinsics();
 
     // Convert to normalized coordinates
@@ -365,6 +424,9 @@ std::vector<Point2d> UndistortPoints(
     result.reserve(points.size());
 
     for (const auto& pt : points) {
+        if (!pt.IsValid()) {
+            throw InvalidArgumentException("UndistortPoints: invalid point");
+        }
         result.push_back(UndistortPoint(pt, camera));
     }
 
@@ -372,6 +434,9 @@ std::vector<Point2d> UndistortPoints(
 }
 
 Point2d DistortPoint(const Point2d& point, const CameraModel& camera) {
+    if (!point.IsValid()) {
+        throw InvalidArgumentException("DistortPoint: invalid point");
+    }
     const CameraIntrinsics& K = camera.Intrinsics();
 
     // Convert to normalized coordinates (these are ideal/undistorted)

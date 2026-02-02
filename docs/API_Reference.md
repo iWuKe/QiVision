@@ -1641,6 +1641,65 @@ void EllipticAxis(
 
 ---
 
+### HuMoments
+
+Computes Hu invariant moments for shape recognition.
+
+Hu moments are 7 rotation, scale, and translation invariant descriptors derived from normalized central moments. They are useful for shape classification and matching.
+
+```cpp
+std::array<double, 7> HuMoments(const QRegion& region);
+
+void HuMoments(
+    const QRegion& region,
+    double& hu1, double& hu2, double& hu3, double& hu4,
+    double& hu5, double& hu6, double& hu7
+);
+
+void HuMoments(
+    const std::vector<QRegion>& regions,
+    std::vector<std::array<double, 7>>& huMoments
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| region | const QRegion& | Input region |
+| regions | const std::vector<QRegion>& | Input regions |
+| hu1-hu7 | double& | [out] Individual Hu moments |
+| huMoments | std::vector<std::array<double, 7>>& | [out] Hu moments for each region |
+
+**Returns** (first overload)
+| Type | Description |
+|------|-------------|
+| std::array<double, 7> | Array of 7 Hu invariant moments |
+
+**Hu Moments Definition**
+| Index | Formula | Description |
+|-------|---------|-------------|
+| hu[0] | nu20 + nu02 | Most significant, measures spread |
+| hu[1] | (nu20 - nu02)^2 + 4*nu11^2 | Measures elongation |
+| hu[2-5] | Higher-order combinations | Discriminative features |
+| hu[6] | Sign-dependent | Distinguishes mirror images |
+
+**Example**
+```cpp
+QRegion blobRegion = ...;
+auto hu = Blob::HuMoments(blobRegion);
+
+// For shape matching, compare log-transformed Hu moments
+double similarity = 0.0;
+for (int i = 0; i < 7; ++i) {
+    double diff = std::log10(std::abs(hu[i]) + 1e-10) -
+                  std::log10(std::abs(templateHu[i]) + 1e-10);
+    similarity += diff * diff;
+}
+similarity = std::sqrt(similarity);  // Lower = more similar
+```
+
+---
+
 ### SelectShape
 
 Selects regions by shape feature.

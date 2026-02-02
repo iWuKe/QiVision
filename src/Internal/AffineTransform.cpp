@@ -1030,7 +1030,6 @@ bool DecomposeAffine(const QMatrix& matrix,
     // Rotate back to get scale/shear
     double r00 = cosA * a + sinA * c;
     double r01 = cosA * b + sinA * d;
-    double r10 = -sinA * a + cosA * c;
     double r11 = -sinA * b + cosA * d;
 
     scaleX = r00;

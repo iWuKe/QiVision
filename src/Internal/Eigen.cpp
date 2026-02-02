@@ -18,7 +18,7 @@ namespace {
     constexpr double PI = 3.14159265358979323846;
 
     // Helper: Compute off-diagonal norm for Jacobi convergence check
-    double OffDiagonalNorm(const MatX& A) {
+    [[maybe_unused]] double OffDiagonalNorm(const MatX& A) {
         double sum = 0.0;
         int n = A.Rows();
         for (int i = 0; i < n; ++i) {

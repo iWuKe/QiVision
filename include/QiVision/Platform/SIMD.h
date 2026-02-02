@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file SIMD.h
  * @brief SIMD capability detection and utilities
@@ -26,32 +28,32 @@ enum class SIMDLevel {
 /**
  * @brief Get the highest supported SIMD level
  */
-SIMDLevel GetSIMDLevel();
+QIVISION_API SIMDLevel GetSIMDLevel();
 
 /**
  * @brief Check if SSE4.1 is supported
  */
-bool HasSSE4();
+QIVISION_API bool HasSSE4();
 
 /**
  * @brief Check if AVX2 is supported
  */
-bool HasAVX2();
+QIVISION_API bool HasAVX2();
 
 /**
  * @brief Check if AVX-512 is supported
  */
-bool HasAVX512();
+QIVISION_API bool HasAVX512();
 
 /**
  * @brief Check if ARM NEON is supported
  */
-bool HasNEON();
+QIVISION_API bool HasNEON();
 
 /**
  * @brief Get SIMD level name as string
  */
-const char* GetSIMDLevelName(SIMDLevel level);
+QIVISION_API const char* GetSIMDLevelName(SIMDLevel level);
 
 /**
  * @brief Get current SIMD level name
@@ -63,6 +65,6 @@ inline const char* GetSIMDLevelName() {
 /**
  * @brief SIMD vector width in bytes for current architecture
  */
-size_t GetSIMDWidth();
+QIVISION_API size_t GetSIMDWidth();
 
 } // namespace Qi::Vision::Platform

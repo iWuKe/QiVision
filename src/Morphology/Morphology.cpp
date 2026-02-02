@@ -8,10 +8,26 @@
 #include <QiVision/Internal/MorphBinary.h>
 #include <QiVision/Internal/MorphGray.h>
 #include <QiVision/Internal/RLEOps.h>
+#include <QiVision/Core/Exception.h>
 
-#include <stdexcept>
+#include <algorithm>
+#include <cmath>
+#include <string>
 
 namespace Qi::Vision::Morphology {
+
+static bool RequireGrayU8Input(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    if (image.Type() != PixelType::UInt8 || image.GetChannelType() != ChannelType::Gray) {
+        throw InvalidArgumentException(std::string(funcName) + ": image must be Gray UInt8");
+    }
+    return true;
+}
 
 // =============================================================================
 // StructuringElement Implementation
@@ -59,6 +75,9 @@ StructuringElement& StructuringElement::operator=(StructuringElement&& other) no
 }
 
 StructuringElement StructuringElement::Rectangle(int32_t width, int32_t height) {
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("StructuringElement::Rectangle: width/height must be > 0");
+    }
     StructuringElement se;
     se.impl_->se = Internal::StructElement::Rectangle(width, height);
     se.impl_->shape = SEShape::Rectangle;
@@ -70,6 +89,9 @@ StructuringElement StructuringElement::Square(int32_t size) {
 }
 
 StructuringElement StructuringElement::Circle(int32_t radius) {
+    if (radius <= 0) {
+        throw InvalidArgumentException("StructuringElement::Circle: radius must be > 0");
+    }
     StructuringElement se;
     se.impl_->se = Internal::StructElement::Circle(radius);
     se.impl_->shape = SEShape::Circle;
@@ -77,6 +99,9 @@ StructuringElement StructuringElement::Circle(int32_t radius) {
 }
 
 StructuringElement StructuringElement::Ellipse(int32_t radiusX, int32_t radiusY) {
+    if (radiusX <= 0 || radiusY <= 0) {
+        throw InvalidArgumentException("StructuringElement::Ellipse: radius must be > 0");
+    }
     StructuringElement se;
     se.impl_->se = Internal::StructElement::Ellipse(radiusX, radiusY);
     se.impl_->shape = SEShape::Ellipse;
@@ -84,6 +109,9 @@ StructuringElement StructuringElement::Ellipse(int32_t radiusX, int32_t radiusY)
 }
 
 StructuringElement StructuringElement::Cross(int32_t armLength, int32_t thickness) {
+    if (armLength <= 0 || thickness <= 0) {
+        throw InvalidArgumentException("StructuringElement::Cross: armLength/thickness must be > 0");
+    }
     StructuringElement se;
     se.impl_->se = Internal::StructElement::Cross(armLength, thickness);
     se.impl_->shape = SEShape::Cross;
@@ -91,6 +119,9 @@ StructuringElement StructuringElement::Cross(int32_t armLength, int32_t thicknes
 }
 
 StructuringElement StructuringElement::Diamond(int32_t radius) {
+    if (radius <= 0) {
+        throw InvalidArgumentException("StructuringElement::Diamond: radius must be > 0");
+    }
     StructuringElement se;
     se.impl_->se = Internal::StructElement::Diamond(radius);
     se.impl_->shape = SEShape::Diamond;
@@ -98,6 +129,12 @@ StructuringElement StructuringElement::Diamond(int32_t radius) {
 }
 
 StructuringElement StructuringElement::Line(int32_t length, double angle) {
+    if (length <= 0) {
+        throw InvalidArgumentException("StructuringElement::Line: length must be > 0");
+    }
+    if (!std::isfinite(angle)) {
+        throw InvalidArgumentException("StructuringElement::Line: invalid angle");
+    }
     StructuringElement se;
     se.impl_->se = Internal::StructElement::Line(length, angle);
     se.impl_->shape = SEShape::Line;
@@ -107,6 +144,9 @@ StructuringElement StructuringElement::Line(int32_t length, double angle) {
 StructuringElement StructuringElement::FromMask(const QImage& mask,
                                                   int32_t anchorX,
                                                   int32_t anchorY) {
+    if (!RequireGrayU8Input(mask, "StructuringElement::FromMask")) {
+        return StructuringElement();
+    }
     StructuringElement se;
     se.impl_->se = Internal::StructElement::FromMask(mask, anchorX, anchorY);
     se.impl_->shape = SEShape::Custom;
@@ -173,89 +213,125 @@ void* StructuringElement::GetInternal() const {
 // =============================================================================
 
 QRegion Dilation(const QRegion& region, const StructuringElement& se) {
-    if (region.Empty() || se.Empty()) {
+    if (region.Empty()) {
         return QRegion();
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("Dilation: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     return Internal::Dilate(region, *internalSE);
 }
 
 QRegion DilationCircle(const QRegion& region, int32_t radius) {
-    if (region.Empty() || radius <= 0) {
-        return region;
+    if (region.Empty()) {
+        return QRegion();
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("DilationCircle: radius must be > 0");
     }
     return Internal::DilateCircle(region, radius);
 }
 
 QRegion DilationRectangle(const QRegion& region, int32_t width, int32_t height) {
-    if (region.Empty() || width <= 0 || height <= 0) {
-        return region;
+    if (region.Empty()) {
+        return QRegion();
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("DilationRectangle: width/height must be > 0");
     }
     return Internal::DilateRect(region, width, height);
 }
 
 QRegion Erosion(const QRegion& region, const StructuringElement& se) {
-    if (region.Empty() || se.Empty()) {
+    if (region.Empty()) {
         return QRegion();
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("Erosion: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     return Internal::Erode(region, *internalSE);
 }
 
 QRegion ErosionCircle(const QRegion& region, int32_t radius) {
-    if (region.Empty() || radius <= 0) {
-        return region;
+    if (region.Empty()) {
+        return QRegion();
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("ErosionCircle: radius must be > 0");
     }
     return Internal::ErodeCircle(region, radius);
 }
 
 QRegion ErosionRectangle(const QRegion& region, int32_t width, int32_t height) {
-    if (region.Empty() || width <= 0 || height <= 0) {
-        return region;
+    if (region.Empty()) {
+        return QRegion();
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("ErosionRectangle: width/height must be > 0");
     }
     return Internal::ErodeRect(region, width, height);
 }
 
 QRegion Opening(const QRegion& region, const StructuringElement& se) {
-    if (region.Empty() || se.Empty()) {
+    if (region.Empty()) {
         return QRegion();
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("Opening: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     return Internal::Opening(region, *internalSE);
 }
 
 QRegion OpeningCircle(const QRegion& region, int32_t radius) {
-    if (region.Empty() || radius <= 0) {
-        return region;
+    if (region.Empty()) {
+        return QRegion();
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("OpeningCircle: radius must be > 0");
     }
     return Internal::OpeningCircle(region, radius);
 }
 
 QRegion OpeningRectangle(const QRegion& region, int32_t width, int32_t height) {
-    if (region.Empty() || width <= 0 || height <= 0) {
-        return region;
+    if (region.Empty()) {
+        return QRegion();
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("OpeningRectangle: width/height must be > 0");
     }
     return Internal::OpeningRect(region, width, height);
 }
 
 QRegion Closing(const QRegion& region, const StructuringElement& se) {
-    if (region.Empty() || se.Empty()) {
+    if (region.Empty()) {
         return QRegion();
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("Closing: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     return Internal::Closing(region, *internalSE);
 }
 
 QRegion ClosingCircle(const QRegion& region, int32_t radius) {
-    if (region.Empty() || radius <= 0) {
-        return region;
+    if (region.Empty()) {
+        return QRegion();
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("ClosingCircle: radius must be > 0");
     }
     return Internal::ClosingCircle(region, radius);
 }
 
 QRegion ClosingRectangle(const QRegion& region, int32_t width, int32_t height) {
-    if (region.Empty() || width <= 0 || height <= 0) {
-        return region;
+    if (region.Empty()) {
+        return QRegion();
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("ClosingRectangle: width/height must be > 0");
     }
     return Internal::ClosingRect(region, width, height);
 }
@@ -267,16 +343,20 @@ QRegion Boundary(const QRegion& region, const std::string& type) {
 
     auto se = Internal::SE_Cross3();
 
-    if (type == "inner") {
-        // Inner boundary: region - Erode(region)
-        return Internal::InternalGradient(region, se);
-    } else if (type == "outer") {
-        // Outer boundary: Dilate(region) - region
-        return Internal::ExternalGradient(region, se);
-    } else {
+    std::string lowerType = type;
+    std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
+    if (lowerType.empty() || lowerType == "both") {
         // Both: Dilate(region) - Erode(region)
         return Internal::MorphGradient(region, se);
     }
+    if (lowerType == "inner") {
+        // Inner boundary: region - Erode(region)
+        return Internal::InternalGradient(region, se);
+    } else if (lowerType == "outer") {
+        // Outer boundary: Dilate(region) - region
+        return Internal::ExternalGradient(region, se);
+    }
+    throw InvalidArgumentException("Boundary: unknown type: " + type);
 }
 
 QRegion Skeleton(const QRegion& region) {
@@ -319,192 +399,260 @@ QRegion ClearBorder(const QRegion& region, const Rect2i& bounds) {
 // =============================================================================
 
 void GrayDilation(const QImage& image, QImage& output, const StructuringElement& se) {
-    if (!image.IsValid() || se.Empty()) {
+    if (!RequireGrayU8Input(image, "GrayDilation")) {
         output = QImage();
         return;
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("GrayDilation: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     output = Internal::GrayDilate(image, *internalSE);
 }
 
 void GrayDilationCircle(const QImage& image, QImage& output, int32_t radius) {
-    if (!image.IsValid() || radius <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayDilationCircle")) {
+        output = QImage();
         return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("GrayDilationCircle: radius must be > 0");
     }
     output = Internal::GrayDilateCircle(image, radius);
 }
 
 void GrayDilationRectangle(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (!image.IsValid() || width <= 0 || height <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayDilationRectangle")) {
+        output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("GrayDilationRectangle: width/height must be > 0");
     }
     output = Internal::GrayDilateRect(image, width, height);
 }
 
 void GrayErosion(const QImage& image, QImage& output, const StructuringElement& se) {
-    if (!image.IsValid() || se.Empty()) {
+    if (!RequireGrayU8Input(image, "GrayErosion")) {
         output = QImage();
         return;
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("GrayErosion: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     output = Internal::GrayErode(image, *internalSE);
 }
 
 void GrayErosionCircle(const QImage& image, QImage& output, int32_t radius) {
-    if (!image.IsValid() || radius <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayErosionCircle")) {
+        output = QImage();
         return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("GrayErosionCircle: radius must be > 0");
     }
     output = Internal::GrayErodeCircle(image, radius);
 }
 
 void GrayErosionRectangle(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (!image.IsValid() || width <= 0 || height <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayErosionRectangle")) {
+        output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("GrayErosionRectangle: width/height must be > 0");
     }
     output = Internal::GrayErodeRect(image, width, height);
 }
 
 void GrayOpening(const QImage& image, QImage& output, const StructuringElement& se) {
-    if (!image.IsValid() || se.Empty()) {
+    if (!RequireGrayU8Input(image, "GrayOpening")) {
         output = QImage();
         return;
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("GrayOpening: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     output = Internal::GrayOpening(image, *internalSE);
 }
 
 void GrayOpeningCircle(const QImage& image, QImage& output, int32_t radius) {
-    if (!image.IsValid() || radius <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayOpeningCircle")) {
+        output = QImage();
         return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("GrayOpeningCircle: radius must be > 0");
     }
     output = Internal::GrayOpeningCircle(image, radius);
 }
 
 void GrayOpeningRectangle(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (!image.IsValid() || width <= 0 || height <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayOpeningRectangle")) {
+        output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("GrayOpeningRectangle: width/height must be > 0");
     }
     output = Internal::GrayOpeningRect(image, width, height);
 }
 
 void GrayClosing(const QImage& image, QImage& output, const StructuringElement& se) {
-    if (!image.IsValid() || se.Empty()) {
+    if (!RequireGrayU8Input(image, "GrayClosing")) {
         output = QImage();
         return;
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("GrayClosing: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     output = Internal::GrayClosing(image, *internalSE);
 }
 
 void GrayClosingCircle(const QImage& image, QImage& output, int32_t radius) {
-    if (!image.IsValid() || radius <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayClosingCircle")) {
+        output = QImage();
         return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("GrayClosingCircle: radius must be > 0");
     }
     output = Internal::GrayClosingCircle(image, radius);
 }
 
 void GrayClosingRectangle(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (!image.IsValid() || width <= 0 || height <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayClosingRectangle")) {
+        output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("GrayClosingRectangle: width/height must be > 0");
     }
     output = Internal::GrayClosingRect(image, width, height);
 }
 
 void GrayGradient(const QImage& image, QImage& output, const StructuringElement& se) {
-    if (!image.IsValid() || se.Empty()) {
+    if (!RequireGrayU8Input(image, "GrayGradient")) {
         output = QImage();
         return;
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("GrayGradient: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     output = Internal::GrayMorphGradient(image, *internalSE);
 }
 
 void GrayGradientRectangle(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (!image.IsValid() || width <= 0 || height <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "GrayGradientRectangle")) {
+        output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("GrayGradientRectangle: width/height must be > 0");
     }
     output = Internal::GrayRangeRect(image, width, height);
 }
 
 void GrayTopHat(const QImage& image, QImage& output, const StructuringElement& se) {
-    if (!image.IsValid() || se.Empty()) {
+    if (!RequireGrayU8Input(image, "GrayTopHat")) {
         output = QImage();
         return;
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("GrayTopHat: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     output = Internal::GrayTopHat(image, *internalSE);
 }
 
 void GrayTopHatCircle(const QImage& image, QImage& output, int32_t radius) {
-    if (!image.IsValid() || radius <= 0) {
+    if (!RequireGrayU8Input(image, "GrayTopHatCircle")) {
         output = QImage();
         return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("GrayTopHatCircle: radius must be > 0");
     }
     auto se = Internal::StructElement::Circle(radius);
     output = Internal::GrayTopHat(image, se);
 }
 
 void GrayBlackHat(const QImage& image, QImage& output, const StructuringElement& se) {
-    if (!image.IsValid() || se.Empty()) {
+    if (!RequireGrayU8Input(image, "GrayBlackHat")) {
         output = QImage();
         return;
+    }
+    if (se.Empty()) {
+        throw InvalidArgumentException("GrayBlackHat: structuring element is empty");
     }
     const auto* internalSE = static_cast<Internal::StructElement*>(se.GetInternal());
     output = Internal::GrayBlackHat(image, *internalSE);
 }
 
 void GrayBlackHatCircle(const QImage& image, QImage& output, int32_t radius) {
-    if (!image.IsValid() || radius <= 0) {
+    if (!RequireGrayU8Input(image, "GrayBlackHatCircle")) {
         output = QImage();
         return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("GrayBlackHatCircle: radius must be > 0");
     }
     auto se = Internal::StructElement::Circle(radius);
     output = Internal::GrayBlackHat(image, se);
 }
 
 void GrayRange(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (!image.IsValid() || width <= 0 || height <= 0) {
+    if (!RequireGrayU8Input(image, "GrayRange")) {
         output = QImage();
         return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("GrayRange: width/height must be > 0");
     }
     output = Internal::GrayRangeRect(image, width, height);
 }
 
 void RollingBall(const QImage& image, QImage& output, int32_t radius) {
-    if (!image.IsValid() || radius <= 0) {
-        output = image;
+    if (!RequireGrayU8Input(image, "RollingBall")) {
+        output = QImage();
         return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("RollingBall: radius must be > 0");
     }
     output = Internal::RollingBallBackground(image, radius);
 }
 
 void GrayReconstructDilation(const QImage& marker, const QImage& mask, QImage& output) {
-    if (!marker.IsValid() || !mask.IsValid()) {
+    if (!RequireGrayU8Input(marker, "GrayReconstructDilation") ||
+        !RequireGrayU8Input(mask, "GrayReconstructDilation")) {
         output = QImage();
         return;
+    }
+    if (marker.Width() != mask.Width() || marker.Height() != mask.Height()) {
+        throw InvalidArgumentException("GrayReconstructDilation: marker/mask size mismatch");
     }
     output = Internal::GrayReconstructByDilation(marker, mask);
 }
 
 void GrayReconstructErosion(const QImage& marker, const QImage& mask, QImage& output) {
-    if (!marker.IsValid() || !mask.IsValid()) {
+    if (!RequireGrayU8Input(marker, "GrayReconstructErosion") ||
+        !RequireGrayU8Input(mask, "GrayReconstructErosion")) {
         output = QImage();
         return;
+    }
+    if (marker.Width() != mask.Width() || marker.Height() != mask.Height()) {
+        throw InvalidArgumentException("GrayReconstructErosion: marker/mask size mismatch");
     }
     output = Internal::GrayReconstructByErosion(marker, mask);
 }
 
 void GrayFillHoles(const QImage& image, QImage& output) {
-    if (!image.IsValid()) {
+    if (!RequireGrayU8Input(image, "GrayFillHoles")) {
         output = QImage();
         return;
     }

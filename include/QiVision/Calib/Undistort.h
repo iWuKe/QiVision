@@ -16,6 +16,7 @@
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Calib/CameraModel.h>
 #include <QiVision/Internal/Interpolate.h>
+#include <QiVision/Core/Export.h>
 
 #include <vector>
 
@@ -27,7 +28,7 @@ namespace Qi::Vision::Calib {
  * Stores (x, y) coordinates in source image for each destination pixel.
  * Using float for memory efficiency while maintaining sub-pixel accuracy.
  */
-struct UndistortMap {
+struct QIVISION_API UndistortMap {
     std::vector<float> mapX;    ///< Source X coordinates
     std::vector<float> mapY;    ///< Source Y coordinates
     int32_t width = 0;          ///< Map width
@@ -48,7 +49,7 @@ struct UndistortMap {
  * @param camera Camera model with intrinsics and distortion
  * @param method Interpolation method
  */
-void Undistort(
+QIVISION_API void Undistort(
     const QImage& src,
     QImage& dst,
     const CameraModel& camera,
@@ -65,7 +66,7 @@ void Undistort(
  * @param outputSize Output image size (0 = same as source)
  * @param method Interpolation method
  */
-void Undistort(
+QIVISION_API void Undistort(
     const QImage& src,
     QImage& dst,
     const CameraModel& camera,
@@ -85,7 +86,7 @@ void Undistort(
  * @param newCameraMatrix Optional new camera matrix (null = use original)
  * @return Undistortion map
  */
-UndistortMap InitUndistortMap(
+QIVISION_API UndistortMap InitUndistortMap(
     const CameraModel& camera,
     const Size2i& outputSize,
     const CameraIntrinsics* newCameraMatrix = nullptr
@@ -101,7 +102,7 @@ UndistortMap InitUndistortMap(
  * @param borderMode Border handling
  * @param borderValue Border value for constant mode
  */
-void Remap(
+QIVISION_API void Remap(
     const QImage& src,
     QImage& dst,
     const UndistortMap& map,
@@ -118,7 +119,7 @@ void Remap(
  * @param newImageSize New image size (0,0 = same as original)
  * @return Optimal camera matrix that balances FOV and valid pixels
  */
-CameraIntrinsics GetOptimalNewCameraMatrix(
+QIVISION_API CameraIntrinsics GetOptimalNewCameraMatrix(
     const CameraModel& camera,
     double alpha = 1.0,
     const Size2i& newImageSize = Size2i(0, 0)
@@ -131,7 +132,7 @@ CameraIntrinsics GetOptimalNewCameraMatrix(
  * @param camera Camera model
  * @return Undistorted pixel coordinate
  */
-Point2d UndistortPoint(const Point2d& point, const CameraModel& camera);
+QIVISION_API Point2d UndistortPoint(const Point2d& point, const CameraModel& camera);
 
 /**
  * @brief Undistort multiple points
@@ -140,7 +141,7 @@ Point2d UndistortPoint(const Point2d& point, const CameraModel& camera);
  * @param camera Camera model
  * @return Undistorted pixel coordinates
  */
-std::vector<Point2d> UndistortPoints(
+QIVISION_API std::vector<Point2d> UndistortPoints(
     const std::vector<Point2d>& points,
     const CameraModel& camera
 );
@@ -152,6 +153,6 @@ std::vector<Point2d> UndistortPoints(
  * @param camera Camera model
  * @return Distorted pixel coordinate
  */
-Point2d DistortPoint(const Point2d& point, const CameraModel& camera);
+QIVISION_API Point2d DistortPoint(const Point2d& point, const CameraModel& camera);
 
 } // namespace Qi::Vision::Calib

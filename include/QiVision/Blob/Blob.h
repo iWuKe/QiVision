@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Blob.h
  * @brief Blob analysis and region selection (Halcon-style API)
@@ -17,6 +19,7 @@
 #include <QiVision/Core/QRegion.h>
 #include <QiVision/Core/Types.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -92,7 +95,7 @@ enum class SortMode {
  * std::cout << "Found " << blobs.size() << " blobs\n";
  * @endcode
  */
-void Connection(const QRegion& region, std::vector<QRegion>& regions);
+QIVISION_API void Connection(const QRegion& region, std::vector<QRegion>& regions);
 
 /**
  * @brief Extract connected components from binary image
@@ -101,7 +104,7 @@ void Connection(const QRegion& region, std::vector<QRegion>& regions);
  * @param[out] regions Output connected regions
  * @param connectivity 4 or 8 connectivity (default: 8)
  */
-void Connection(const QImage& binaryImage,
+QIVISION_API void Connection(const QImage& binaryImage,
                 std::vector<QRegion>& regions,
                 Connectivity connectivity = Connectivity::Eight);
 
@@ -123,7 +126,7 @@ inline int32_t CountObj(const std::vector<QRegion>& regions) {
  * @param index 1-based index
  * @return Selected region (empty if out of range)
  */
-QRegion SelectObj(const std::vector<QRegion>& regions, int32_t index);
+QIVISION_API QRegion SelectObj(const std::vector<QRegion>& regions, int32_t index);
 
 // =============================================================================
 // Region Features
@@ -139,12 +142,12 @@ QRegion SelectObj(const std::vector<QRegion>& regions, int32_t index);
  * @param[out] row Centroid row
  * @param[out] column Centroid column
  */
-void AreaCenter(const QRegion& region, int64_t& area, double& row, double& column);
+QIVISION_API void AreaCenter(const QRegion& region, int64_t& area, double& row, double& column);
 
 /**
  * @brief Get area and centroid for multiple regions
  */
-void AreaCenter(const std::vector<QRegion>& regions,
+QIVISION_API void AreaCenter(const std::vector<QRegion>& regions,
                 std::vector<int64_t>& areas,
                 std::vector<double>& rows,
                 std::vector<double>& columns);
@@ -160,7 +163,7 @@ void AreaCenter(const std::vector<QRegion>& regions,
  * @param[out] row2 Bottom row
  * @param[out] column2 Right column
  */
-void SmallestRectangle1(const QRegion& region,
+QIVISION_API void SmallestRectangle1(const QRegion& region,
                          int32_t& row1, int32_t& column1,
                          int32_t& row2, int32_t& column2);
 
@@ -176,7 +179,7 @@ void SmallestRectangle1(const QRegion& region,
  * @param[out] length1 Half-length along major axis
  * @param[out] length2 Half-length along minor axis
  */
-void SmallestRectangle2(const QRegion& region,
+QIVISION_API void SmallestRectangle2(const QRegion& region,
                          double& row, double& column, double& phi,
                          double& length1, double& length2);
 
@@ -190,7 +193,7 @@ void SmallestRectangle2(const QRegion& region,
  * @param[out] column Circle center column
  * @param[out] radius Circle radius
  */
-void SmallestCircle(const QRegion& region,
+QIVISION_API void SmallestCircle(const QRegion& region,
                      double& row, double& column, double& radius);
 
 /**
@@ -204,7 +207,7 @@ void SmallestCircle(const QRegion& region,
  * @param[out] column Circle center column
  * @param[out] radius Circle radius
  */
-void InnerCircle(const QRegion& region,
+QIVISION_API void InnerCircle(const QRegion& region,
                   double& row, double& column, double& radius);
 
 /**
@@ -215,7 +218,7 @@ void InnerCircle(const QRegion& region,
  * @param region Input region
  * @return Contour length in pixels
  */
-double ContourLength(const QRegion& region);
+QIVISION_API double ContourLength(const QRegion& region);
 
 /**
  * @brief Count number of holes in a region
@@ -225,7 +228,7 @@ double ContourLength(const QRegion& region);
  * @param region Input region
  * @return Number of holes (0 if no holes)
  */
-int32_t CountHoles(const QRegion& region);
+QIVISION_API int32_t CountHoles(const QRegion& region);
 
 /**
  * @brief Get the Euler number of a region
@@ -236,7 +239,7 @@ int32_t CountHoles(const QRegion& region);
  * @param region Input region
  * @return Euler number
  */
-int32_t EulerNumber(const QRegion& region);
+QIVISION_API int32_t EulerNumber(const QRegion& region);
 
 /**
  * @brief Fill holes in a region
@@ -246,7 +249,7 @@ int32_t EulerNumber(const QRegion& region);
  * @param region Input region
  * @param[out] filled Region with holes filled
  */
-void FillUp(const QRegion& region, QRegion& filled);
+QIVISION_API void FillUp(const QRegion& region, QRegion& filled);
 
 /**
  * @brief Get the holes of a region
@@ -254,7 +257,7 @@ void FillUp(const QRegion& region, QRegion& filled);
  * @param region Input region
  * @param[out] holes Vector of hole regions
  */
-void GetHoles(const QRegion& region, std::vector<QRegion>& holes);
+QIVISION_API void GetHoles(const QRegion& region, std::vector<QRegion>& holes);
 
 /**
  * @brief Compute region circularity
@@ -265,7 +268,7 @@ void GetHoles(const QRegion& region, std::vector<QRegion>& holes);
  * @param region Input region
  * @return Circularity value [0, 1]
  */
-double Circularity(const QRegion& region);
+QIVISION_API double Circularity(const QRegion& region);
 
 /**
  * @brief Compute region compactness
@@ -276,7 +279,7 @@ double Circularity(const QRegion& region);
  * @param region Input region
  * @return Compactness value (>= 4*pi)
  */
-double Compactness(const QRegion& region);
+QIVISION_API double Compactness(const QRegion& region);
 
 /**
  * @brief Compute region convexity
@@ -286,7 +289,7 @@ double Compactness(const QRegion& region);
  * @param region Input region
  * @return Convexity value [0, 1]
  */
-double Convexity(const QRegion& region);
+QIVISION_API double Convexity(const QRegion& region);
 
 /**
  * @brief Compute region rectangularity
@@ -294,7 +297,7 @@ double Convexity(const QRegion& region);
  * @param region Input region
  * @return Rectangularity = area/bbox_area [0, 1]
  */
-double Rectangularity(const QRegion& region);
+QIVISION_API double Rectangularity(const QRegion& region);
 
 /**
  * @brief Compute equivalent ellipse parameters
@@ -306,7 +309,7 @@ double Rectangularity(const QRegion& region);
  * @param[out] rb Minor radius (semi-minor axis)
  * @param[out] phi Orientation angle (radians)
  */
-void EllipticAxis(const QRegion& region, double& ra, double& rb, double& phi);
+QIVISION_API void EllipticAxis(const QRegion& region, double& ra, double& rb, double& phi);
 
 /**
  * @brief Compute region orientation
@@ -316,7 +319,7 @@ void EllipticAxis(const QRegion& region, double& ra, double& rb, double& phi);
  * @param region Input region
  * @return Orientation angle in radians [-pi/2, pi/2]
  */
-double OrientationRegion(const QRegion& region);
+QIVISION_API double OrientationRegion(const QRegion& region);
 
 /**
  * @brief Compute second-order central moments
@@ -330,9 +333,57 @@ double OrientationRegion(const QRegion& region);
  * @param[out] ia Major moment of inertia
  * @param[out] ib Minor moment of inertia
  */
-void MomentsRegion2nd(const QRegion& region,
+QIVISION_API void MomentsRegion2nd(const QRegion& region,
                        double& m11, double& m20, double& m02,
                        double& ia, double& ib);
+
+/**
+ * @brief Compute Hu invariant moments
+ *
+ * Hu moments are rotation, scale, and translation invariant shape descriptors.
+ * They are useful for shape recognition and matching.
+ *
+ * The 7 Hu moments are derived from normalized central moments:
+ * - hu[0]: nu20 + nu02
+ * - hu[1]: (nu20 - nu02)^2 + 4*nu11^2
+ * - hu[2-6]: Higher-order combinations for more discriminative power
+ *
+ * @param region Input region
+ * @return Array of 7 Hu moments
+ *
+ * @code
+ * QRegion blobRegion = ...;
+ * auto hu = HuMoments(blobRegion);
+ * // Compare with template region for shape matching
+ * double similarity = ComputeHuSimilarity(hu, templateHu);
+ * @endcode
+ */
+QIVISION_API std::array<double, 7> HuMoments(const QRegion& region);
+
+/**
+ * @brief Compute Hu invariant moments (Halcon-style output parameters)
+ *
+ * @param region Input region
+ * @param[out] hu1 First Hu moment (most significant)
+ * @param[out] hu2 Second Hu moment
+ * @param[out] hu3 Third Hu moment
+ * @param[out] hu4 Fourth Hu moment
+ * @param[out] hu5 Fifth Hu moment
+ * @param[out] hu6 Sixth Hu moment
+ * @param[out] hu7 Seventh Hu moment (sign can distinguish mirror images)
+ */
+QIVISION_API void HuMoments(const QRegion& region,
+                double& hu1, double& hu2, double& hu3, double& hu4,
+                double& hu5, double& hu6, double& hu7);
+
+/**
+ * @brief Compute Hu moments for multiple regions
+ *
+ * @param regions Input regions
+ * @param[out] huMoments Output Hu moments for each region
+ */
+QIVISION_API void HuMoments(const std::vector<QRegion>& regions,
+                std::vector<std::array<double, 7>>& huMoments);
 
 /**
  * @brief Compute eccentricity features
@@ -344,7 +395,7 @@ void MomentsRegion2nd(const QRegion& region,
  * @param[out] bulkiness pi*Ra*Rb/Area
  * @param[out] structureFactor Anisometry*Bulkiness-1
  */
-void Eccentricity(const QRegion& region,
+QIVISION_API void Eccentricity(const QRegion& region,
                    double& anisometry, double& bulkiness, double& structureFactor);
 
 // =============================================================================
@@ -372,7 +423,7 @@ void Eccentricity(const QRegion& region,
  *             SelectOperation::And, 0.8, 1.0);
  * @endcode
  */
-void SelectShape(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShape(const std::vector<QRegion>& regions,
                  std::vector<QRegion>& selected,
                  ShapeFeature feature,
                  SelectOperation operation,
@@ -389,7 +440,7 @@ void SelectShape(const std::vector<QRegion>& regions,
  * @param minValue Minimum value
  * @param maxValue Maximum value
  */
-void SelectShape(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShape(const std::vector<QRegion>& regions,
                  std::vector<QRegion>& selected,
                  const std::string& features,
                  const std::string& operation,
@@ -404,7 +455,7 @@ void SelectShape(const std::vector<QRegion>& regions,
  * @param minArea Minimum area
  * @param maxArea Maximum area
  */
-void SelectShapeArea(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShapeArea(const std::vector<QRegion>& regions,
                      std::vector<QRegion>& selected,
                      int64_t minArea,
                      int64_t maxArea);
@@ -412,7 +463,7 @@ void SelectShapeArea(const std::vector<QRegion>& regions,
 /**
  * @brief Select regions by circularity
  */
-void SelectShapeCircularity(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShapeCircularity(const std::vector<QRegion>& regions,
                             std::vector<QRegion>& selected,
                             double minCirc,
                             double maxCirc);
@@ -420,7 +471,7 @@ void SelectShapeCircularity(const std::vector<QRegion>& regions,
 /**
  * @brief Select regions by rectangularity
  */
-void SelectShapeRectangularity(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShapeRectangularity(const std::vector<QRegion>& regions,
                                std::vector<QRegion>& selected,
                                double minRect,
                                double maxRect);
@@ -436,7 +487,7 @@ void SelectShapeRectangularity(const std::vector<QRegion>& regions,
  * @param feature Feature to analyze
  * @param deviationFactor Number of standard deviations (e.g., 1.0, 2.0)
  */
-void SelectShapeStd(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShapeStd(const std::vector<QRegion>& regions,
                     std::vector<QRegion>& selected,
                     ShapeFeature feature,
                     double deviationFactor);
@@ -451,7 +502,7 @@ void SelectShapeStd(const std::vector<QRegion>& regions,
  * @param minValues Minimum values for each feature
  * @param maxValues Maximum values for each feature
  */
-void SelectShapeMulti(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShapeMulti(const std::vector<QRegion>& regions,
                       std::vector<QRegion>& selected,
                       const std::vector<ShapeFeature>& features,
                       SelectOperation operation,
@@ -461,7 +512,7 @@ void SelectShapeMulti(const std::vector<QRegion>& regions,
 /**
  * @brief Select regions by convexity
  */
-void SelectShapeConvexity(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShapeConvexity(const std::vector<QRegion>& regions,
                           std::vector<QRegion>& selected,
                           double minConvex,
                           double maxConvex);
@@ -469,7 +520,7 @@ void SelectShapeConvexity(const std::vector<QRegion>& regions,
 /**
  * @brief Select regions by elongation
  */
-void SelectShapeElongation(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShapeElongation(const std::vector<QRegion>& regions,
                            std::vector<QRegion>& selected,
                            double minElong,
                            double maxElong);
@@ -482,7 +533,7 @@ void SelectShapeElongation(const std::vector<QRegion>& regions,
  * @param n Number of regions to select
  * @param largest If true, select largest; if false, select smallest
  */
-void SelectShapeProto(const std::vector<QRegion>& regions,
+QIVISION_API void SelectShapeProto(const std::vector<QRegion>& regions,
                       std::vector<QRegion>& selected,
                       int32_t n,
                       bool largest = true);
@@ -501,7 +552,7 @@ void SelectShapeProto(const std::vector<QRegion>& regions,
  * @param mode Sort mode
  * @param ascending true = ascending, false = descending
  */
-void SortRegion(const std::vector<QRegion>& regions,
+QIVISION_API void SortRegion(const std::vector<QRegion>& regions,
                 std::vector<QRegion>& sorted,
                 SortMode mode,
                 bool ascending = true);
@@ -509,7 +560,7 @@ void SortRegion(const std::vector<QRegion>& regions,
 /**
  * @brief Sort regions by string mode (Halcon compatible)
  */
-void SortRegion(const std::vector<QRegion>& regions,
+QIVISION_API void SortRegion(const std::vector<QRegion>& regions,
                 std::vector<QRegion>& sorted,
                 const std::string& sortMode,
                 const std::string& order,
@@ -526,7 +577,7 @@ void SortRegion(const std::vector<QRegion>& regions,
  * @param feature Feature to compute
  * @return Feature value
  */
-double GetRegionFeature(const QRegion& region, ShapeFeature feature);
+QIVISION_API double GetRegionFeature(const QRegion& region, ShapeFeature feature);
 
 /**
  * @brief Get feature values for multiple regions
@@ -535,17 +586,17 @@ double GetRegionFeature(const QRegion& region, ShapeFeature feature);
  * @param feature Feature to compute
  * @return Vector of feature values
  */
-std::vector<double> GetRegionFeatures(const std::vector<QRegion>& regions,
+QIVISION_API std::vector<double> GetRegionFeatures(const std::vector<QRegion>& regions,
                                        ShapeFeature feature);
 
 /**
  * @brief Parse feature name string to enum
  */
-ShapeFeature ParseShapeFeature(const std::string& name);
+QIVISION_API ShapeFeature ParseShapeFeature(const std::string& name);
 
 /**
  * @brief Get feature name string
  */
-std::string GetShapeFeatureName(ShapeFeature feature);
+QIVISION_API std::string GetShapeFeatureName(ShapeFeature feature);
 
 } // namespace Qi::Vision::Blob

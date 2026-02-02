@@ -6,6 +6,7 @@
  */
 
 #include <QiVision/Core/Types.h>
+#include <QiVision/Core/Export.h>
 
 #include <vector>
 #include <memory>
@@ -22,7 +23,7 @@ namespace Qi::Vision {
  * - Cached computed properties (Area, BoundingBox)
  * - Thread-safe caching with std::call_once
  */
-class QRegion {
+class QIVISION_API QRegion {
 public:
     /**
      * @brief Single horizontal run

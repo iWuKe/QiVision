@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Hough.h
  * @brief Hough Transform for line and circle detection (Halcon-style API)
@@ -36,7 +38,7 @@ namespace Qi::Vision::Hough {
  *
  * Line equation: x*cos(theta) + y*sin(theta) = rho
  */
-struct HoughLine {
+struct QIVISION_API HoughLine {
     double rho = 0.0;      ///< Distance from origin to line (can be negative)
     double theta = 0.0;    ///< Angle in radians [0, PI)
     double score = 0.0;    ///< Accumulator vote count / strength
@@ -57,7 +59,7 @@ struct HoughLine {
 /**
  * @brief Hough circle detection result
  */
-struct HoughCircle {
+struct QIVISION_API HoughCircle {
     double row = 0.0;      ///< Circle center Y
     double column = 0.0;   ///< Circle center X
     double radius = 0.0;   ///< Circle radius
@@ -103,7 +105,7 @@ struct HoughCircle {
  * }
  * @endcode
  */
-void HoughLines(
+QIVISION_API void HoughLines(
     const QImage& edgeImage,
     std::vector<HoughLine>& lines,
     double rhoResolution = 1.0,
@@ -126,7 +128,7 @@ void HoughLines(
  * @param threshold Minimum votes
  * @param maxLines Maximum lines
  */
-void HoughLines(
+QIVISION_API void HoughLines(
     const std::vector<Point2d>& points,
     int32_t imageWidth,
     int32_t imageHeight,
@@ -167,7 +169,7 @@ void HoughLines(
  * }
  * @endcode
  */
-void HoughLinesP(
+QIVISION_API void HoughLinesP(
     const QImage& edgeImage,
     std::vector<Segment2d>& segments,
     double rhoResolution = 1.0,
@@ -201,7 +203,7 @@ void HoughLinesP(
  * HoughLinesXld(contours, lines, 5, 0.01745, 10);
  * @endcode
  */
-void HoughLinesXld(
+QIVISION_API void HoughLinesXld(
     const QContourArray& contours,
     std::vector<Line2d>& lines,
     int32_t threshold = 5,
@@ -238,7 +240,7 @@ void HoughLinesXld(
  * }
  * @endcode
  */
-void HoughCircles(
+QIVISION_API void HoughCircles(
     const QImage& edgeImage,
     std::vector<HoughCircle>& circles,
     double dp = 1.0,
@@ -263,7 +265,7 @@ void HoughCircles(
  * @param minRadius Minimum radius
  * @param maxRadius Maximum radius
  */
-void HoughCircles(
+QIVISION_API void HoughCircles(
     const QImage& edgeImage,
     const QImage& gradientX,
     const QImage& gradientY,
@@ -293,7 +295,7 @@ void HoughCircles(
  * HoughCirclesXld(contours, circles, 10.0, 100.0, 5, 1.0);
  * @endcode
  */
-void HoughCirclesXld(
+QIVISION_API void HoughCirclesXld(
     const QContourArray& contours,
     std::vector<Circle2d>& circles,
     double minRadius,
@@ -320,7 +322,7 @@ void HoughCirclesXld(
  * DrawHoughLines(displayImage, lines, Scalar::Green(), 2);
  * @endcode
  */
-void DrawHoughLines(
+QIVISION_API void DrawHoughLines(
     QImage& image,
     const std::vector<HoughLine>& lines,
     const Scalar& color = Scalar::Green(),
@@ -341,7 +343,7 @@ void DrawHoughLines(
  * DrawHoughCircles(displayImage, circles, Scalar::Red(), 2);
  * @endcode
  */
-void DrawHoughCircles(
+QIVISION_API void DrawHoughCircles(
     QImage& image,
     const std::vector<HoughCircle>& circles,
     const Scalar& color = Scalar::Green(),
@@ -355,7 +357,7 @@ void DrawHoughCircles(
 /**
  * @brief Parameters for Hough line transform
  */
-struct HoughLineParams {
+struct QIVISION_API HoughLineParams {
     double rhoResolution = 1.0;         ///< Distance resolution (pixels)
     double thetaResolution = 0.01745329; ///< Angle resolution (radians)
     double threshold = 0.3;             ///< Threshold (ratio if <1, absolute if >=1)
@@ -381,7 +383,7 @@ struct HoughLineParams {
 /**
  * @brief Parameters for probabilistic Hough line transform
  */
-struct HoughLinePParams {
+struct QIVISION_API HoughLinePParams {
     double rhoResolution = 1.0;
     double thetaResolution = 0.01745329;
     int32_t threshold = 50;
@@ -405,7 +407,7 @@ struct HoughLinePParams {
 /**
  * @brief Parameters for Hough circle transform
  */
-struct HoughCircleParams {
+struct QIVISION_API HoughCircleParams {
     double dp = 1.0;                    ///< Accumulator resolution ratio
     double minDist = 20.0;              ///< Min distance between centers
     double param1 = 100.0;              ///< Canny high threshold
@@ -435,7 +437,7 @@ struct HoughCircleParams {
  * @param lines [out] Detected lines
  * @param params Detection parameters
  */
-void DetectHoughLines(
+QIVISION_API void DetectHoughLines(
     const QImage& edgeImage,
     std::vector<HoughLine>& lines,
     const HoughLineParams& params
@@ -448,7 +450,7 @@ void DetectHoughLines(
  * @param segments [out] Detected segments
  * @param params Detection parameters
  */
-void DetectHoughLinesP(
+QIVISION_API void DetectHoughLinesP(
     const QImage& edgeImage,
     std::vector<Segment2d>& segments,
     const HoughLinePParams& params
@@ -461,7 +463,7 @@ void DetectHoughLinesP(
  * @param circles [out] Detected circles
  * @param params Detection parameters
  */
-void DetectHoughCircles(
+QIVISION_API void DetectHoughCircles(
     const QImage& edgeImage,
     std::vector<HoughCircle>& circles,
     const HoughCircleParams& params
@@ -479,7 +481,7 @@ void DetectHoughCircles(
  * @param thetaThreshold Maximum theta difference for merging (radians)
  * @return Merged lines
  */
-std::vector<HoughLine> MergeHoughLines(
+QIVISION_API std::vector<HoughLine> MergeHoughLines(
     const std::vector<HoughLine>& lines,
     double rhoThreshold = 10.0,
     double thetaThreshold = 0.1
@@ -493,7 +495,7 @@ std::vector<HoughLine> MergeHoughLines(
  * @param radiusThreshold Maximum radius difference for merging
  * @return Merged circles
  */
-std::vector<HoughCircle> MergeHoughCircles(
+QIVISION_API std::vector<HoughCircle> MergeHoughCircles(
     const std::vector<HoughCircle>& circles,
     double centerThreshold = 10.0,
     double radiusThreshold = 5.0
@@ -509,7 +511,7 @@ std::vector<HoughCircle> MergeHoughCircles(
  * @param imageHeight Image height
  * @return Segment clipped to image, or zero-length segment if no intersection
  */
-Segment2d ClipHoughLineToImage(
+QIVISION_API Segment2d ClipHoughLineToImage(
     const HoughLine& line,
     int32_t imageWidth,
     int32_t imageHeight
@@ -523,7 +525,7 @@ Segment2d ClipHoughLineToImage(
  * @param intersection [out] Intersection point
  * @return True if lines intersect (not parallel)
  */
-bool HoughLinesIntersection(
+QIVISION_API bool HoughLinesIntersection(
     const HoughLine& line1,
     const HoughLine& line2,
     Point2d& intersection
@@ -537,7 +539,7 @@ bool HoughLinesIntersection(
  * @param angleTolerance Maximum angle difference (radians)
  * @return True if parallel within tolerance
  */
-bool AreHoughLinesParallel(
+QIVISION_API bool AreHoughLinesParallel(
     const HoughLine& line1,
     const HoughLine& line2,
     double angleTolerance = 0.05
@@ -550,7 +552,7 @@ bool AreHoughLinesParallel(
  * @param line Hough line
  * @return Signed perpendicular distance
  */
-double PointToHoughLineDistance(
+QIVISION_API double PointToHoughLineDistance(
     const Point2d& point,
     const HoughLine& line
 );

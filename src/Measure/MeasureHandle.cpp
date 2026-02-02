@@ -4,6 +4,7 @@
  */
 
 #include <QiVision/Measure/MeasureHandle.h>
+#include <QiVision/Core/Exception.h>
 
 #include <algorithm>
 #include <cmath>
@@ -47,6 +48,11 @@ MeasureRectangle2::MeasureRectangle2(double row, double column,
     , imageWidth_(width)
     , imageHeight_(height)
     , interpolation_(interpolation) {
+    if (!std::isfinite(row_) || !std::isfinite(column_) || !std::isfinite(phi_) ||
+        !std::isfinite(length1_) || !std::isfinite(length2_) ||
+        length1_ <= 0.0 || length2_ < 0.0 || imageWidth_ < 0 || imageHeight_ < 0) {
+        throw InvalidArgumentException("MeasureRectangle2: invalid parameters");
+    }
     // Compute numLines based on length2 (half-width)
     numLines_ = std::max(1, static_cast<int32_t>(2.0 * length2_));
     samplesPerPixel_ = 1.0;
@@ -55,6 +61,9 @@ MeasureRectangle2::MeasureRectangle2(double row, double column,
 
 MeasureRectangle2 MeasureRectangle2::FromRotatedRect(const RotatedRect2d& rect,
                                                       int32_t /*numLines*/) {
+    if (!rect.IsValid() || rect.width <= 0.0 || rect.height <= 0.0) {
+        throw InvalidArgumentException("MeasureRectangle2::FromRotatedRect: invalid rect");
+    }
     // RotatedRect: center, width, height, angle
     // Measurement direction is along the longer axis
     double length1 = std::max(rect.width, rect.height) / 2.0;  // Half-length
@@ -72,9 +81,18 @@ MeasureRectangle2 MeasureRectangle2::FromRotatedRect(const RotatedRect2d& rect,
 
 MeasureRectangle2 MeasureRectangle2::FromPoints(const Point2d& p1, const Point2d& p2,
                                                  double halfWidth, int32_t /*numLines*/) {
+    if (!p1.IsValid() || !p2.IsValid()) {
+        throw InvalidArgumentException("MeasureRectangle2::FromPoints: invalid points");
+    }
+    if (halfWidth <= 0.0) {
+        throw InvalidArgumentException("MeasureRectangle2::FromPoints: halfWidth must be > 0");
+    }
     double dx = p2.x - p1.x;
     double dy = p2.y - p1.y;
     double length1 = std::sqrt(dx * dx + dy * dy) / 2.0;  // Half-length
+    if (length1 <= 0.0) {
+        throw InvalidArgumentException("MeasureRectangle2::FromPoints: points must be distinct");
+    }
     double angle = std::atan2(dy, dx);
 
     // Center is midpoint
@@ -128,6 +146,9 @@ Rect2d MeasureRectangle2::BoundingBox() const {
 }
 
 bool MeasureRectangle2::Contains(const Point2d& point) const {
+    if (!point.IsValid()) {
+        throw InvalidArgumentException("MeasureRectangle2::Contains: invalid point");
+    }
     // Transform point to rectangle-local coordinates
     double dx = point.x - column_;
     double dy = point.y - row_;
@@ -205,12 +226,18 @@ void MeasureRectangle2::ComputeSamplingGeometry() {
 }
 
 void MeasureRectangle2::Translate(double deltaRow, double deltaCol) {
+    if (!std::isfinite(deltaRow) || !std::isfinite(deltaCol)) {
+        throw InvalidArgumentException("MeasureRectangle2::Translate: invalid offset");
+    }
     row_ += deltaRow;
     column_ += deltaCol;
     // No need to recompute sampling geometry - offsets are relative
 }
 
 void MeasureRectangle2::SetPosition(double row, double column) {
+    if (!std::isfinite(row) || !std::isfinite(column)) {
+        throw InvalidArgumentException("MeasureRectangle2::SetPosition: invalid position");
+    }
     row_ = row;
     column_ = column;
 }
@@ -231,6 +258,12 @@ MeasureArc::MeasureArc(double centerRow, double centerCol,
     , angleStart_(angleStart)
     , angleExtent_(angleExtent)
     , annulusRadius_(annulusRadius) {
+    if (!std::isfinite(centerRow_) || !std::isfinite(centerCol_) ||
+        !std::isfinite(radius_) || !std::isfinite(angleStart_) ||
+        !std::isfinite(angleExtent_) || !std::isfinite(annulusRadius_) ||
+        radius_ <= 0.0 || annulusRadius_ < 0.0 || std::abs(angleExtent_) <= 0.0) {
+        throw InvalidArgumentException("MeasureArc: invalid parameters");
+    }
     (void)width;   // Reserved for future use
     (void)height;
     (void)interpolation;
@@ -242,12 +275,20 @@ MeasureArc::MeasureArc(double centerRow, double centerCol,
 }
 
 MeasureArc MeasureArc::FromArc(const Arc2d& arc, double annulusRadius, int32_t /*numLines*/) {
+    if (!arc.IsValid() || arc.radius <= 0.0 || !std::isfinite(annulusRadius) || annulusRadius < 0.0 ||
+        std::abs(arc.sweepAngle) <= 0.0) {
+        throw InvalidArgumentException("MeasureArc::FromArc: invalid arc");
+    }
     return MeasureArc(arc.center.y, arc.center.x,
                        arc.radius, arc.startAngle, arc.sweepAngle,
                        annulusRadius);
 }
 
 MeasureArc MeasureArc::FromCircle(const Circle2d& circle, double annulusRadius, int32_t /*numLines*/) {
+    if (!circle.IsValid() || circle.radius <= 0.0 ||
+        !std::isfinite(annulusRadius) || annulusRadius < 0.0) {
+        throw InvalidArgumentException("MeasureArc::FromCircle: invalid circle");
+    }
     return MeasureArc(circle.center.y, circle.center.x,
                        circle.radius, 0.0, TWO_PI,
                        annulusRadius);
@@ -293,6 +334,9 @@ Rect2d MeasureArc::BoundingBox() const {
 }
 
 bool MeasureArc::Contains(const Point2d& point) const {
+    if (!point.IsValid()) {
+        throw InvalidArgumentException("MeasureArc::Contains: invalid point");
+    }
     double dx = point.x - centerCol_;
     double dy = point.y - centerRow_;
     double dist = std::sqrt(dx * dx + dy * dy);
@@ -333,6 +377,9 @@ Arc2d MeasureArc::ToArc() const {
 }
 
 Point2d MeasureArc::PointAt(double t) const {
+    if (!std::isfinite(t)) {
+        throw InvalidArgumentException("MeasureArc::PointAt: t must be finite");
+    }
     double angle = angleStart_ + t * angleExtent_;
     return Point2d{
         centerCol_ + radius_ * std::cos(angle),
@@ -352,6 +399,9 @@ double MeasureArc::TangentAt(double t) const {
 }
 
 double MeasureArc::ProfilePosToAngle(double pos) const {
+    if (!std::isfinite(pos)) {
+        throw InvalidArgumentException("MeasureArc::ProfilePosToAngle: pos must be finite");
+    }
     double arcLen = ProfileLength();
     if (arcLen < 1e-10) return angleStart_;
     double t = pos / arcLen;
@@ -359,6 +409,9 @@ double MeasureArc::ProfilePosToAngle(double pos) const {
 }
 
 double MeasureArc::AngleToProfilePos(double angle) const {
+    if (!std::isfinite(angle)) {
+        throw InvalidArgumentException("MeasureArc::AngleToProfilePos: angle must be finite");
+    }
     double deltaAngle = angle - angleStart_;
     return std::abs(deltaAngle) * radius_;
 }
@@ -378,11 +431,17 @@ void MeasureArc::ComputeSamplingGeometry() {
 }
 
 void MeasureArc::Translate(double deltaRow, double deltaCol) {
+    if (!std::isfinite(deltaRow) || !std::isfinite(deltaCol)) {
+        throw InvalidArgumentException("MeasureArc::Translate: invalid offset");
+    }
     centerRow_ += deltaRow;
     centerCol_ += deltaCol;
 }
 
 void MeasureArc::SetPosition(double centerRow, double centerCol) {
+    if (!std::isfinite(centerRow) || !std::isfinite(centerCol)) {
+        throw InvalidArgumentException("MeasureArc::SetPosition: invalid position");
+    }
     centerRow_ = centerRow;
     centerCol_ = centerCol;
 }
@@ -403,6 +462,13 @@ MeasureConcentricCircles::MeasureConcentricCircles(double centerRow, double cent
     , outerRadius_(outerRadius)
     , angle_(angle)
     , angularWidth_(angularWidth) {
+    if (!std::isfinite(centerRow_) || !std::isfinite(centerCol_) ||
+        !std::isfinite(innerRadius_) || !std::isfinite(outerRadius_) ||
+        !std::isfinite(angle_) || !std::isfinite(angularWidth_) ||
+        innerRadius_ < 0.0 || outerRadius_ <= innerRadius_ || angularWidth_ <= 0.0 ||
+        !std::isfinite(samplesPerPixel) || samplesPerPixel <= 0.0) {
+        throw InvalidArgumentException("MeasureConcentricCircles: invalid parameters");
+    }
     numLines_ = (numLines > 0) ? numLines : std::max(1, static_cast<int32_t>(angularWidth_ * 10));
     samplesPerPixel_ = samplesPerPixel;
     ComputeSamplingGeometry();
@@ -440,6 +506,9 @@ Rect2d MeasureConcentricCircles::BoundingBox() const {
 }
 
 bool MeasureConcentricCircles::Contains(const Point2d& point) const {
+    if (!point.IsValid()) {
+        throw InvalidArgumentException("MeasureConcentricCircles::Contains: invalid point");
+    }
     double dx = point.x - centerCol_;
     double dy = point.y - centerRow_;
     double dist = std::sqrt(dx * dx + dy * dy);
@@ -454,6 +523,9 @@ bool MeasureConcentricCircles::Contains(const Point2d& point) const {
 }
 
 Point2d MeasureConcentricCircles::PointAtRadius(double radius) const {
+    if (!std::isfinite(radius) || radius < 0.0) {
+        throw InvalidArgumentException("MeasureConcentricCircles::PointAtRadius: invalid radius");
+    }
     return Point2d{
         centerCol_ + radius * std::cos(angle_),
         centerRow_ + radius * std::sin(angle_)
@@ -479,11 +551,17 @@ void MeasureConcentricCircles::ComputeSamplingGeometry() {
 }
 
 void MeasureConcentricCircles::Translate(double deltaRow, double deltaCol) {
+    if (!std::isfinite(deltaRow) || !std::isfinite(deltaCol)) {
+        throw InvalidArgumentException("MeasureConcentricCircles::Translate: invalid offset");
+    }
     centerRow_ += deltaRow;
     centerCol_ += deltaCol;
 }
 
 void MeasureConcentricCircles::SetPosition(double centerRow, double centerCol) {
+    if (!std::isfinite(centerRow) || !std::isfinite(centerCol)) {
+        throw InvalidArgumentException("MeasureConcentricCircles::SetPosition: invalid position");
+    }
     centerRow_ = centerRow;
     centerCol_ = centerCol;
 }

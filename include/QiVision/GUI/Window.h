@@ -19,6 +19,7 @@
 
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/Types.h>
+#include <QiVision/Core/Export.h>
 #include <string>
 #include <memory>
 #include <functional>
@@ -84,7 +85,7 @@ inline bool operator&(KeyModifier a, KeyModifier b) {
 /**
  * @brief Mouse event data
  */
-struct MouseEvent {
+struct QIVISION_API MouseEvent {
     MouseEventType type;        ///< Event type
     MouseButton button;         ///< Button involved
     int32_t x;                  ///< Window X coordinate
@@ -121,7 +122,7 @@ enum class ROIType {
 /**
  * @brief ROI drawing result
  */
-struct ROIResult {
+struct QIVISION_API ROIResult {
     ROIType type;
     bool valid = false;             ///< True if ROI was completed (not cancelled)
 
@@ -158,7 +159,7 @@ struct ROIResult {
  * }
  * @endcode
  */
-class Window {
+class QIVISION_API Window {
 public:
     /**
      * @brief Create a window
@@ -474,23 +475,23 @@ private:
  * @param image Image to display
  * @param windowName Window name (creates new if not exists)
  */
-void DispImage(const QImage& image, const std::string& windowName = "QiVision");
+QIVISION_API void DispImage(const QImage& image, const std::string& windowName = "QiVision");
 
 /**
  * @brief Wait for key press on any window
  * @param timeoutMs Timeout in milliseconds (0 = forever)
  * @return Key code, or -1 on timeout
  */
-int32_t WaitKey(int32_t timeoutMs = 0);
+QIVISION_API int32_t WaitKey(int32_t timeoutMs = 0);
 
 /**
  * @brief Close a named window
  */
-void CloseWindow(const std::string& windowName);
+QIVISION_API void CloseWindow(const std::string& windowName);
 
 /**
  * @brief Close all windows
  */
-void CloseAllWindows();
+QIVISION_API void CloseAllWindows();
 
 } // namespace Qi::Vision::GUI

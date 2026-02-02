@@ -1,8 +1,8 @@
 #include <QiVision/Core/QContourArray.h>
 #include <QiVision/Core/QMatrix.h>
 #include <QiVision/Core/Constants.h>
+#include <QiVision/Core/Exception.h>
 #include <algorithm>
-#include <stdexcept>
 #include <limits>
 
 namespace Qi::Vision {
@@ -33,42 +33,42 @@ QContourArray::QContourArray(std::vector<QContour>&& contours)
 
 const QContour& QContourArray::At(size_t index) const {
     if (index >= contours_.size()) {
-        throw std::out_of_range("Contour array index out of range");
+        throw OutOfRangeException("QContourArray::At: index out of range");
     }
     return contours_[index];
 }
 
 QContour& QContourArray::At(size_t index) {
     if (index >= contours_.size()) {
-        throw std::out_of_range("Contour array index out of range");
+        throw OutOfRangeException("QContourArray::At: index out of range");
     }
     return contours_[index];
 }
 
 const QContour& QContourArray::Front() const {
     if (contours_.empty()) {
-        throw std::out_of_range("Contour array is empty");
+        throw OutOfRangeException("QContourArray::Front: array is empty");
     }
     return contours_.front();
 }
 
 QContour& QContourArray::Front() {
     if (contours_.empty()) {
-        throw std::out_of_range("Contour array is empty");
+        throw OutOfRangeException("QContourArray::Front: array is empty");
     }
     return contours_.front();
 }
 
 const QContour& QContourArray::Back() const {
     if (contours_.empty()) {
-        throw std::out_of_range("Contour array is empty");
+        throw OutOfRangeException("QContourArray::Back: array is empty");
     }
     return contours_.back();
 }
 
 QContour& QContourArray::Back() {
     if (contours_.empty()) {
-        throw std::out_of_range("Contour array is empty");
+        throw OutOfRangeException("QContourArray::Back: array is empty");
     }
     return contours_.back();
 }
@@ -91,14 +91,14 @@ void QContourArray::Add(const QContourArray& other) {
 
 void QContourArray::Insert(size_t index, const QContour& contour) {
     if (index > contours_.size()) {
-        throw std::out_of_range("Insert index out of range");
+        throw OutOfRangeException("QContourArray::Insert: index out of range");
     }
     contours_.insert(contours_.begin() + static_cast<ptrdiff_t>(index), contour);
 }
 
 void QContourArray::Remove(size_t index) {
     if (index >= contours_.size()) {
-        throw std::out_of_range("Remove index out of range");
+        throw OutOfRangeException("QContourArray::Remove: index out of range");
     }
     contours_.erase(contours_.begin() + static_cast<ptrdiff_t>(index));
 }

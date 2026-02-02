@@ -17,8 +17,29 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Build Options
 # =============================================================================
 option(QIVISION_BUILD_SAMPLES "Build sample programs" ON)
+option(QIVISION_BUILD_TESTS "Build unit tests" OFF)
 option(QIVISION_ENABLE_SIMD "Enable SIMD optimizations" ON)
 option(QIVISION_ENABLE_OPENMP "Enable OpenMP for parallelization" ON)
+
+# Optional modules (default ON for Windows/Linux, OFF otherwise)
+set(QIVISION_BUILD_GUI_DEFAULT OFF)
+set(QIVISION_BUILD_DISPLAY_DEFAULT OFF)
+if(WIN32 OR UNIX)
+    set(QIVISION_BUILD_GUI_DEFAULT ON)
+    set(QIVISION_BUILD_DISPLAY_DEFAULT ON)
+endif()
+option(QIVISION_BUILD_GUI "Build GUI module" ${QIVISION_BUILD_GUI_DEFAULT})
+option(QIVISION_BUILD_DISPLAY "Build Display module" ${QIVISION_BUILD_DISPLAY_DEFAULT})
+
+# =============================================================================
+# Generated Configuration Header
+# =============================================================================
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include/QiVision)
+configure_file(
+    ${CMAKE_SOURCE_DIR}/include/QiVision/QiVisionConfig.h.in
+    ${CMAKE_BINARY_DIR}/include/QiVision/QiVisionConfig.h
+    @ONLY
+)
 
 # =============================================================================
 # Compiler Settings
@@ -57,6 +78,13 @@ if(QIVISION_ENABLE_OPENMP)
     endif()
 endif()
 
+if(ANDROID)
+    if(QIVISION_ENABLE_OPENMP)
+        message(STATUS "Android: disabling OpenMP by default")
+        set(QIVISION_ENABLE_OPENMP OFF CACHE BOOL "Enable OpenMP for parallelization" FORCE)
+    endif()
+endif()
+
 # =============================================================================
 # Output Directories
 # =============================================================================
@@ -77,12 +105,24 @@ if(QIVISION_BUILD_SAMPLES)
 endif()
 
 # =============================================================================
+# Tests
+# =============================================================================
+if(QIVISION_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
+
+# =============================================================================
 # Installation
 # =============================================================================
 include(GNUInstallDirs)
 
 install(DIRECTORY include/QiVision
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    PATTERN "QiVisionConfig.h.in" EXCLUDE
+)
+
+install(FILES ${CMAKE_BINARY_DIR}/include/QiVision/QiVisionConfig.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/QiVision
 )
 
 install(TARGETS QiVision
@@ -102,4 +142,5 @@ message(STATUS "  Build type:    ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "  SIMD:          ${QIVISION_ENABLE_SIMD}")
 message(STATUS "  Samples:       ${QIVISION_BUILD_SAMPLES}")
+message(STATUS "  Tests:         ${QIVISION_BUILD_TESTS}")
 message(STATUS "")

@@ -1,7 +1,7 @@
 #include <QiVision/Core/QMatrix.h>
 #include <QiVision/Core/Constants.h>
+#include <QiVision/Core/Exception.h>
 #include <cmath>
-#include <stdexcept>
 
 namespace Qi::Vision {
 
@@ -206,7 +206,7 @@ double QMatrix::Determinant() const {
 
 double QMatrix::At(int row, int col) const {
     if (row < 0 || row > 2 || col < 0 || col > 2) {
-        throw std::out_of_range("Matrix index out of range");
+        throw OutOfRangeException("QMatrix::At: index out of range");
     }
     if (row == 2) {
         return (col == 2) ? 1.0 : 0.0;
@@ -216,7 +216,7 @@ double QMatrix::At(int row, int col) const {
 
 void QMatrix::SetAt(int row, int col, double value) {
     if (row < 0 || row > 1 || col < 0 || col > 2) {
-        throw std::out_of_range("Matrix index out of range (third row is fixed)");
+        throw OutOfRangeException("QMatrix::SetAt: index out of range (third row is fixed)");
     }
     m_[row * 3 + col] = value;
 }

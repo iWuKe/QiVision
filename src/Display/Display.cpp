@@ -7,6 +7,7 @@
 #include <QiVision/IO/ImageIO.h>
 #include <QiVision/Core/Constants.h>
 #include <QiVision/Core/QContourArray.h>
+#include <QiVision/Core/Exception.h>
 
 #include <algorithm>
 #include <cctype>
@@ -47,6 +48,16 @@ std::string SanitizeFilename(const std::string& name) {
         }
     }
     return result.empty() ? "image" : result;
+}
+
+bool RequireDrawableImage(QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    return true;
 }
 
 // Check if running in WSL
@@ -208,6 +219,9 @@ bool DispImage(const QImage& image, const std::string& title) {
     if (image.Empty()) {
         return false;
     }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("DispImage: invalid image");
+    }
 
     std::string outDir = g_outputDir.empty() ? GetDefaultOutputDir() : g_outputDir;
     std::filesystem::create_directories(outDir);
@@ -215,7 +229,11 @@ bool DispImage(const QImage& image, const std::string& title) {
     std::string filename = SanitizeFilename(title) + ".png";
     std::string filepath = outDir + filename;
 
-    if (!IO::WriteImage(image, filepath)) {
+    try {
+        if (!IO::WriteImage(image, filepath)) {
+            return false;
+        }
+    } catch (...) {
         return false;
     }
 
@@ -255,6 +273,16 @@ void CleanDispImages() {
 
 void DispLine(QImage& image, double x1, double y1, double x2, double y2,
               const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispLine")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispLine: thickness must be > 0");
+    }
+    if (!std::isfinite(x1) || !std::isfinite(y1) ||
+        !std::isfinite(x2) || !std::isfinite(y2)) {
+        throw InvalidArgumentException("DispLine: invalid coordinate");
+    }
     DrawLineBresenham(image,
                       static_cast<int32_t>(x1 + 0.5), static_cast<int32_t>(y1 + 0.5),
                       static_cast<int32_t>(x2 + 0.5), static_cast<int32_t>(y2 + 0.5),
@@ -263,6 +291,18 @@ void DispLine(QImage& image, double x1, double y1, double x2, double y2,
 
 void DispLine(QImage& image, const Line2d& line, double length,
               const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispLine")) {
+        return;
+    }
+    if (!line.IsValid()) {
+        throw InvalidArgumentException("DispLine: invalid line");
+    }
+    if (!std::isfinite(length) || length <= 0.0) {
+        throw InvalidArgumentException("DispLine: length must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispLine: thickness must be > 0");
+    }
     // Line2d: ax + by + c = 0, with a^2 + b^2 = 1
     // Direction perpendicular to (a, b) is (-b, a)
     double halfLen = length / 2.0;
@@ -280,6 +320,18 @@ void DispLine(QImage& image, const Line2d& line, double length,
 
 void DispCircle(QImage& image, double cx, double cy, double radius,
                 const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispCircle")) {
+        return;
+    }
+    if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(radius)) {
+        throw InvalidArgumentException("DispCircle: invalid parameter");
+    }
+    if (radius <= 0.0) {
+        throw InvalidArgumentException("DispCircle: radius must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispCircle: thickness must be > 0");
+    }
     DrawCircleBresenham(image,
                         static_cast<int32_t>(cx + 0.5),
                         static_cast<int32_t>(cy + 0.5),
@@ -289,12 +341,28 @@ void DispCircle(QImage& image, double cx, double cy, double radius,
 
 void DispCircle(QImage& image, const Circle2d& circle,
                 const Scalar& color, int32_t thickness) {
+    if (!circle.IsValid() || circle.radius <= 0.0) {
+        throw InvalidArgumentException("DispCircle: invalid circle");
+    }
     DispCircle(image, circle.center.x, circle.center.y, circle.radius, color, thickness);
 }
 
 void DispEllipse(QImage& image, double cx, double cy, double angle,
                  double radiusX, double radiusY,
                  const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispEllipse")) {
+        return;
+    }
+    if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(angle) ||
+        !std::isfinite(radiusX) || !std::isfinite(radiusY)) {
+        throw InvalidArgumentException("DispEllipse: invalid parameter");
+    }
+    if (radiusX <= 0.0 || radiusY <= 0.0) {
+        throw InvalidArgumentException("DispEllipse: radius must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispEllipse: thickness must be > 0");
+    }
     // Draw ellipse using parametric form
     int numPoints = std::max(64, static_cast<int>((radiusX + radiusY) * PI / 5.0));
     double step = 2.0 * PI / numPoints;
@@ -321,6 +389,9 @@ void DispEllipse(QImage& image, double cx, double cy, double angle,
 
 void DispEllipse(QImage& image, const Ellipse2d& ellipse,
                  const Scalar& color, int32_t thickness) {
+    if (!ellipse.IsValid() || ellipse.a <= 0.0 || ellipse.b <= 0.0) {
+        throw InvalidArgumentException("DispEllipse: invalid ellipse");
+    }
     DispEllipse(image, ellipse.center.x, ellipse.center.y, ellipse.angle,
                 ellipse.a, ellipse.b, color, thickness);
 }
@@ -331,6 +402,15 @@ void DispEllipse(QImage& image, const Ellipse2d& ellipse,
 
 void DispRectangle1(QImage& image, double x1, double y1, double x2, double y2,
                     const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispRectangle1")) {
+        return;
+    }
+    if (!std::isfinite(x1) || !std::isfinite(y1) || !std::isfinite(x2) || !std::isfinite(y2)) {
+        throw InvalidArgumentException("DispRectangle1: invalid coordinate");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispRectangle1: thickness must be > 0");
+    }
     DispLine(image, x1, y1, x2, y1, color, thickness);  // Top
     DispLine(image, x1, y2, x2, y2, color, thickness);  // Bottom
     DispLine(image, x1, y1, x1, y2, color, thickness);  // Left
@@ -339,6 +419,9 @@ void DispRectangle1(QImage& image, double x1, double y1, double x2, double y2,
 
 void DispRectangle1(QImage& image, const Rect2i& rect,
                     const Scalar& color, int32_t thickness) {
+    if (!rect.IsValid() || rect.width <= 0 || rect.height <= 0) {
+        throw InvalidArgumentException("DispRectangle1: invalid rectangle");
+    }
     DispRectangle1(image, rect.x, rect.y,
                    rect.x + rect.width - 1, rect.y + rect.height - 1,
                    color, thickness);
@@ -347,6 +430,19 @@ void DispRectangle1(QImage& image, const Rect2i& rect,
 void DispRectangle2(QImage& image, double cx, double cy, double angle,
                     double halfWidth, double halfHeight,
                     const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispRectangle2")) {
+        return;
+    }
+    if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(angle) ||
+        !std::isfinite(halfWidth) || !std::isfinite(halfHeight)) {
+        throw InvalidArgumentException("DispRectangle2: invalid parameter");
+    }
+    if (halfWidth <= 0.0 || halfHeight <= 0.0) {
+        throw InvalidArgumentException("DispRectangle2: halfWidth/halfHeight must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispRectangle2: thickness must be > 0");
+    }
     double cosAngle = std::cos(angle);
     double sinAngle = std::sin(angle);
 
@@ -379,6 +475,18 @@ void DispRectangle2(QImage& image, double cx, double cy, double angle,
 
 void DispCross(QImage& image, double cx, double cy, int32_t size,
                double angle, const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispCross")) {
+        return;
+    }
+    if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(angle)) {
+        throw InvalidArgumentException("DispCross: invalid parameter");
+    }
+    if (size <= 0) {
+        throw InvalidArgumentException("DispCross: size must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispCross: thickness must be > 0");
+    }
     double s = static_cast<double>(size);
     double cosA = std::cos(angle);
     double sinA = std::sin(angle);
@@ -393,6 +501,20 @@ void DispCross(QImage& image, double cx, double cy, int32_t size,
 
 void DispArrow(QImage& image, double x1, double y1, double x2, double y2,
                double headSize, const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispArrow")) {
+        return;
+    }
+    if (!std::isfinite(x1) || !std::isfinite(y1) ||
+        !std::isfinite(x2) || !std::isfinite(y2) ||
+        !std::isfinite(headSize)) {
+        throw InvalidArgumentException("DispArrow: invalid parameter");
+    }
+    if (headSize <= 0.0) {
+        throw InvalidArgumentException("DispArrow: headSize must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispArrow: thickness must be > 0");
+    }
     // Main line
     DispLine(image, x1, y1, x2, y2, color, thickness);
 
@@ -416,8 +538,19 @@ void DispArrow(QImage& image, double x1, double y1, double x2, double y2,
 void DispPolygon(QImage& image, const std::vector<double>& xs,
                  const std::vector<double>& ys,
                  const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispPolygon")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispPolygon: thickness must be > 0");
+    }
     if (xs.size() != ys.size() || xs.size() < 2) {
         return;
+    }
+    for (size_t i = 0; i < xs.size(); ++i) {
+        if (!std::isfinite(xs[i]) || !std::isfinite(ys[i])) {
+            throw InvalidArgumentException("DispPolygon: invalid coordinate");
+        }
     }
 
     for (size_t i = 0; i < xs.size(); ++i) {
@@ -428,6 +561,12 @@ void DispPolygon(QImage& image, const std::vector<double>& xs,
 
 void DispContour(QImage& image, const QContour& contour,
                  const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispContour")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispContour: thickness must be > 0");
+    }
     if (contour.Size() < 2) {
         return;
     }
@@ -448,6 +587,12 @@ void DispContour(QImage& image, const QContour& contour,
 
 void DispContours(QImage& image, const QContourArray& contours,
                   const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "DispContours")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("DispContours: thickness must be > 0");
+    }
     for (size_t i = 0; i < contours.Size(); ++i) {
         DispContour(image, contours[i], color, thickness);
     }
@@ -458,12 +603,21 @@ void DispContours(QImage& image, const QContourArray& contours,
 // =============================================================================
 
 void DispPoint(QImage& image, double x, double y, const Scalar& color) {
+    if (!RequireDrawableImage(image, "DispPoint")) {
+        return;
+    }
+    if (!std::isfinite(x) || !std::isfinite(y)) {
+        throw InvalidArgumentException("DispPoint: invalid coordinate");
+    }
     DrawPixel(image, static_cast<int32_t>(x + 0.5),
               static_cast<int32_t>(y + 0.5), color);
 }
 
 void DispPoints(QImage& image, const std::vector<double>& xs,
                 const std::vector<double>& ys, const Scalar& color) {
+    if (!RequireDrawableImage(image, "DispPoints")) {
+        return;
+    }
     size_t n = std::min(xs.size(), ys.size());
     for (size_t i = 0; i < n; ++i) {
         DispPoint(image, xs[i], ys[i], color);
@@ -516,6 +670,15 @@ void DrawChar(QImage& image, int32_t col, int32_t row, char c,
 
 void DispText(QImage& image, double x, double y, const std::string& text,
               const Scalar& color, int32_t scale) {
+    if (!RequireDrawableImage(image, "DispText")) {
+        return;
+    }
+    if (!std::isfinite(x) || !std::isfinite(y)) {
+        throw InvalidArgumentException("DispText: invalid coordinate");
+    }
+    if (scale <= 0) {
+        throw InvalidArgumentException("DispText: scale must be > 0");
+    }
     int32_t px = static_cast<int32_t>(x + 0.5);
     int32_t py = static_cast<int32_t>(y + 0.5);
     int32_t charWidth = 6 * scale;
@@ -532,6 +695,15 @@ void DispText(QImage& image, double x, double y, const std::string& text,
 
 void DispMatchResult(QImage& image, double x, double y, double angle,
                      double score, const Scalar& color, int32_t markerSize) {
+    if (!RequireDrawableImage(image, "DispMatchResult")) {
+        return;
+    }
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(angle) || !std::isfinite(score)) {
+        throw InvalidArgumentException("DispMatchResult: invalid parameter");
+    }
+    if (markerSize <= 0) {
+        throw InvalidArgumentException("DispMatchResult: markerSize must be > 0");
+    }
     // Draw cross at match position
     DispCross(image, x, y, markerSize, angle, color, 2);
 
@@ -552,6 +724,15 @@ void DispMatchResult(QImage& image, double x, double y, double angle,
 
 void DispEdgeResult(QImage& image, double x, double y,
                     const Scalar& color, int32_t markerSize) {
+    if (!RequireDrawableImage(image, "DispEdgeResult")) {
+        return;
+    }
+    if (!std::isfinite(x) || !std::isfinite(y)) {
+        throw InvalidArgumentException("DispEdgeResult: invalid coordinate");
+    }
+    if (markerSize <= 0) {
+        throw InvalidArgumentException("DispEdgeResult: markerSize must be > 0");
+    }
     DispCross(image, x, y, markerSize, 0.0, color, 1);
 }
 

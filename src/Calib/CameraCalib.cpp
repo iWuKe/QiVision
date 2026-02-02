@@ -11,6 +11,7 @@
  */
 
 #include <QiVision/Calib/CameraCalib.h>
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Internal/Homography.h>
 #include <QiVision/Internal/Solver.h>
 
@@ -630,21 +631,29 @@ CalibrationResult CalibrateCamera(
     // Validate input
     int numViews = static_cast<int>(imagePoints.size());
     if (numViews < 3) {
-        // Need at least 3 views for calibration
-        return result;
+        throw InvalidArgumentException("CalibrateCamera: requires at least 3 views");
     }
 
     if (imagePoints.size() != objectPoints.size()) {
-        return result;
+        throw InvalidArgumentException("CalibrateCamera: imagePoints/objectPoints size mismatch");
+    }
+
+    if (imageSize.width <= 0 || imageSize.height <= 0) {
+        throw InvalidArgumentException("CalibrateCamera: imageSize must be positive");
     }
 
     // Check that all views have the same number of points
     for (int v = 0; v < numViews; ++v) {
         if (imagePoints[v].size() != objectPoints[v].size()) {
-            return result;
+            throw InvalidArgumentException("CalibrateCamera: per-view point count mismatch");
         }
         if (imagePoints[v].size() < 4) {
-            return result;
+            throw InvalidArgumentException("CalibrateCamera: each view must have at least 4 points");
+        }
+        for (size_t i = 0; i < imagePoints[v].size(); ++i) {
+            if (!imagePoints[v][i].IsValid() || !objectPoints[v][i].IsValid()) {
+                throw InvalidArgumentException("CalibrateCamera: invalid point data");
+            }
         }
     }
 
@@ -733,7 +742,12 @@ bool SolvePnP(
     bool useExtrinsicGuess)
 {
     if (objectPoints.size() < 4 || objectPoints.size() != imagePoints.size()) {
-        return false;
+        throw InvalidArgumentException("SolvePnP: requires >= 4 matched points");
+    }
+    for (size_t i = 0; i < objectPoints.size(); ++i) {
+        if (!objectPoints[i].IsValid() || !imagePoints[i].IsValid()) {
+            throw InvalidArgumentException("SolvePnP: invalid point data");
+        }
     }
 
     // Undistort image points
@@ -956,6 +970,19 @@ std::vector<double> ComputeReprojectionErrors(
     const Internal::Vec3& tvec)
 {
     std::vector<double> errors;
+    if (objectPoints.empty() && imagePoints.empty()) {
+        return errors;
+    }
+
+    if (objectPoints.size() != imagePoints.size()) {
+        throw InvalidArgumentException("ComputeReprojectionErrors: size mismatch");
+    }
+    for (size_t i = 0; i < objectPoints.size(); ++i) {
+        if (!objectPoints[i].IsValid() || !imagePoints[i].IsValid()) {
+            throw InvalidArgumentException("ComputeReprojectionErrors: invalid point data");
+        }
+    }
+
     errors.reserve(objectPoints.size());
 
     std::vector<Point2d> projected = ProjectPoints(objectPoints, camera, rvec, tvec);
@@ -985,6 +1012,9 @@ std::vector<Point2d> ProjectPoints(
     Internal::Mat33 R = RodriguesToMatrix(rvec);
 
     for (const auto& objPt : objectPoints) {
+        if (!objPt.IsValid()) {
+            throw InvalidArgumentException("ProjectPoints: invalid point data");
+        }
         // Transform to camera frame
         Internal::Vec3 P{objPt.x, objPt.y, objPt.z};
         Internal::Vec3 P_cam = R * P + tvec;

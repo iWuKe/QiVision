@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Draw.h
  * @brief Drawing functions for visualization (Halcon-style API)
@@ -41,7 +43,7 @@ namespace Matching {
 /**
  * @brief Scalar for drawing (RGB)
  */
-struct Scalar {
+struct QIVISION_API Scalar {
     uint8_t r = 255;
     uint8_t g = 255;
     uint8_t b = 255;
@@ -77,7 +79,7 @@ struct Scalar {
 /**
  * @brief Drawing style parameters
  */
-struct DrawStyle {
+struct QIVISION_API DrawStyle {
     Scalar color = Scalar::Green();
     int32_t thickness = 1;      // Line thickness (pixels)
     int32_t fontSize = 1;       // Font scale (1 = 5x7 base)
@@ -94,7 +96,7 @@ struct DrawStyle {
 /**
  * @brief Drawing utility class (Halcon-style static functions)
  */
-class Draw {
+class QIVISION_API Draw {
 public:
     // =========================================================================
     // Basic Primitives
@@ -514,6 +516,9 @@ inline Scalar Scalar::Blend(const Scalar& other, double alpha) const {
 }
 
 inline void Draw::Pixel(QImage& image, int32_t x, int32_t y, const Scalar& color) {
+    if (image.Empty()) {
+        return;
+    }
     if (x < 0 || x >= image.Width() || y < 0 || y >= image.Height()) {
         return;
     }
@@ -533,6 +538,9 @@ inline void Draw::Pixel(QImage& image, int32_t x, int32_t y, const Scalar& color
 }
 
 inline void Draw::PixelAlpha(QImage& image, int32_t x, int32_t y, const Scalar& color, double alpha) {
+    if (image.Empty()) {
+        return;
+    }
     if (x < 0 || x >= image.Width() || y < 0 || y >= image.Height() || alpha <= 0) {
         return;
     }

@@ -401,7 +401,6 @@ LineFitResult FitLine(const std::vector<Point2d>& points, const FitParams& param
     if (disc < 0) disc = 0;
     double sqrtDisc = std::sqrt(disc);
 
-    double lambda1 = (trace + sqrtDisc) / 2.0;
     double lambda2 = (trace - sqrtDisc) / 2.0;
 
     // Eigenvector for smaller eigenvalue (lambda2)
@@ -1273,8 +1272,8 @@ EllipseFitResult FitEllipseFitzgibbon(const std::vector<Point2d>& points,
     // Find eigenvalues using characteristic polynomial
     // For 3x3 matrix, use analytic formula
     double a11 = MC(0, 0), a12 = MC(0, 1), a13 = MC(0, 2);
-    double a21 = MC(1, 0), a22 = MC(1, 1), a23 = MC(1, 2);
-    double a31 = MC(2, 0), a32 = MC(2, 1), a33 = MC(2, 2);
+    double a22 = MC(1, 1), a23 = MC(1, 2);
+    double a33 = MC(2, 2);
 
     double tr = a11 + a22 + a33;
     double q = tr / 3.0;
@@ -1424,6 +1423,7 @@ EllipseFitResult FitEllipseFitzgibbon(const std::vector<Point2d>& points,
 EllipseFitResult FitEllipseGeometric(const std::vector<Point2d>& points,
                                       const GeometricFitParams& geoParams,
                                       const FitParams& params) {
+    (void)geoParams;
     EllipseFitResult result;
     result.success = false;
     result.numPoints = static_cast<int>(points.size());
@@ -1565,7 +1565,6 @@ static EllipseFitResult FitEllipseWeightedInternal(const std::vector<Point2d>& p
         double w = weights[i];
         if (w < 1e-10) continue;
 
-        double sqrtW = std::sqrt(w);
         double x = points[i].x - cx;
         double y = points[i].y - cy;
 

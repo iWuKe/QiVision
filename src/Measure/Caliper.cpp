@@ -8,6 +8,7 @@
 #include <QiVision/Internal/Profiler.h>
 #include <QiVision/Internal/SubPixel.h>
 #include <QiVision/Internal/Interpolate.h>
+#include <QiVision/Core/Exception.h>
 
 #include <algorithm>
 #include <cctype>
@@ -18,6 +19,16 @@ namespace Qi::Vision::Measure {
 
 namespace {
     constexpr double PI = 3.14159265358979323846;
+
+    bool RequireValidImage(const QImage& image, const char* funcName) {
+        if (image.Empty()) {
+            return false;
+        }
+        if (!image.IsValid()) {
+            throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+        }
+        return true;
+    }
 
     // Convert ProfileInterpolation to Internal InterpolationMethod
     Internal::InterpolationMethod ToInternalInterp(ProfileInterpolation interp) {
@@ -103,9 +114,14 @@ namespace {
     // Extract profile implementation
     std::vector<double> ExtractProfileImpl(const QImage& image,
                                             const MeasureRectangle2& handle,
-                                            ProfileInterpolation interp) {
-        if (image.Empty() || !handle.IsValid()) {
+                                            ProfileInterpolation interp,
+                                            const char* funcName) {
+        if (!RequireValidImage(image, funcName)) {
             return {};
+        }
+        if (!handle.IsValid()) {
+            throw InvalidArgumentException(std::string(funcName) +
+                                           ": invalid MeasureRectangle2 handle");
         }
 
         // Build RectProfileParams
@@ -127,9 +143,14 @@ namespace {
 
     std::vector<double> ExtractProfileImpl(const QImage& image,
                                             const MeasureArc& handle,
-                                            ProfileInterpolation interp) {
-        if (image.Empty() || !handle.IsValid()) {
+                                            ProfileInterpolation interp,
+                                            const char* funcName) {
+        if (!RequireValidImage(image, funcName)) {
             return {};
+        }
+        if (!handle.IsValid()) {
+            throw InvalidArgumentException(std::string(funcName) +
+                                           ": invalid MeasureArc handle");
         }
 
         // Build ArcProfileParams
@@ -151,9 +172,14 @@ namespace {
 
     std::vector<double> ExtractProfileImpl(const QImage& image,
                                             const MeasureConcentricCircles& handle,
-                                            ProfileInterpolation interp) {
-        if (image.Empty() || !handle.IsValid()) {
+                                            ProfileInterpolation interp,
+                                            const char* funcName) {
+        if (!RequireValidImage(image, funcName)) {
             return {};
+        }
+        if (!handle.IsValid()) {
+            throw InvalidArgumentException(std::string(funcName) +
+                                           ": invalid MeasureConcentricCircles handle");
         }
 
         // Build AnnularProfileParams
@@ -181,19 +207,19 @@ namespace {
 std::vector<double> ExtractMeasureProfile(const QImage& image,
                                            const MeasureRectangle2& handle,
                                            const std::string& interp) {
-    return ExtractProfileImpl(image, handle, ParseInterpolation(interp));
+    return ExtractProfileImpl(image, handle, ParseInterpolation(interp), "ExtractMeasureProfile");
 }
 
 std::vector<double> ExtractMeasureProfile(const QImage& image,
                                            const MeasureArc& handle,
                                            const std::string& interp) {
-    return ExtractProfileImpl(image, handle, ParseInterpolation(interp));
+    return ExtractProfileImpl(image, handle, ParseInterpolation(interp), "ExtractMeasureProfile");
 }
 
 std::vector<double> ExtractMeasureProfile(const QImage& image,
                                            const MeasureConcentricCircles& handle,
                                            const std::string& interp) {
-    return ExtractProfileImpl(image, handle, ParseInterpolation(interp));
+    return ExtractProfileImpl(image, handle, ParseInterpolation(interp), "ExtractMeasureProfile");
 }
 
 // =============================================================================
@@ -201,6 +227,12 @@ std::vector<double> ExtractMeasureProfile(const QImage& image,
 // =============================================================================
 
 Point2d ProfileToImage(const MeasureRectangle2& handle, double profilePos) {
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("ProfileToImage: invalid MeasureRectangle2 handle");
+    }
+    if (!std::isfinite(profilePos)) {
+        throw InvalidArgumentException("ProfileToImage: profilePos must be finite");
+    }
     double t = profilePos / handle.ProfileLength();
     t = std::clamp(t, 0.0, 1.0);
 
@@ -217,6 +249,12 @@ Point2d ProfileToImage(const MeasureRectangle2& handle, double profilePos) {
 }
 
 Point2d ProfileToImage(const MeasureArc& handle, double profilePos) {
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("ProfileToImage: invalid MeasureArc handle");
+    }
+    if (!std::isfinite(profilePos)) {
+        throw InvalidArgumentException("ProfileToImage: profilePos must be finite");
+    }
     double angle = handle.ProfilePosToAngle(profilePos);
     return Point2d{
         handle.CenterCol() + handle.Radius() * std::cos(angle),
@@ -225,6 +263,12 @@ Point2d ProfileToImage(const MeasureArc& handle, double profilePos) {
 }
 
 Point2d ProfileToImage(const MeasureConcentricCircles& handle, double profilePos) {
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("ProfileToImage: invalid MeasureConcentricCircles handle");
+    }
+    if (!std::isfinite(profilePos)) {
+        throw InvalidArgumentException("ProfileToImage: profilePos must be finite");
+    }
     double radius = handle.ProfilePosToRadius(profilePos);
     return Point2d{
         handle.CenterCol() + radius * std::cos(handle.Angle()),
@@ -237,14 +281,23 @@ Point2d ProfileToImage(const MeasureConcentricCircles& handle, double profilePos
 // =============================================================================
 
 int32_t GetNumSamples(const MeasureRectangle2& handle) {
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("GetNumSamples: invalid MeasureRectangle2 handle");
+    }
     return static_cast<int32_t>(std::ceil(handle.ProfileLength() * handle.SamplesPerPixel())) + 1;
 }
 
 int32_t GetNumSamples(const MeasureArc& handle) {
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("GetNumSamples: invalid MeasureArc handle");
+    }
     return static_cast<int32_t>(std::ceil(handle.ProfileLength() * handle.SamplesPerPixel())) + 1;
 }
 
 int32_t GetNumSamples(const MeasureConcentricCircles& handle) {
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("GetNumSamples: invalid MeasureConcentricCircles handle");
+    }
     return static_cast<int32_t>(std::ceil(handle.ProfileLength() * handle.SamplesPerPixel())) + 1;
 }
 
@@ -263,12 +316,12 @@ namespace {
                                             EdgeSelectMode selectMode) {
         std::vector<EdgeResult> results;
 
-        if (image.Empty() || !handle.IsValid()) {
+        if (!RequireValidImage(image, "MeasurePos")) {
             return results;
         }
 
         // Extract profile
-        auto profile = ExtractProfileImpl(image, handle, ProfileInterpolation::Bilinear);
+        auto profile = ExtractProfileImpl(image, handle, ProfileInterpolation::Bilinear, "MeasurePos");
         if (profile.size() < 3) {
             return results;
         }
@@ -333,12 +386,12 @@ namespace {
                                               PairSelectMode selectMode) {
         std::vector<PairResult> results;
 
-        if (image.Empty() || !handle.IsValid()) {
+        if (!RequireValidImage(image, "MeasurePairs")) {
             return results;
         }
 
         // Extract profile
-        auto profile = ExtractProfileImpl(image, handle, ProfileInterpolation::Bilinear);
+        auto profile = ExtractProfileImpl(image, handle, ProfileInterpolation::Bilinear, "MeasurePairs");
         if (profile.size() < 3) {
             return results;
         }
@@ -443,13 +496,13 @@ namespace {
                                                  MeasureStats* stats) {
         std::vector<EdgeResult> results;
 
-        if (image.Empty() || !handle.IsValid()) {
+        if (!RequireValidImage(image, "FuzzyMeasurePos")) {
             if (stats) *stats = MeasureStats{};
             return results;
         }
 
         // Extract profile
-        auto profile = ExtractProfileImpl(image, handle, ProfileInterpolation::Bilinear);
+        auto profile = ExtractProfileImpl(image, handle, ProfileInterpolation::Bilinear, "FuzzyMeasurePos");
         if (profile.size() < 3) {
             if (stats) *stats = MeasureStats{};
             return results;
@@ -639,6 +692,18 @@ std::vector<EdgeResult> MeasurePos(const QImage& image,
                                     double threshold,
                                     const std::string& transition,
                                     const std::string& select) {
+    if (!RequireValidImage(image, "MeasurePos")) {
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasurePos: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasurePos: threshold must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("MeasurePos: invalid MeasureRectangle2 handle");
+    }
     return MeasurePosImpl(image, handle, sigma, threshold,
                           ParseTransition(transition), ParseEdgeSelect(select));
 }
@@ -649,6 +714,18 @@ std::vector<EdgeResult> MeasurePos(const QImage& image,
                                     double threshold,
                                     const std::string& transition,
                                     const std::string& select) {
+    if (!RequireValidImage(image, "MeasurePos")) {
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasurePos: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasurePos: threshold must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("MeasurePos: invalid MeasureArc handle");
+    }
     return MeasurePosImpl(image, handle, sigma, threshold,
                           ParseTransition(transition), ParseEdgeSelect(select));
 }
@@ -659,6 +736,18 @@ std::vector<EdgeResult> MeasurePos(const QImage& image,
                                     double threshold,
                                     const std::string& transition,
                                     const std::string& select) {
+    if (!RequireValidImage(image, "MeasurePos")) {
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasurePos: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasurePos: threshold must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("MeasurePos: invalid MeasureConcentricCircles handle");
+    }
     return MeasurePosImpl(image, handle, sigma, threshold,
                           ParseTransition(transition), ParseEdgeSelect(select));
 }
@@ -673,6 +762,18 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
                                       double threshold,
                                       const std::string& transition,
                                       const std::string& select) {
+    if (!RequireValidImage(image, "MeasurePairs")) {
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasurePairs: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasurePairs: threshold must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("MeasurePairs: invalid MeasureRectangle2 handle");
+    }
     // Parse transition for pair: interpret as first/second transition
     EdgeTransition trans = ParseTransition(transition);
     EdgeTransition firstTrans, secondTrans;
@@ -698,6 +799,18 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
                                       double threshold,
                                       const std::string& transition,
                                       const std::string& select) {
+    if (!RequireValidImage(image, "MeasurePairs")) {
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasurePairs: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasurePairs: threshold must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("MeasurePairs: invalid MeasureArc handle");
+    }
     EdgeTransition trans = ParseTransition(transition);
     EdgeTransition firstTrans, secondTrans;
 
@@ -722,6 +835,18 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
                                       double threshold,
                                       const std::string& transition,
                                       const std::string& select) {
+    if (!RequireValidImage(image, "MeasurePairs")) {
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasurePairs: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasurePairs: threshold must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("MeasurePairs: invalid MeasureConcentricCircles handle");
+    }
     EdgeTransition trans = ParseTransition(transition);
     EdgeTransition firstTrans, secondTrans;
 
@@ -752,6 +877,22 @@ std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
                                          const std::string& select,
                                          double fuzzyThresh,
                                          MeasureStats* stats) {
+    if (!RequireValidImage(image, "FuzzyMeasurePos")) {
+        if (stats) *stats = MeasureStats{};
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: threshold must be >= 0");
+    }
+    if (!std::isfinite(fuzzyThresh) || fuzzyThresh < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: fuzzyThresh must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("FuzzyMeasurePos: invalid MeasureRectangle2 handle");
+    }
     return FuzzyMeasurePosImpl(image, handle, sigma, threshold,
                                 ParseTransition(transition), ParseEdgeSelect(select),
                                 fuzzyThresh, stats);
@@ -765,6 +906,22 @@ std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
                                          const std::string& select,
                                          double fuzzyThresh,
                                          MeasureStats* stats) {
+    if (!RequireValidImage(image, "FuzzyMeasurePos")) {
+        if (stats) *stats = MeasureStats{};
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: threshold must be >= 0");
+    }
+    if (!std::isfinite(fuzzyThresh) || fuzzyThresh < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: fuzzyThresh must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("FuzzyMeasurePos: invalid MeasureArc handle");
+    }
     return FuzzyMeasurePosImpl(image, handle, sigma, threshold,
                                 ParseTransition(transition), ParseEdgeSelect(select),
                                 fuzzyThresh, stats);
@@ -778,6 +935,22 @@ std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
                                          const std::string& select,
                                          double fuzzyThresh,
                                          MeasureStats* stats) {
+    if (!RequireValidImage(image, "FuzzyMeasurePos")) {
+        if (stats) *stats = MeasureStats{};
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: threshold must be >= 0");
+    }
+    if (!std::isfinite(fuzzyThresh) || fuzzyThresh < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePos: fuzzyThresh must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("FuzzyMeasurePos: invalid MeasureConcentricCircles handle");
+    }
     return FuzzyMeasurePosImpl(image, handle, sigma, threshold,
                                 ParseTransition(transition), ParseEdgeSelect(select),
                                 fuzzyThresh, stats);
@@ -795,6 +968,22 @@ std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
                                            const std::string& select,
                                            double fuzzyThresh,
                                            MeasureStats* stats) {
+    if (!RequireValidImage(image, "FuzzyMeasurePairs")) {
+        if (stats) *stats = MeasureStats{};
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: threshold must be >= 0");
+    }
+    if (!std::isfinite(fuzzyThresh) || fuzzyThresh < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: fuzzyThresh must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: invalid MeasureRectangle2 handle");
+    }
     return FuzzyMeasurePairsImpl(image, handle, sigma, threshold,
                                   ParseTransition(transition), ParseEdgeSelect(select),
                                   fuzzyThresh, stats);
@@ -808,6 +997,22 @@ std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
                                            const std::string& select,
                                            double fuzzyThresh,
                                            MeasureStats* stats) {
+    if (!RequireValidImage(image, "FuzzyMeasurePairs")) {
+        if (stats) *stats = MeasureStats{};
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: threshold must be >= 0");
+    }
+    if (!std::isfinite(fuzzyThresh) || fuzzyThresh < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: fuzzyThresh must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: invalid MeasureArc handle");
+    }
     return FuzzyMeasurePairsImpl(image, handle, sigma, threshold,
                                   ParseTransition(transition), ParseEdgeSelect(select),
                                   fuzzyThresh, stats);
@@ -821,6 +1026,22 @@ std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
                                            const std::string& select,
                                            double fuzzyThresh,
                                            MeasureStats* stats) {
+    if (!RequireValidImage(image, "FuzzyMeasurePairs")) {
+        if (stats) *stats = MeasureStats{};
+        return {};
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: threshold must be >= 0");
+    }
+    if (!std::isfinite(fuzzyThresh) || fuzzyThresh < 0.0) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: fuzzyThresh must be >= 0");
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("FuzzyMeasurePairs: invalid MeasureConcentricCircles handle");
+    }
     return FuzzyMeasurePairsImpl(image, handle, sigma, threshold,
                                   ParseTransition(transition), ParseEdgeSelect(select),
                                   fuzzyThresh, stats);
@@ -1011,7 +1232,9 @@ EdgeTransition ParseTransition(const std::string& transition) {
     if (lower == "negative") return EdgeTransition::Negative;
     if (lower == "all")      return EdgeTransition::All;
 
-    // Default
+    if (!lower.empty()) {
+        throw InvalidArgumentException("Unknown transition: " + transition);
+    }
     return EdgeTransition::All;
 }
 
@@ -1028,7 +1251,9 @@ EdgeSelectMode ParseEdgeSelect(const std::string& select) {
     if (lower == "strongest") return EdgeSelectMode::Strongest;
     if (lower == "weakest")   return EdgeSelectMode::Weakest;
 
-    // Default
+    if (!lower.empty()) {
+        throw InvalidArgumentException("Unknown edge select: " + select);
+    }
     return EdgeSelectMode::All;
 }
 
@@ -1046,7 +1271,9 @@ PairSelectMode ParsePairSelect(const std::string& select) {
     if (lower == "widest")    return PairSelectMode::Widest;
     if (lower == "narrowest") return PairSelectMode::Narrowest;
 
-    // Default
+    if (!lower.empty()) {
+        throw InvalidArgumentException("Unknown pair select: " + select);
+    }
     return PairSelectMode::All;
 }
 
@@ -1057,12 +1284,14 @@ ProfileInterpolation ParseInterpolation(const std::string& interpolation) {
         lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
     }
 
+    if (lower.empty()) {
+        return ProfileInterpolation::Bilinear;
+    }
     if (lower == "nearest")  return ProfileInterpolation::Nearest;
     if (lower == "bilinear") return ProfileInterpolation::Bilinear;
     if (lower == "bicubic")  return ProfileInterpolation::Bicubic;
 
-    // Default
-    return ProfileInterpolation::Bilinear;
+    throw InvalidArgumentException("Unknown interpolation: " + interpolation);
 }
 
 std::string TransitionToString(EdgeTransition t) {

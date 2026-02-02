@@ -13,6 +13,7 @@
  */
 
 #include <QiVision/Core/Types.h>
+#include <QiVision/Core/Export.h>
 #include <vector>
 #include <memory>
 
@@ -24,7 +25,7 @@ class QContour;
 /**
  * @brief Contour point with optional local attributes
  */
-struct ContourPoint {
+struct QIVISION_API ContourPoint {
     double x = 0.0;           ///< X coordinate (subpixel)
     double y = 0.0;           ///< Y coordinate (subpixel)
     double amplitude = 0.0;   ///< Edge strength/gradient magnitude
@@ -53,7 +54,7 @@ struct ContourPoint {
  * Represents edges, lines, or boundaries extracted from images.
  * Supports hierarchy (parent/children) for representing holes in objects.
  */
-class QContour {
+class QIVISION_API QContour {
 public:
     // =========================================================================
     // Constructors

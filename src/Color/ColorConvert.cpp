@@ -70,6 +70,57 @@ inline uint8_t ClampU8(double val) {
     return (t3 > LAB_EPSILON) ? t3 : (116.0 * t - 16.0) / LAB_KAPPA;
 }
 
+bool RequireImage(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    return true;
+}
+
+bool RequireImages(const QImage& image1, const QImage& image2, const char* funcName) {
+    if (!RequireImage(image1, funcName)) {
+        return false;
+    }
+    if (!RequireImage(image2, funcName)) {
+        return false;
+    }
+    return true;
+}
+
+bool RequireImages(const QImage& image1, const QImage& image2, const QImage& image3,
+                   const char* funcName) {
+    if (!RequireImage(image1, funcName)) {
+        return false;
+    }
+    if (!RequireImage(image2, funcName)) {
+        return false;
+    }
+    if (!RequireImage(image3, funcName)) {
+        return false;
+    }
+    return true;
+}
+
+bool RequireImages(const QImage& image1, const QImage& image2, const QImage& image3,
+                   const QImage& image4, const char* funcName) {
+    if (!RequireImage(image1, funcName)) {
+        return false;
+    }
+    if (!RequireImage(image2, funcName)) {
+        return false;
+    }
+    if (!RequireImage(image3, funcName)) {
+        return false;
+    }
+    if (!RequireImage(image4, funcName)) {
+        return false;
+    }
+    return true;
+}
+
 // Note: RGB_TO_XYZ, XYZ_TO_RGB, D65_X/Y/Z, LAB_16_116 are reserved for
 // future Lab/Luv/XYZ color space implementations
 
@@ -140,6 +191,9 @@ bool HasAlphaChannel(ColorSpace space) {
 }
 
 int32_t CountChannels(const QImage& image) {
+    if (!RequireImage(image, "CountChannels")) {
+        return 0;
+    }
     return image.Channels();
 }
 
@@ -148,7 +202,7 @@ int32_t CountChannels(const QImage& image) {
 // =============================================================================
 
 void Rgb1ToGray(const QImage& image, QImage& output, const std::string& method) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "Rgb1ToGray")) {
         output = QImage();
         return;
     }
@@ -178,6 +232,10 @@ void Rgb1ToGray(const QImage& image, QImage& output, const std::string& method) 
     std::string lowerMethod = method;
     std::transform(lowerMethod.begin(), lowerMethod.end(), lowerMethod.begin(), ::tolower);
 
+    if (lowerMethod.empty()) {
+        lowerMethod = "luminosity";
+    }
+
     if (lowerMethod == "luminosity" || lowerMethod == "bt601") {
         rWeight = 0.299; gWeight = 0.587; bWeight = 0.114;
     } else if (lowerMethod == "bt709") {
@@ -192,8 +250,7 @@ void Rgb1ToGray(const QImage& image, QImage& output, const std::string& method) 
     } else if (lowerMethod == "min") {
         useMinMax = true;
     } else {
-        // Default to luminosity
-        rWeight = 0.299; gWeight = 0.587; bWeight = 0.114;
+        throw InvalidArgumentException("Unknown grayscale method: " + method);
     }
 
     for (int32_t y = 0; y < image.Height(); ++y) {
@@ -228,13 +285,16 @@ void Rgb3ToGray(const QImage& red, const QImage& green, const QImage& blue,
 }
 
 void GrayToRgb(const QImage& gray, QImage& output) {
-    if (gray.Empty()) {
+    if (!RequireImage(gray, "GrayToRgb")) {
         output = QImage();
         return;
     }
 
     if (gray.GetChannelType() != ChannelType::Gray) {
         throw InvalidArgumentException("Input must be grayscale");
+    }
+    if (gray.Type() != PixelType::UInt8) {
+        throw UnsupportedException("GrayToRgb only supports UInt8 images");
     }
 
     output = QImage(gray.Width(), gray.Height(), gray.Type(), ChannelType::RGB);
@@ -257,13 +317,16 @@ void GrayToRgb(const QImage& gray, QImage& output) {
 // =============================================================================
 
 void Decompose3(const QImage& image, QImage& ch1, QImage& ch2, QImage& ch3) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "Decompose3")) {
         ch1 = ch2 = ch3 = QImage();
         return;
     }
 
     if (image.Channels() < 3) {
         throw InvalidArgumentException("Input must have at least 3 channels");
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("Decompose3 only supports UInt8 images");
     }
 
     int32_t w = image.Width();
@@ -275,30 +338,31 @@ void Decompose3(const QImage& image, QImage& ch1, QImage& ch2, QImage& ch3) {
     ch2 = QImage(w, h, type, ChannelType::Gray);
     ch3 = QImage(w, h, type, ChannelType::Gray);
 
-    if (type == PixelType::UInt8) {
-        for (int32_t y = 0; y < h; ++y) {
-            const uint8_t* src = static_cast<const uint8_t*>(image.RowPtr(y));
-            uint8_t* d1 = static_cast<uint8_t*>(ch1.RowPtr(y));
-            uint8_t* d2 = static_cast<uint8_t*>(ch2.RowPtr(y));
-            uint8_t* d3 = static_cast<uint8_t*>(ch3.RowPtr(y));
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* src = static_cast<const uint8_t*>(image.RowPtr(y));
+        uint8_t* d1 = static_cast<uint8_t*>(ch1.RowPtr(y));
+        uint8_t* d2 = static_cast<uint8_t*>(ch2.RowPtr(y));
+        uint8_t* d3 = static_cast<uint8_t*>(ch3.RowPtr(y));
 
-            for (int32_t x = 0; x < w; ++x) {
-                d1[x] = src[x * channels + 0];
-                d2[x] = src[x * channels + 1];
-                d3[x] = src[x * channels + 2];
-            }
+        for (int32_t x = 0; x < w; ++x) {
+            d1[x] = src[x * channels + 0];
+            d2[x] = src[x * channels + 1];
+            d3[x] = src[x * channels + 2];
         }
     }
 }
 
 void Decompose4(const QImage& image, QImage& ch1, QImage& ch2, QImage& ch3, QImage& ch4) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "Decompose4")) {
         ch1 = ch2 = ch3 = ch4 = QImage();
         return;
     }
 
     if (image.Channels() < 4) {
         throw InvalidArgumentException("Input must have 4 channels");
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("Decompose4 only supports UInt8 images");
     }
 
     int32_t w = image.Width();
@@ -310,27 +374,25 @@ void Decompose4(const QImage& image, QImage& ch1, QImage& ch2, QImage& ch3, QIma
     ch3 = QImage(w, h, type, ChannelType::Gray);
     ch4 = QImage(w, h, type, ChannelType::Gray);
 
-    if (type == PixelType::UInt8) {
-        for (int32_t y = 0; y < h; ++y) {
-            const uint8_t* src = static_cast<const uint8_t*>(image.RowPtr(y));
-            uint8_t* d1 = static_cast<uint8_t*>(ch1.RowPtr(y));
-            uint8_t* d2 = static_cast<uint8_t*>(ch2.RowPtr(y));
-            uint8_t* d3 = static_cast<uint8_t*>(ch3.RowPtr(y));
-            uint8_t* d4 = static_cast<uint8_t*>(ch4.RowPtr(y));
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* src = static_cast<const uint8_t*>(image.RowPtr(y));
+        uint8_t* d1 = static_cast<uint8_t*>(ch1.RowPtr(y));
+        uint8_t* d2 = static_cast<uint8_t*>(ch2.RowPtr(y));
+        uint8_t* d3 = static_cast<uint8_t*>(ch3.RowPtr(y));
+        uint8_t* d4 = static_cast<uint8_t*>(ch4.RowPtr(y));
 
-            for (int32_t x = 0; x < w; ++x) {
-                d1[x] = src[x * 4 + 0];
-                d2[x] = src[x * 4 + 1];
-                d3[x] = src[x * 4 + 2];
-                d4[x] = src[x * 4 + 3];
-            }
+        for (int32_t x = 0; x < w; ++x) {
+            d1[x] = src[x * 4 + 0];
+            d2[x] = src[x * 4 + 1];
+            d3[x] = src[x * 4 + 2];
+            d4[x] = src[x * 4 + 3];
         }
     }
 }
 
 void Compose3(const QImage& ch1, const QImage& ch2, const QImage& ch3,
               QImage& output, ChannelType channelType) {
-    if (ch1.Empty() || ch2.Empty() || ch3.Empty()) {
+    if (!RequireImages(ch1, ch2, ch3, "Compose3")) {
         output = QImage();
         return;
     }
@@ -339,6 +401,10 @@ void Compose3(const QImage& ch1, const QImage& ch2, const QImage& ch3,
         ch1.Height() != ch2.Height() || ch1.Height() != ch3.Height()) {
         throw InvalidArgumentException("All channels must have same dimensions");
     }
+    if (ch1.Type() != PixelType::UInt8 || ch2.Type() != PixelType::UInt8 ||
+        ch3.Type() != PixelType::UInt8) {
+        throw UnsupportedException("Compose3 only supports UInt8 images");
+    }
 
     int32_t w = ch1.Width();
     int32_t h = ch1.Height();
@@ -346,18 +412,16 @@ void Compose3(const QImage& ch1, const QImage& ch2, const QImage& ch3,
 
     output = QImage(w, h, type, channelType);
 
-    if (type == PixelType::UInt8) {
-        for (int32_t y = 0; y < h; ++y) {
-            const uint8_t* s1 = static_cast<const uint8_t*>(ch1.RowPtr(y));
-            const uint8_t* s2 = static_cast<const uint8_t*>(ch2.RowPtr(y));
-            const uint8_t* s3 = static_cast<const uint8_t*>(ch3.RowPtr(y));
-            uint8_t* dst = static_cast<uint8_t*>(output.RowPtr(y));
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* s1 = static_cast<const uint8_t*>(ch1.RowPtr(y));
+        const uint8_t* s2 = static_cast<const uint8_t*>(ch2.RowPtr(y));
+        const uint8_t* s3 = static_cast<const uint8_t*>(ch3.RowPtr(y));
+        uint8_t* dst = static_cast<uint8_t*>(output.RowPtr(y));
 
-            for (int32_t x = 0; x < w; ++x) {
-                dst[x * 3 + 0] = s1[x];
-                dst[x * 3 + 1] = s2[x];
-                dst[x * 3 + 2] = s3[x];
-            }
+        for (int32_t x = 0; x < w; ++x) {
+            dst[x * 3 + 0] = s1[x];
+            dst[x * 3 + 1] = s2[x];
+            dst[x * 3 + 2] = s3[x];
         }
     }
 }
@@ -365,9 +429,17 @@ void Compose3(const QImage& ch1, const QImage& ch2, const QImage& ch3,
 void Compose4(const QImage& ch1, const QImage& ch2,
               const QImage& ch3, const QImage& ch4,
               QImage& output, ChannelType channelType) {
-    if (ch1.Empty() || ch2.Empty() || ch3.Empty() || ch4.Empty()) {
+    if (!RequireImages(ch1, ch2, ch3, ch4, "Compose4")) {
         output = QImage();
         return;
+    }
+    if (ch1.Width() != ch2.Width() || ch1.Width() != ch3.Width() || ch1.Width() != ch4.Width() ||
+        ch1.Height() != ch2.Height() || ch1.Height() != ch3.Height() || ch1.Height() != ch4.Height()) {
+        throw InvalidArgumentException("All channels must have same dimensions");
+    }
+    if (ch1.Type() != PixelType::UInt8 || ch2.Type() != PixelType::UInt8 ||
+        ch3.Type() != PixelType::UInt8 || ch4.Type() != PixelType::UInt8) {
+        throw UnsupportedException("Compose4 only supports UInt8 images");
     }
 
     int32_t w = ch1.Width();
@@ -376,26 +448,24 @@ void Compose4(const QImage& ch1, const QImage& ch2,
 
     output = QImage(w, h, type, channelType);
 
-    if (type == PixelType::UInt8) {
-        for (int32_t y = 0; y < h; ++y) {
-            const uint8_t* s1 = static_cast<const uint8_t*>(ch1.RowPtr(y));
-            const uint8_t* s2 = static_cast<const uint8_t*>(ch2.RowPtr(y));
-            const uint8_t* s3 = static_cast<const uint8_t*>(ch3.RowPtr(y));
-            const uint8_t* s4 = static_cast<const uint8_t*>(ch4.RowPtr(y));
-            uint8_t* dst = static_cast<uint8_t*>(output.RowPtr(y));
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* s1 = static_cast<const uint8_t*>(ch1.RowPtr(y));
+        const uint8_t* s2 = static_cast<const uint8_t*>(ch2.RowPtr(y));
+        const uint8_t* s3 = static_cast<const uint8_t*>(ch3.RowPtr(y));
+        const uint8_t* s4 = static_cast<const uint8_t*>(ch4.RowPtr(y));
+        uint8_t* dst = static_cast<uint8_t*>(output.RowPtr(y));
 
-            for (int32_t x = 0; x < w; ++x) {
-                dst[x * 4 + 0] = s1[x];
-                dst[x * 4 + 1] = s2[x];
-                dst[x * 4 + 2] = s3[x];
-                dst[x * 4 + 3] = s4[x];
-            }
+        for (int32_t x = 0; x < w; ++x) {
+            dst[x * 4 + 0] = s1[x];
+            dst[x * 4 + 1] = s2[x];
+            dst[x * 4 + 2] = s3[x];
+            dst[x * 4 + 3] = s4[x];
         }
     }
 }
 
 void AccessChannel(const QImage& image, QImage& output, int32_t channelIndex) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "AccessChannel")) {
         output = QImage();
         return;
     }
@@ -404,6 +474,9 @@ void AccessChannel(const QImage& image, QImage& output, int32_t channelIndex) {
     if (channelIndex < 0 || channelIndex >= channels) {
         throw InvalidArgumentException("Channel index out of range");
     }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("AccessChannel only supports UInt8 images");
+    }
 
     int32_t w = image.Width();
     int32_t h = image.Height();
@@ -411,14 +484,12 @@ void AccessChannel(const QImage& image, QImage& output, int32_t channelIndex) {
 
     output = QImage(w, h, type, ChannelType::Gray);
 
-    if (type == PixelType::UInt8) {
-        for (int32_t y = 0; y < h; ++y) {
-            const uint8_t* src = static_cast<const uint8_t*>(image.RowPtr(y));
-            uint8_t* dst = static_cast<uint8_t*>(output.RowPtr(y));
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* src = static_cast<const uint8_t*>(image.RowPtr(y));
+        uint8_t* dst = static_cast<uint8_t*>(output.RowPtr(y));
 
-            for (int32_t x = 0; x < w; ++x) {
-                dst[x] = src[x * channels + channelIndex];
-            }
+        for (int32_t x = 0; x < w; ++x) {
+            dst[x] = src[x * channels + channelIndex];
         }
     }
 }
@@ -426,6 +497,9 @@ void AccessChannel(const QImage& image, QImage& output, int32_t channelIndex) {
 void SplitChannels(const QImage& image, std::vector<QImage>& outputs) {
     outputs.clear();
 
+    if (!RequireImage(image, "SplitChannels")) {
+        return;
+    }
     int numChannels = image.Channels();
     for (int i = 0; i < numChannels; ++i) {
         QImage ch;
@@ -464,7 +538,7 @@ void BgrToRgb(const QImage& image, QImage& output) {
 }
 
 void SwapChannels(const QImage& image, QImage& output, int32_t ch1, int32_t ch2) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "SwapChannels")) {
         output = QImage();
         return;
     }
@@ -494,7 +568,7 @@ void SwapChannels(const QImage& image, QImage& output, int32_t ch1, int32_t ch2)
 }
 
 void ReorderChannels(const QImage& image, QImage& output, const std::vector<int32_t>& order) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "ReorderChannels")) {
         output = QImage();
         return;
     }
@@ -502,6 +576,11 @@ void ReorderChannels(const QImage& image, QImage& output, const std::vector<int3
     int channels = image.Channels();
     if (static_cast<int>(order.size()) != channels) {
         throw InvalidArgumentException("Order size must match channel count");
+    }
+    for (int idx : order) {
+        if (idx < 0 || idx >= channels) {
+            throw InvalidArgumentException("ReorderChannels: order index out of range");
+        }
     }
 
     output = QImage(image.Width(), image.Height(), image.Type(), image.GetChannelType());
@@ -674,7 +753,7 @@ void YCrCbToRgb(uint8_t y, uint8_t cr, uint8_t cb, uint8_t& r, uint8_t& g, uint8
 // =============================================================================
 
 void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "TransFromRgb")) {
         output = QImage();
         return;
     }
@@ -699,6 +778,9 @@ void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace) {
     if (toSpace == ColorSpace::BGR) {
         RgbToBgr(image, output);
         return;
+    }
+    if (toSpace == ColorSpace::Lab || toSpace == ColorSpace::Luv || toSpace == ColorSpace::XYZ) {
+        throw UnsupportedException("TransFromRgb: target color space not implemented");
     }
 
     int32_t w = image.Width();
@@ -749,7 +831,7 @@ void TransFromRgb(const QImage& image, QImage& output, const std::string& colorS
 }
 
 void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "TransToRgb")) {
         output = QImage();
         return;
     }
@@ -770,6 +852,9 @@ void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace) {
     if (fromSpace == ColorSpace::BGR) {
         BgrToRgb(image, output);
         return;
+    }
+    if (fromSpace == ColorSpace::Lab || fromSpace == ColorSpace::Luv || fromSpace == ColorSpace::XYZ) {
+        throw UnsupportedException("TransToRgb: source color space not implemented");
     }
 
     if (image.Channels() < 3) {
@@ -824,6 +909,10 @@ void TransToRgb(const QImage& image, QImage& output, const std::string& colorSpa
 
 void ConvertColorSpace(const QImage& image, QImage& output,
                        ColorSpace fromSpace, ColorSpace toSpace) {
+    if (!RequireImage(image, "ConvertColorSpace")) {
+        output = QImage();
+        return;
+    }
     if (fromSpace == toSpace) {
         output = image.Clone();
         return;
@@ -844,9 +933,12 @@ void ConvertColorSpace(const QImage& image, QImage& output,
 // =============================================================================
 
 void AdjustBrightness(const QImage& image, QImage& output, double brightness) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "AdjustBrightness")) {
         output = QImage();
         return;
+    }
+    if (!std::isfinite(brightness)) {
+        throw InvalidArgumentException("AdjustBrightness: invalid brightness");
     }
 
     output = image.Clone();
@@ -865,9 +957,12 @@ void AdjustBrightness(const QImage& image, QImage& output, double brightness) {
 }
 
 void AdjustContrast(const QImage& image, QImage& output, double contrast) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "AdjustContrast")) {
         output = QImage();
         return;
+    }
+    if (!std::isfinite(contrast)) {
+        throw InvalidArgumentException("AdjustContrast: invalid contrast");
     }
 
     output = image.Clone();
@@ -889,14 +984,16 @@ void AdjustContrast(const QImage& image, QImage& output, double contrast) {
 }
 
 void AdjustSaturation(const QImage& image, QImage& output, double saturation) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "AdjustSaturation")) {
         output = QImage();
         return;
     }
+    if (!std::isfinite(saturation)) {
+        throw InvalidArgumentException("AdjustSaturation: invalid saturation");
+    }
 
     if (image.Channels() < 3) {
-        output = image.Clone();  // No saturation adjustment for grayscale
-        return;
+        throw InvalidArgumentException("AdjustSaturation requires at least 3 channels");
     }
 
     QImage hsv;
@@ -916,14 +1013,16 @@ void AdjustSaturation(const QImage& image, QImage& output, double saturation) {
 }
 
 void AdjustHue(const QImage& image, QImage& output, double hueShift) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "AdjustHue")) {
         output = QImage();
         return;
     }
+    if (!std::isfinite(hueShift)) {
+        throw InvalidArgumentException("AdjustHue: invalid hueShift");
+    }
 
     if (image.Channels() < 3) {
-        output = image.Clone();
-        return;
+        throw InvalidArgumentException("AdjustHue requires at least 3 channels");
     }
 
     QImage hsv;
@@ -947,9 +1046,18 @@ void AdjustHue(const QImage& image, QImage& output, double hueShift) {
 }
 
 void AdjustGamma(const QImage& image, QImage& output, double gamma) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "AdjustGamma")) {
         output = QImage();
         return;
+    }
+    if (!std::isfinite(gamma)) {
+        throw InvalidArgumentException("AdjustGamma: invalid gamma");
+    }
+    if (gamma <= 0.0) {
+        throw InvalidArgumentException("AdjustGamma: gamma must be > 0");
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("AdjustGamma only supports UInt8 images");
     }
 
     output = image.Clone();
@@ -964,20 +1072,21 @@ void AdjustGamma(const QImage& image, QImage& output, double gamma) {
         lut[i] = ClampU8(std::pow(i / 255.0, invGamma) * 255.0);
     }
 
-    if (image.Type() == PixelType::UInt8) {
-        for (int32_t y = 0; y < h; ++y) {
-            uint8_t* row = static_cast<uint8_t*>(output.RowPtr(y));
-            for (int32_t x = 0; x < w * channels; ++x) {
-                row[x] = lut[row[x]];
-            }
+    for (int32_t y = 0; y < h; ++y) {
+        uint8_t* row = static_cast<uint8_t*>(output.RowPtr(y));
+        for (int32_t x = 0; x < w * channels; ++x) {
+            row[x] = lut[row[x]];
         }
     }
 }
 
 void InvertColors(const QImage& image, QImage& output) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "InvertColors")) {
         output = QImage();
         return;
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("InvertColors only supports UInt8 images");
     }
 
     output = image.Clone();
@@ -985,20 +1094,26 @@ void InvertColors(const QImage& image, QImage& output) {
     int32_t h = image.Height();
     int channels = image.Channels();
 
-    if (image.Type() == PixelType::UInt8) {
-        for (int32_t y = 0; y < h; ++y) {
-            uint8_t* row = static_cast<uint8_t*>(output.RowPtr(y));
-            for (int32_t x = 0; x < w * channels; ++x) {
-                row[x] = 255 - row[x];
-            }
+    for (int32_t y = 0; y < h; ++y) {
+        uint8_t* row = static_cast<uint8_t*>(output.RowPtr(y));
+        for (int32_t x = 0; x < w * channels; ++x) {
+            row[x] = 255 - row[x];
         }
     }
 }
 
 void ScaleImage(const QImage& image, QImage& output, double mult, double add) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "ScaleImage")) {
         output = QImage();
         return;
+    }
+    if (!std::isfinite(mult) || !std::isfinite(add)) {
+        throw InvalidArgumentException("ScaleImage: invalid mult/add");
+    }
+    if (image.Type() != PixelType::UInt8 &&
+        image.Type() != PixelType::UInt16 &&
+        image.Type() != PixelType::Float32) {
+        throw UnsupportedException("ScaleImage only supports UInt8/UInt16/Float32 images");
     }
 
     output = QImage(image.Width(), image.Height(), image.Type(), image.GetChannelType());
@@ -1036,9 +1151,12 @@ void ScaleImage(const QImage& image, QImage& output, double mult, double add) {
 }
 
 void ScaleImageMax(const QImage& image, QImage& output) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "ScaleImageMax")) {
         output = QImage();
         return;
+    }
+    if (image.Type() != PixelType::UInt8 && image.Type() != PixelType::UInt16) {
+        throw UnsupportedException("ScaleImageMax only supports UInt8/UInt16 images");
     }
 
     int32_t w = image.Width();
@@ -1080,13 +1198,11 @@ void ScaleImageMax(const QImage& image, QImage& output) {
 
         double scale = 65535.0 / (maxVal - minVal);
         ScaleImage(image, output, scale, -minVal * scale);
-    } else {
-        output = image.Clone();
     }
 }
 
 void EquHistoImage(const QImage& image, QImage& output) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "EquHistoImage")) {
         output = QImage();
         return;
     }
@@ -1156,7 +1272,12 @@ void GrayHisto(const QImage& image,
     absoluteHisto.assign(256, 0);
     relativeHisto.assign(256, 0.0);
 
-    if (image.Empty()) return;
+    if (!RequireImage(image, "GrayHisto")) {
+        return;
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("GrayHisto only supports UInt8 images");
+    }
 
     int32_t w = image.Width();
     int32_t h = image.Height();
@@ -1194,7 +1315,9 @@ void MinMaxGray(const QImage& image, double& minGray, double& maxGray, double& r
     maxGray = 0.0;
     range = 0.0;
 
-    if (image.Empty()) return;
+    if (!RequireImage(image, "MinMaxGray")) {
+        return;
+    }
 
     int32_t w = image.Width();
     int32_t h = image.Height();
@@ -1234,6 +1357,8 @@ void MinMaxGray(const QImage& image, double& minGray, double& maxGray, double& r
         }
         minGray = minVal;
         maxGray = maxVal;
+    } else {
+        throw UnsupportedException("MinMaxGray only supports UInt8/UInt16/Float32 images");
     }
 
     range = maxGray - minGray;
@@ -1243,7 +1368,9 @@ void Intensity(const QImage& image, double& mean, double& deviation) {
     mean = 0.0;
     deviation = 0.0;
 
-    if (image.Empty()) return;
+    if (!RequireImage(image, "Intensity")) {
+        return;
+    }
 
     int32_t w = image.Width();
     int32_t h = image.Height();
@@ -1275,6 +1402,8 @@ void Intensity(const QImage& image, double& mean, double& deviation) {
                 sum += row[x];
             }
         }
+    } else {
+        throw UnsupportedException("Intensity only supports UInt8/UInt16/Float32 images");
     }
 
     mean = sum / totalPixels;
@@ -1305,13 +1434,17 @@ void Intensity(const QImage& image, double& mean, double& deviation) {
                 sumSqDiff += diff * diff;
             }
         }
+    } else {
+        throw UnsupportedException("Intensity only supports UInt8/UInt16/Float32 images");
     }
 
     deviation = std::sqrt(sumSqDiff / totalPixels);
 }
 
 double EntropyGray(const QImage& image) {
-    if (image.Empty()) return 0.0;
+    if (!RequireImage(image, "EntropyGray")) {
+        return 0.0;
+    }
 
     std::vector<int64_t> absHisto;
     std::vector<double> relHisto;
@@ -1328,7 +1461,15 @@ double EntropyGray(const QImage& image) {
 }
 
 double GrayHistoPercentile(const QImage& image, double percentile) {
-    if (image.Empty()) return 0.0;
+    if (!std::isfinite(percentile)) {
+        throw InvalidArgumentException("GrayHistoPercentile: invalid percentile");
+    }
+    if (percentile < 0.0 || percentile > 100.0) {
+        throw InvalidArgumentException("GrayHistoPercentile: percentile must be in [0, 100]");
+    }
+    if (!RequireImage(image, "GrayHistoPercentile")) {
+        return 0.0;
+    }
 
     std::vector<int64_t> absHisto = GrayHistoAbs(image);
 
@@ -1357,13 +1498,22 @@ double GrayHistoPercentile(const QImage& image, double percentile) {
 // =============================================================================
 
 void AutoWhiteBalance(const QImage& image, QImage& output, const std::string& method) {
-    if (image.Empty() || image.Channels() < 3) {
-        output = image.Clone();
+    if (!RequireImage(image, "AutoWhiteBalance")) {
+        output = QImage();
         return;
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("AutoWhiteBalance only supports UInt8 images");
+    }
+    if (image.Channels() < 3) {
+        throw InvalidArgumentException("AutoWhiteBalance requires at least 3 channels");
     }
 
     std::string lowerMethod = method;
     std::transform(lowerMethod.begin(), lowerMethod.end(), lowerMethod.begin(), ::tolower);
+    if (lowerMethod.empty()) {
+        lowerMethod = "gray_world";
+    }
 
     int32_t w = image.Width();
     int32_t h = image.Height();
@@ -1407,17 +1557,27 @@ void AutoWhiteBalance(const QImage& image, QImage& output, const std::string& me
         double scaleB = maxB > 0 ? 255.0 / maxB : 1.0;
 
         ApplyWhiteBalance(image, output, scaleR, scaleG, scaleB);
-    } else {
-        // Default: return unchanged
+    } else if (lowerMethod == "none" || lowerMethod == "identity") {
         output = image.Clone();
+    } else {
+        throw InvalidArgumentException("Unknown white balance method: " + method);
     }
 }
 
 void ApplyWhiteBalance(const QImage& image, QImage& output,
                        double whiteR, double whiteG, double whiteB) {
-    if (image.Empty() || image.Channels() < 3) {
-        output = image.Clone();
+    if (!RequireImage(image, "ApplyWhiteBalance")) {
+        output = QImage();
         return;
+    }
+    if (!std::isfinite(whiteR) || !std::isfinite(whiteG) || !std::isfinite(whiteB)) {
+        throw InvalidArgumentException("ApplyWhiteBalance: invalid white balance factors");
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("ApplyWhiteBalance only supports UInt8 images");
+    }
+    if (image.Channels() < 3) {
+        throw InvalidArgumentException("ApplyWhiteBalance requires at least 3 channels");
     }
 
     output = image.Clone();
@@ -1458,7 +1618,20 @@ ColorTransLut CreateColorTransLut(const std::string& colorSpace,
     ColorTransLut lut;
     ColorSpace targetSpace = ParseColorSpace(colorSpace);
 
-    bool fromRgb = (transDirection == "from_rgb");
+    std::string lowerDir = transDirection;
+    std::transform(lowerDir.begin(), lowerDir.end(), lowerDir.begin(), ::tolower);
+    if (lowerDir.empty()) {
+        lowerDir = "from_rgb";
+    }
+    if (lowerDir != "from_rgb" && lowerDir != "to_rgb") {
+        throw InvalidArgumentException("Unknown transDirection: " + transDirection);
+    }
+    bool fromRgb = (lowerDir == "from_rgb");
+
+    if (targetSpace != ColorSpace::HSV && targetSpace != ColorSpace::HSL &&
+        targetSpace != ColorSpace::YCrCb && targetSpace != ColorSpace::YUV) {
+        throw UnsupportedException("CreateColorTransLut: target color space not implemented");
+    }
     lut.fromSpace_ = fromRgb ? ColorSpace::RGB : targetSpace;
     lut.toSpace_ = fromRgb ? targetSpace : ColorSpace::RGB;
 
@@ -1527,8 +1700,15 @@ void ApplyColorTransLut(const QImage& image1, const QImage& image2, const QImage
         throw InvalidArgumentException("Invalid ColorTransLut handle");
     }
 
-    if (image1.Empty() || image2.Empty() || image3.Empty()) {
-        throw InvalidArgumentException("Input images cannot be empty");
+    if (!RequireImages(image1, image2, image3, "ApplyColorTransLut")) {
+        result1 = QImage();
+        result2 = QImage();
+        result3 = QImage();
+        return;
+    }
+    if (image1.Type() != PixelType::UInt8 || image2.Type() != PixelType::UInt8 ||
+        image3.Type() != PixelType::UInt8) {
+        throw UnsupportedException("ApplyColorTransLut only supports UInt8 images");
     }
 
     int32_t w = image1.Width();
@@ -1569,7 +1749,14 @@ void ApplyColorTransLut(const QImage& image, QImage& output, const ColorTransLut
         throw InvalidArgumentException("Invalid ColorTransLut handle");
     }
 
-    if (image.Empty() || image.Channels() != 3) {
+    if (!RequireImage(image, "ApplyColorTransLut")) {
+        output = QImage();
+        return;
+    }
+    if (image.Type() != PixelType::UInt8) {
+        throw UnsupportedException("ApplyColorTransLut only supports UInt8 images");
+    }
+    if (image.Channels() != 3) {
         throw InvalidArgumentException("Input must be a 3-channel image");
     }
 
@@ -1618,7 +1805,10 @@ BayerPattern ParseBayerPattern(const std::string& cfaType) {
     if (lower == "bayer_gb" || lower == "gbrg") return BayerPattern::GBRG;
     if (lower == "bayer_bg" || lower == "bggr") return BayerPattern::BGGR;
 
-    return BayerPattern::GBRG;  // Default
+    if (lower.empty()) {
+        return BayerPattern::GBRG;  // Default
+    }
+    throw InvalidArgumentException("Unknown CFA pattern: " + cfaType);
 }
 
 // Get Bayer color at position (for RGGB pattern at origin)
@@ -1644,8 +1834,15 @@ inline int GetBayerColor(int x, int y, BayerPattern pattern) {
 void CfaToRgb(const QImage& cfaImage, QImage& output,
               const std::string& cfaType,
               const std::string& interpolation) {
-    if (cfaImage.Empty() || cfaImage.Channels() != 1) {
+    if (!RequireImage(cfaImage, "CfaToRgb")) {
+        output = QImage();
+        return;
+    }
+    if (cfaImage.Channels() != 1) {
         throw InvalidArgumentException("CfaToRgb requires a single-channel image");
+    }
+    if (cfaImage.Type() != PixelType::UInt8 && cfaImage.Type() != PixelType::UInt16) {
+        throw UnsupportedException("CfaToRgb only supports UInt8/UInt16 images");
     }
 
     int32_t w = cfaImage.Width();
@@ -1656,7 +1853,19 @@ void CfaToRgb(const QImage& cfaImage, QImage& output,
     }
 
     BayerPattern pattern = ParseBayerPattern(cfaType);
-    bool useDirectional = (interpolation == "bilinear_dir");
+    std::string lowerInterp = interpolation;
+    std::transform(lowerInterp.begin(), lowerInterp.end(), lowerInterp.begin(), ::tolower);
+    if (lowerInterp.empty()) {
+        lowerInterp = "bilinear";
+    }
+    bool useDirectional = false;
+    if (lowerInterp == "bilinear") {
+        useDirectional = false;
+    } else if (lowerInterp == "bilinear_dir") {
+        useDirectional = true;
+    } else {
+        throw InvalidArgumentException("Unknown interpolation: " + interpolation);
+    }
 
     output = QImage(w, h, cfaImage.Type(),
                     cfaImage.Type() == PixelType::UInt16 ? ChannelType::RGB : ChannelType::RGB);
@@ -1796,9 +2005,17 @@ void CfaToRgb(const QImage& cfaImage, QImage& output,
 void LinearTransColor(const QImage& image, QImage& output,
                       const std::vector<double>& transMat,
                       int32_t numOutputChannels) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "LinearTransColor")) {
         output = QImage();
         return;
+    }
+    if (numOutputChannels <= 0) {
+        throw InvalidArgumentException("LinearTransColor: numOutputChannels must be > 0");
+    }
+    for (double v : transMat) {
+        if (!std::isfinite(v)) {
+            throw InvalidArgumentException("LinearTransColor: invalid transMat value");
+        }
     }
 
     int32_t w = image.Width();
@@ -1846,8 +2063,17 @@ void LinearTransColor(const QImage& image, QImage& output,
 }
 
 void ApplyColorMatrix(const QImage& image, QImage& output, const std::vector<double>& matrix) {
+    if (!RequireImage(image, "ApplyColorMatrix")) {
+        output = QImage();
+        return;
+    }
     if (matrix.size() != 9) {
         throw InvalidArgumentException("ApplyColorMatrix requires a 3x3 matrix (9 elements)");
+    }
+    for (double v : matrix) {
+        if (!std::isfinite(v)) {
+            throw InvalidArgumentException("ApplyColorMatrix: invalid matrix value");
+        }
     }
 
     // Convert 3x3 matrix to 3x4 (add zero offsets)
@@ -1865,7 +2091,7 @@ void ApplyColorMatrix(const QImage& image, QImage& output, const std::vector<dou
 // =============================================================================
 
 void PrincipalComp(const QImage& image, QImage& output, int32_t numComponents) {
-    if (image.Empty()) {
+    if (!RequireImage(image, "PrincipalComp")) {
         output = QImage();
         return;
     }
@@ -1913,8 +2139,11 @@ void GenPrincipalCompTrans(const QImage& image,
                            std::vector<double>& transMat,
                            std::vector<double>& mean,
                            std::vector<double>& eigenvalues) {
-    if (image.Empty()) {
-        throw InvalidArgumentException("Input image cannot be empty");
+    if (!RequireImage(image, "GenPrincipalCompTrans")) {
+        transMat.clear();
+        mean.clear();
+        eigenvalues.clear();
+        return;
     }
 
     int32_t w = image.Width();

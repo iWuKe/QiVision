@@ -15,6 +15,7 @@
 
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/Types.h>
+#include <QiVision/Core/Export.h>
 
 #include <cstdint>
 #include <string>
@@ -63,7 +64,7 @@ enum class ImageFormat {
 /**
  * @brief Image metadata structure
  */
-struct ImageMetadata {
+struct QIVISION_API ImageMetadata {
     int32_t width = 0;
     int32_t height = 0;
     int32_t channels = 0;
@@ -98,7 +99,7 @@ struct ImageMetadata {
  * ReadImage("test.png", img);
  * @endcode
  */
-void ReadImage(const std::string& filename, QImage& image);
+QIVISION_API void ReadImage(const std::string& filename, QImage& image);
 
 /**
  * @brief Read image with format hint
@@ -107,7 +108,7 @@ void ReadImage(const std::string& filename, QImage& image);
  * @param[out] image Loaded image
  * @param format Force specific format (Auto = detect from extension)
  */
-void ReadImage(const std::string& filename, QImage& image, ImageFormat format);
+QIVISION_API void ReadImage(const std::string& filename, QImage& image, ImageFormat format);
 
 /**
  * @brief Read raw binary image data
@@ -121,7 +122,7 @@ void ReadImage(const std::string& filename, QImage& image, ImageFormat format);
  * @param headerBytes Bytes to skip at file start (default: 0)
  * @param bigEndian Byte order for >8-bit data (default: false)
  */
-void ReadImageRaw(const std::string& filename, QImage& image,
+QIVISION_API void ReadImageRaw(const std::string& filename, QImage& image,
                   int32_t width, int32_t height,
                   PixelType pixelType = PixelType::UInt8,
                   ChannelType channelType = ChannelType::Gray,
@@ -137,7 +138,7 @@ void ReadImageRaw(const std::string& filename, QImage& image,
  * @param metadata [out] Image metadata
  * @return true if metadata was successfully read
  */
-bool ReadImageMetadata(const std::string& filename, ImageMetadata& metadata);
+QIVISION_API bool ReadImageMetadata(const std::string& filename, ImageMetadata& metadata);
 
 /**
  * @brief Read image and convert to specified type
@@ -146,7 +147,7 @@ bool ReadImageMetadata(const std::string& filename, ImageMetadata& metadata);
  * @param[out] image Loaded and converted image
  * @param targetType Target pixel type for conversion
  */
-void ReadImageAs(const std::string& filename, QImage& image, PixelType targetType);
+QIVISION_API void ReadImageAs(const std::string& filename, QImage& image, PixelType targetType);
 
 /**
  * @brief Read image and convert to grayscale
@@ -154,7 +155,7 @@ void ReadImageAs(const std::string& filename, QImage& image, PixelType targetTyp
  * @param filename Input file path
  * @param[out] image Grayscale image
  */
-void ReadImageGray(const std::string& filename, QImage& image);
+QIVISION_API void ReadImageGray(const std::string& filename, QImage& image);
 
 // =============================================================================
 // Image Write Functions
@@ -174,7 +175,7 @@ void ReadImageGray(const std::string& filename, QImage& image);
  * WriteImage(img, "output.jpg");
  * @endcode
  */
-bool WriteImage(const QImage& image, const std::string& filename);
+QIVISION_API bool WriteImage(const QImage& image, const std::string& filename);
 
 /**
  * @brief Write image with format and parameters (OpenCV imwrite style)
@@ -190,7 +191,7 @@ bool WriteImage(const QImage& image, const std::string& filename);
  * WriteImage(img, "out.png", ImageFormat::PNG, {QIWRITE_PNG_COMPRESSION, 9});
  * @endcode
  */
-bool WriteImage(const QImage& image, const std::string& filename,
+QIVISION_API bool WriteImage(const QImage& image, const std::string& filename,
                 ImageFormat format, const std::vector<int>& params);
 
 /**
@@ -201,7 +202,7 @@ bool WriteImage(const QImage& image, const std::string& filename,
  * @param bigEndian Byte order for >8-bit
  * @return true if successful
  */
-bool WriteImageRaw(const QImage& image, const std::string& filename,
+QIVISION_API bool WriteImageRaw(const QImage& image, const std::string& filename,
                    bool bigEndian = false);
 
 // =============================================================================
@@ -224,7 +225,7 @@ bool WriteImageRaw(const QImage& image, const std::string& filename,
  * ReadSequence("frame_%04d.png", images, 0, 99);
  * @endcode
  */
-void ReadSequence(const std::string& pattern,
+QIVISION_API void ReadSequence(const std::string& pattern,
                   std::vector<QImage>& images,
                   int32_t startIndex,
                   int32_t endIndex,
@@ -237,7 +238,7 @@ void ReadSequence(const std::string& pattern,
  * @param[out] images Vector of loaded images
  * @param extensions Filter by extensions (empty = all supported)
  */
-void ReadDirectory(const std::string& directory,
+QIVISION_API void ReadDirectory(const std::string& directory,
                    std::vector<QImage>& images,
                    const std::vector<std::string>& extensions = {});
 
@@ -250,7 +251,7 @@ void ReadDirectory(const std::string& directory,
  * @param params Optional key-value pairs: {QIWRITE_JPEG_QUALITY, 85, ...}
  * @return Number of images successfully written
  */
-int32_t WriteSequence(const std::vector<QImage>& images,
+QIVISION_API int32_t WriteSequence(const std::vector<QImage>& images,
                        const std::string& pattern,
                        int32_t startIndex = 0,
                        const std::vector<int>& params = {});
@@ -265,7 +266,7 @@ int32_t WriteSequence(const std::vector<QImage>& images,
  * @param filename File path
  * @return Detected format (Auto if unknown)
  */
-ImageFormat GetFormatFromFilename(const std::string& filename);
+QIVISION_API ImageFormat GetFormatFromFilename(const std::string& filename);
 
 /**
  * @brief Get file extension for format
@@ -273,33 +274,33 @@ ImageFormat GetFormatFromFilename(const std::string& filename);
  * @param format Image format
  * @return Extension string (e.g., ".png")
  */
-std::string GetExtensionForFormat(ImageFormat format);
+QIVISION_API std::string GetExtensionForFormat(ImageFormat format);
 
 /**
  * @brief Check if format supports 16-bit depth
  */
-bool FormatSupports16Bit(ImageFormat format);
+QIVISION_API bool FormatSupports16Bit(ImageFormat format);
 
 /**
  * @brief Check if format supports alpha channel
  */
-bool FormatSupportsAlpha(ImageFormat format);
+QIVISION_API bool FormatSupportsAlpha(ImageFormat format);
 
 /**
  * @brief Check if format is lossless
  */
-bool FormatIsLossless(ImageFormat format);
+QIVISION_API bool FormatIsLossless(ImageFormat format);
 
 /**
  * @brief List supported file extensions
  *
  * @return Vector of supported extensions (e.g., {".png", ".jpg", ".bmp"})
  */
-std::vector<std::string> GetSupportedExtensions();
+QIVISION_API std::vector<std::string> GetSupportedExtensions();
 
 /**
  * @brief Check if file is a supported image format
  */
-bool IsSupportedImageFile(const std::string& filename);
+QIVISION_API bool IsSupportedImageFile(const std::string& filename);
 
 } // namespace Qi::Vision::IO

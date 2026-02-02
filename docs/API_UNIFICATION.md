@@ -95,3 +95,17 @@ Goal: expose a single, modern C++ API surface (OpenCV-like), remove Halcon-style
 2. Update samples and docs to use unified APIs exclusively.
 3. Hide/remove `Internal` headers from public includes.
 4. Remove deprecated APIs after internal usage is gone.
+
+## Unified Behavior Rules
+- Invalid arguments: throw `InvalidArgumentException` with a stable, descriptive message.
+- Unsupported types/parameters: throw `UnsupportedException` (never silently coerce).
+- Empty inputs:
+  - Empty image/region/contour: return empty outputs when a "no-op" makes sense.
+  - If the operation requires data (fit, model creation), throw `InvalidArgumentException`.
+- Numeric ranges:
+  - Angles must be finite; scales > 0; thresholds >= 0; counts >= 1.
+  - Reject NaN/Inf for all geometric inputs.
+- Output clearing:
+  - Functions with output vectors must clear them before filling.
+- Consistent coordinate semantics:
+  - `row = y`, `col = x`, and angles are in radians (CCW positive).

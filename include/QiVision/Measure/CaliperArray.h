@@ -37,6 +37,7 @@
 #include <QiVision/Measure/MeasureTypes.h>
 #include <QiVision/Measure/MeasureHandle.h>
 #include <QiVision/Measure/Caliper.h>
+#include <QiVision/Core/Export.h>
 
 #include <cstdint>
 #include <memory>
@@ -91,7 +92,7 @@ enum class PathType {
 /**
  * @brief Result for a single caliper in the array
  */
-struct CaliperResult {
+struct QIVISION_API CaliperResult {
     int32_t caliperIndex = -1;      ///< Index in the array
 
     // Path information
@@ -118,7 +119,7 @@ struct CaliperResult {
 /**
  * @brief Aggregated results from caliper array measurement
  */
-struct CaliperArrayResult {
+struct QIVISION_API CaliperArrayResult {
     // Array information
     int32_t numCalipers = 0;
     int32_t numValid = 0;
@@ -161,7 +162,7 @@ struct CaliperArrayResult {
 /**
  * @brief Statistics for array measurement
  */
-struct CaliperArrayStats {
+struct QIVISION_API CaliperArrayStats {
     int32_t totalEdgesFound = 0;
     int32_t totalPairsFound = 0;
 
@@ -194,7 +195,7 @@ struct CaliperArrayStats {
  * }
  * @endcode
  */
-class CaliperArray {
+class QIVISION_API CaliperArray {
 public:
     CaliperArray();
     ~CaliperArray();
@@ -413,38 +414,38 @@ private:
 // Factory Functions
 // =============================================================================
 
-CaliperArray CreateCaliperArrayLine(const Point2d& p1, const Point2d& p2,
+QIVISION_API CaliperArray CreateCaliperArrayLine(const Point2d& p1, const Point2d& p2,
                                      int32_t caliperCount = DEFAULT_CALIPER_COUNT,
                                      double profileLength = 50.0,
                                      double handleWidth = 10.0);
 
-CaliperArray CreateCaliperArrayLine(const Segment2d& segment,
+QIVISION_API CaliperArray CreateCaliperArrayLine(const Segment2d& segment,
                                      int32_t caliperCount = DEFAULT_CALIPER_COUNT,
                                      double profileLength = 50.0,
                                      double handleWidth = 10.0);
 
-CaliperArray CreateCaliperArrayArc(const Point2d& center, double radius,
+QIVISION_API CaliperArray CreateCaliperArrayArc(const Point2d& center, double radius,
                                     double startAngle, double sweepAngle,
                                     int32_t caliperCount = DEFAULT_CALIPER_COUNT,
                                     double profileLength = 50.0,
                                     double handleWidth = 10.0);
 
-CaliperArray CreateCaliperArrayArc(const Arc2d& arc,
+QIVISION_API CaliperArray CreateCaliperArrayArc(const Arc2d& arc,
                                     int32_t caliperCount = DEFAULT_CALIPER_COUNT,
                                     double profileLength = 50.0,
                                     double handleWidth = 10.0);
 
-CaliperArray CreateCaliperArrayCircle(const Point2d& center, double radius,
+QIVISION_API CaliperArray CreateCaliperArrayCircle(const Point2d& center, double radius,
                                        int32_t caliperCount = DEFAULT_CALIPER_COUNT,
                                        double profileLength = 50.0,
                                        double handleWidth = 10.0);
 
-CaliperArray CreateCaliperArrayCircle(const Circle2d& circle,
+QIVISION_API CaliperArray CreateCaliperArrayCircle(const Circle2d& circle,
                                        int32_t caliperCount = DEFAULT_CALIPER_COUNT,
                                        double profileLength = 50.0,
                                        double handleWidth = 10.0);
 
-CaliperArray CreateCaliperArrayContour(const QContour& contour,
+QIVISION_API CaliperArray CreateCaliperArrayContour(const QContour& contour,
                                         int32_t caliperCount = 0,
                                         double profileLength = 50.0,
                                         double handleWidth = 10.0);
@@ -456,7 +457,7 @@ CaliperArray CreateCaliperArrayContour(const QContour& contour,
 /**
  * @brief Measure edges along a line and fit a line to results
  */
-std::optional<Line2d> MeasureAndFitLine(const QImage& image,
+QIVISION_API std::optional<Line2d> MeasureAndFitLine(const QImage& image,
                                          const Point2d& p1, const Point2d& p2,
                                          int32_t caliperCount = 10,
                                          double sigma = 1.0,
@@ -468,7 +469,7 @@ std::optional<Line2d> MeasureAndFitLine(const QImage& image,
 /**
  * @brief Measure edges along a circle and fit a circle to results
  */
-std::optional<Circle2d> MeasureAndFitCircle(const QImage& image,
+QIVISION_API std::optional<Circle2d> MeasureAndFitCircle(const QImage& image,
                                              const Point2d& approxCenter,
                                              double approxRadius,
                                              int32_t caliperCount = 24,
@@ -485,7 +486,7 @@ std::optional<Circle2d> MeasureAndFitCircle(const QImage& image,
 /**
  * @brief Measure widths along a line and compute statistics
  */
-bool MeasureWidthsAlongLine(const QImage& image,
+QIVISION_API bool MeasureWidthsAlongLine(const QImage& image,
                              const Point2d& p1, const Point2d& p2,
                              int32_t caliperCount,
                              double sigma,
@@ -499,7 +500,7 @@ bool MeasureWidthsAlongLine(const QImage& image,
 /**
  * @brief Measure widths along an arc and compute statistics
  */
-bool MeasureWidthsAlongArc(const QImage& image,
+QIVISION_API bool MeasureWidthsAlongArc(const QImage& image,
                             const Arc2d& arc,
                             int32_t caliperCount,
                             double sigma,

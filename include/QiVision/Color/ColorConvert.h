@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file ColorConvert.h
  * @brief Color space conversion and channel operations (Halcon-style API)
@@ -80,7 +82,7 @@ enum class WhitePoint {
  * ConvertColorSpace(rgb, hsv, ColorSpace::RGB, ColorSpace::HSV);
  * @endcode
  */
-void ConvertColorSpace(const QImage& image, QImage& output,
+QIVISION_API void ConvertColorSpace(const QImage& image, QImage& output,
                         ColorSpace fromSpace, ColorSpace toSpace);
 
 /**
@@ -92,7 +94,7 @@ void ConvertColorSpace(const QImage& image, QImage& output,
  * @param output Output converted image
  * @param toSpace Target color space
  */
-void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace);
+QIVISION_API void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace);
 
 /**
  * @brief Convert RGB image to specified color space (string version)
@@ -102,7 +104,7 @@ void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace);
  * @param colorSpace Color space name: "gray", "hsv", "hsl", "lab", "luv",
  *                   "xyz", "ycrcb", "yuv", "bgr"
  */
-void TransFromRgb(const QImage& image, QImage& output, const std::string& colorSpace);
+QIVISION_API void TransFromRgb(const QImage& image, QImage& output, const std::string& colorSpace);
 
 /**
  * @brief Convert image to RGB from specified color space
@@ -113,12 +115,12 @@ void TransFromRgb(const QImage& image, QImage& output, const std::string& colorS
  * @param output Output RGB image
  * @param fromSpace Source color space
  */
-void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace);
+QIVISION_API void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace);
 
 /**
  * @brief Convert image to RGB (string version)
  */
-void TransToRgb(const QImage& image, QImage& output, const std::string& colorSpace);
+QIVISION_API void TransToRgb(const QImage& image, QImage& output, const std::string& colorSpace);
 
 // =============================================================================
 // Grayscale Conversion
@@ -140,7 +142,7 @@ void TransToRgb(const QImage& image, QImage& output, const std::string& colorSpa
  *        - "max": max(R, G, B)
  *        - "min": min(R, G, B)
  */
-void Rgb1ToGray(const QImage& image, QImage& output,
+QIVISION_API void Rgb1ToGray(const QImage& image, QImage& output,
                  const std::string& method = "luminosity");
 
 /**
@@ -154,7 +156,7 @@ void Rgb1ToGray(const QImage& image, QImage& output,
  * @param output Output grayscale image
  * @param method Conversion method
  */
-void Rgb3ToGray(const QImage& red, const QImage& green, const QImage& blue,
+QIVISION_API void Rgb3ToGray(const QImage& red, const QImage& green, const QImage& blue,
                  QImage& output, const std::string& method = "luminosity");
 
 /**
@@ -163,7 +165,7 @@ void Rgb3ToGray(const QImage& red, const QImage& green, const QImage& blue,
  * @param gray Grayscale image
  * @param output Output RGB image with R=G=B=gray
  */
-void GrayToRgb(const QImage& gray, QImage& output);
+QIVISION_API void GrayToRgb(const QImage& gray, QImage& output);
 
 // =============================================================================
 // Channel Decomposition
@@ -184,7 +186,7 @@ void GrayToRgb(const QImage& gray, QImage& output);
  * Decompose3(rgbImage, r, g, b);
  * @endcode
  */
-void Decompose3(const QImage& image,
+QIVISION_API void Decompose3(const QImage& image,
                  QImage& ch1, QImage& ch2, QImage& ch3);
 
 /**
@@ -192,7 +194,7 @@ void Decompose3(const QImage& image,
  *
  * Equivalent to Halcon's decompose4 operator.
  */
-void Decompose4(const QImage& image,
+QIVISION_API void Decompose4(const QImage& image,
                  QImage& ch1, QImage& ch2, QImage& ch3, QImage& ch4);
 
 /**
@@ -206,7 +208,7 @@ void Decompose4(const QImage& image,
  * @param output Output composed multi-channel image
  * @param channelType Output channel type (RGB, HSV, Lab, etc.)
  */
-void Compose3(const QImage& ch1, const QImage& ch2, const QImage& ch3,
+QIVISION_API void Compose3(const QImage& ch1, const QImage& ch2, const QImage& ch3,
                QImage& output, ChannelType channelType = ChannelType::RGB);
 
 /**
@@ -214,7 +216,7 @@ void Compose3(const QImage& ch1, const QImage& ch2, const QImage& ch3,
  *
  * Equivalent to Halcon's compose4 operator.
  */
-void Compose4(const QImage& ch1, const QImage& ch2,
+QIVISION_API void Compose4(const QImage& ch1, const QImage& ch2,
                const QImage& ch3, const QImage& ch4,
                QImage& output, ChannelType channelType = ChannelType::RGBA);
 
@@ -236,7 +238,7 @@ void Compose4(const QImage& ch1, const QImage& ch2,
  * AccessChannel(rgbImage, blue, 2);  // RGB: 0=R, 1=G, 2=B
  * @endcode
  */
-void AccessChannel(const QImage& image, QImage& output, int32_t channelIndex);
+QIVISION_API void AccessChannel(const QImage& image, QImage& output, int32_t channelIndex);
 
 /**
  * @brief Get number of channels in image
@@ -246,7 +248,7 @@ void AccessChannel(const QImage& image, QImage& output, int32_t channelIndex);
  * @param image Input image
  * @return Number of channels (1, 3, or 4)
  */
-int32_t CountChannels(const QImage& image);
+QIVISION_API int32_t CountChannels(const QImage& image);
 
 /**
  * @brief Extract all channels as vector of images
@@ -254,7 +256,7 @@ int32_t CountChannels(const QImage& image);
  * @param image Input image
  * @param channels Output vector of single-channel images
  */
-void SplitChannels(const QImage& image, std::vector<QImage>& channels);
+QIVISION_API void SplitChannels(const QImage& image, std::vector<QImage>& channels);
 
 /**
  * @brief Merge vector of channels into multi-channel image
@@ -263,7 +265,7 @@ void SplitChannels(const QImage& image, std::vector<QImage>& channels);
  * @param output Output merged multi-channel image
  * @param channelType Output channel type
  */
-void MergeChannels(const std::vector<QImage>& channels, QImage& output,
+QIVISION_API void MergeChannels(const std::vector<QImage>& channels, QImage& output,
                     ChannelType channelType = ChannelType::RGB);
 
 // =============================================================================
@@ -276,8 +278,8 @@ void MergeChannels(const std::vector<QImage>& channels, QImage& output,
  * @param image Input image
  * @param output Output image with swapped R and B channels
  */
-void RgbToBgr(const QImage& image, QImage& output);
-void BgrToRgb(const QImage& image, QImage& output);
+QIVISION_API void RgbToBgr(const QImage& image, QImage& output);
+QIVISION_API void BgrToRgb(const QImage& image, QImage& output);
 
 /**
  * @brief Swap two channels
@@ -287,7 +289,7 @@ void BgrToRgb(const QImage& image, QImage& output);
  * @param ch1 First channel index
  * @param ch2 Second channel index
  */
-void SwapChannels(const QImage& image, QImage& output, int32_t ch1, int32_t ch2);
+QIVISION_API void SwapChannels(const QImage& image, QImage& output, int32_t ch1, int32_t ch2);
 
 /**
  * @brief Reorder channels
@@ -296,7 +298,7 @@ void SwapChannels(const QImage& image, QImage& output, int32_t ch1, int32_t ch2)
  * @param output Output image with reordered channels
  * @param order Channel order (e.g., {2, 1, 0} for RGB->BGR)
  */
-void ReorderChannels(const QImage& image, QImage& output,
+QIVISION_API void ReorderChannels(const QImage& image, QImage& output,
                       const std::vector<int32_t>& order);
 
 // =============================================================================
@@ -310,7 +312,7 @@ void ReorderChannels(const QImage& image, QImage& output,
  * @param output Output adjusted image
  * @param brightness Brightness adjustment [-255, 255]
  */
-void AdjustBrightness(const QImage& image, QImage& output, double brightness);
+QIVISION_API void AdjustBrightness(const QImage& image, QImage& output, double brightness);
 
 /**
  * @brief Adjust image contrast
@@ -319,7 +321,7 @@ void AdjustBrightness(const QImage& image, QImage& output, double brightness);
  * @param output Output adjusted image
  * @param contrast Contrast factor (1.0 = no change, >1 = more contrast)
  */
-void AdjustContrast(const QImage& image, QImage& output, double contrast);
+QIVISION_API void AdjustContrast(const QImage& image, QImage& output, double contrast);
 
 /**
  * @brief Adjust saturation (for color images)
@@ -328,7 +330,7 @@ void AdjustContrast(const QImage& image, QImage& output, double contrast);
  * @param output Output adjusted image
  * @param saturation Saturation factor (1.0 = no change, 0 = grayscale, >1 = more saturated)
  */
-void AdjustSaturation(const QImage& image, QImage& output, double saturation);
+QIVISION_API void AdjustSaturation(const QImage& image, QImage& output, double saturation);
 
 /**
  * @brief Adjust hue (for color images)
@@ -337,7 +339,7 @@ void AdjustSaturation(const QImage& image, QImage& output, double saturation);
  * @param output Output adjusted image
  * @param hueShift Hue shift in degrees [-180, 180]
  */
-void AdjustHue(const QImage& image, QImage& output, double hueShift);
+QIVISION_API void AdjustHue(const QImage& image, QImage& output, double hueShift);
 
 /**
  * @brief Apply gamma correction
@@ -346,7 +348,7 @@ void AdjustHue(const QImage& image, QImage& output, double hueShift);
  * @param output Output gamma-corrected image
  * @param gamma Gamma value (1.0 = no change, <1 = brighter, >1 = darker)
  */
-void AdjustGamma(const QImage& image, QImage& output, double gamma);
+QIVISION_API void AdjustGamma(const QImage& image, QImage& output, double gamma);
 
 /**
  * @brief Invert image colors
@@ -354,7 +356,7 @@ void AdjustGamma(const QImage& image, QImage& output, double gamma);
  * @param image Input image
  * @param output Output inverted image (255 - pixel for UInt8)
  */
-void InvertColors(const QImage& image, QImage& output);
+QIVISION_API void InvertColors(const QImage& image, QImage& output);
 
 /**
  * @brief Scale image intensity values linearly
@@ -372,7 +374,7 @@ void InvertColors(const QImage& image, QImage& output);
  * ScaleImage(image, bright, 1.2, 20);  // Increase brightness
  * @endcode
  */
-void ScaleImage(const QImage& image, QImage& output, double mult, double add);
+QIVISION_API void ScaleImage(const QImage& image, QImage& output, double mult, double add);
 
 /**
  * @brief Scale image to full dynamic range
@@ -383,7 +385,7 @@ void ScaleImage(const QImage& image, QImage& output, double mult, double add);
  * @param image Input image
  * @param output Output scaled image with full dynamic range
  */
-void ScaleImageMax(const QImage& image, QImage& output);
+QIVISION_API void ScaleImageMax(const QImage& image, QImage& output);
 
 /**
  * @brief Apply histogram equalization
@@ -394,7 +396,7 @@ void ScaleImageMax(const QImage& image, QImage& output);
  * @param image Input grayscale image
  * @param output Output equalized image
  */
-void EquHistoImage(const QImage& image, QImage& output);
+QIVISION_API void EquHistoImage(const QImage& image, QImage& output);
 
 // =============================================================================
 // Histogram Analysis
@@ -409,7 +411,7 @@ void EquHistoImage(const QImage& image, QImage& output);
  * @param[out] absoluteHisto Absolute histogram (pixel counts, 256 bins)
  * @param[out] relativeHisto Relative histogram (normalized to sum=1)
  */
-void GrayHisto(const QImage& image,
+QIVISION_API void GrayHisto(const QImage& image,
                std::vector<int64_t>& absoluteHisto,
                std::vector<double>& relativeHisto);
 
@@ -421,7 +423,7 @@ void GrayHisto(const QImage& image,
  * @param image Input grayscale image
  * @return Absolute histogram (256 bins)
  */
-std::vector<int64_t> GrayHistoAbs(const QImage& image);
+QIVISION_API std::vector<int64_t> GrayHistoAbs(const QImage& image);
 
 /**
  * @brief Get minimum and maximum gray values
@@ -433,7 +435,7 @@ std::vector<int64_t> GrayHistoAbs(const QImage& image);
  * @param[out] maxGray Maximum gray value
  * @param[out] range Gray value range (max - min)
  */
-void MinMaxGray(const QImage& image, double& minGray, double& maxGray, double& range);
+QIVISION_API void MinMaxGray(const QImage& image, double& minGray, double& maxGray, double& range);
 
 /**
  * @brief Compute gray value intensity statistics
@@ -444,7 +446,7 @@ void MinMaxGray(const QImage& image, double& minGray, double& maxGray, double& r
  * @param[out] mean Mean gray value
  * @param[out] deviation Standard deviation
  */
-void Intensity(const QImage& image, double& mean, double& deviation);
+QIVISION_API void Intensity(const QImage& image, double& mean, double& deviation);
 
 /**
  * @brief Compute gray value entropy
@@ -454,7 +456,7 @@ void Intensity(const QImage& image, double& mean, double& deviation);
  * @param image Input grayscale image
  * @return Entropy in bits
  */
-double EntropyGray(const QImage& image);
+QIVISION_API double EntropyGray(const QImage& image);
 
 /**
  * @brief Compute histogram percentile value
@@ -463,7 +465,7 @@ double EntropyGray(const QImage& image);
  * @param percentile Percentile value (0-100)
  * @return Gray value at specified percentile
  */
-double GrayHistoPercentile(const QImage& image, double percentile);
+QIVISION_API double GrayHistoPercentile(const QImage& image, double percentile);
 
 // =============================================================================
 // White Balance
@@ -479,7 +481,7 @@ double GrayHistoPercentile(const QImage& image, double percentile);
  *        - "white_patch": Assume brightest pixel is white
  *        - "histogram_stretch": Per-channel histogram stretching
  */
-void AutoWhiteBalance(const QImage& image, QImage& output,
+QIVISION_API void AutoWhiteBalance(const QImage& image, QImage& output,
                        const std::string& method = "gray_world");
 
 /**
@@ -491,7 +493,7 @@ void AutoWhiteBalance(const QImage& image, QImage& output,
  * @param whiteG Reference G value for white
  * @param whiteB Reference B value for white
  */
-void ApplyWhiteBalance(const QImage& image, QImage& output,
+QIVISION_API void ApplyWhiteBalance(const QImage& image, QImage& output,
                         double whiteR, double whiteG, double whiteB);
 
 // =============================================================================
@@ -501,22 +503,22 @@ void ApplyWhiteBalance(const QImage& image, QImage& output,
 /**
  * @brief Get color space name string
  */
-std::string GetColorSpaceName(ColorSpace space);
+QIVISION_API std::string GetColorSpaceName(ColorSpace space);
 
 /**
  * @brief Parse color space from string
  */
-ColorSpace ParseColorSpace(const std::string& name);
+QIVISION_API ColorSpace ParseColorSpace(const std::string& name);
 
 /**
  * @brief Get number of channels for color space
  */
-int32_t GetChannelCount(ColorSpace space);
+QIVISION_API int32_t GetChannelCount(ColorSpace space);
 
 /**
  * @brief Check if color space has alpha channel
  */
-bool HasAlphaChannel(ColorSpace space);
+QIVISION_API bool HasAlphaChannel(ColorSpace space);
 
 // =============================================================================
 // Color Transform LUT (Look-Up Table)
@@ -528,7 +530,7 @@ bool HasAlphaChannel(ColorSpace space);
  * LUT accelerates repeated color space conversions (8-bit only).
  * Memory usage: ~48MB per LUT.
  */
-class ColorTransLut {
+class QIVISION_API ColorTransLut {
 public:
     ColorTransLut();
     ~ColorTransLut();
@@ -573,7 +575,7 @@ private:
  *
  * @note LUT requires ~48MB memory. Use ClearColorTransLut to release.
  */
-ColorTransLut CreateColorTransLut(const std::string& colorSpace,
+QIVISION_API ColorTransLut CreateColorTransLut(const std::string& colorSpace,
                                    const std::string& transDirection = "from_rgb",
                                    int32_t numBits = 8);
 
@@ -590,7 +592,7 @@ ColorTransLut CreateColorTransLut(const std::string& colorSpace,
  * @param result3 [out] Output channel 3
  * @param lut LUT handle from CreateColorTransLut
  */
-void ApplyColorTransLut(const QImage& image1, const QImage& image2, const QImage& image3,
+QIVISION_API void ApplyColorTransLut(const QImage& image1, const QImage& image2, const QImage& image3,
                         QImage& result1, QImage& result2, QImage& result3,
                         const ColorTransLut& lut);
 
@@ -601,7 +603,7 @@ void ApplyColorTransLut(const QImage& image1, const QImage& image2, const QImage
  * @param output Output transformed 3-channel image
  * @param lut LUT handle
  */
-void ApplyColorTransLut(const QImage& image, QImage& output, const ColorTransLut& lut);
+QIVISION_API void ApplyColorTransLut(const QImage& image, QImage& output, const ColorTransLut& lut);
 
 /**
  * @brief Release look-up table memory
@@ -610,7 +612,7 @@ void ApplyColorTransLut(const QImage& image, QImage& output, const ColorTransLut
  *
  * @param lut LUT handle to clear
  */
-void ClearColorTransLut(ColorTransLut& lut);
+QIVISION_API void ClearColorTransLut(ColorTransLut& lut);
 
 // =============================================================================
 // Bayer Pattern (Color Filter Array) Conversion
@@ -638,7 +640,7 @@ void ClearColorTransLut(ColorTransLut& lut);
  * CfaToRgb(raw, rgb, "bayer_rg", "bilinear_dir");
  * @endcode
  */
-void CfaToRgb(const QImage& cfaImage, QImage& output,
+QIVISION_API void CfaToRgb(const QImage& cfaImage, QImage& output,
                const std::string& cfaType = "bayer_gb",
                const std::string& interpolation = "bilinear");
 
@@ -669,7 +671,7 @@ void CfaToRgb(const QImage& cfaImage, QImage& output,
  * LinearTransColor(rgbImage, gray, mat, 1);
  * @endcode
  */
-void LinearTransColor(const QImage& image, QImage& output,
+QIVISION_API void LinearTransColor(const QImage& image, QImage& output,
                        const std::vector<double>& transMat,
                        int32_t numOutputChannels);
 
@@ -682,7 +684,7 @@ void LinearTransColor(const QImage& image, QImage& output,
  * @param output Output transformed 3-channel image
  * @param matrix 3x3 transformation matrix (row-major, 9 elements)
  */
-void ApplyColorMatrix(const QImage& image, QImage& output,
+QIVISION_API void ApplyColorMatrix(const QImage& image, QImage& output,
                        const std::vector<double>& matrix);
 
 // =============================================================================
@@ -698,7 +700,7 @@ void ApplyColorMatrix(const QImage& image, QImage& output,
  * @param output Output image with principal component channels
  * @param numComponents Number of principal components to compute (0 = all)
  */
-void PrincipalComp(const QImage& image, QImage& output, int32_t numComponents = 0);
+QIVISION_API void PrincipalComp(const QImage& image, QImage& output, int32_t numComponents = 0);
 
 /**
  * @brief Generate principal component transformation matrix
@@ -710,7 +712,7 @@ void PrincipalComp(const QImage& image, QImage& output, int32_t numComponents = 
  * @param mean [out] Mean values per channel
  * @param eigenvalues [out] Eigenvalues (variance explained)
  */
-void GenPrincipalCompTrans(const QImage& image,
+QIVISION_API void GenPrincipalCompTrans(const QImage& image,
                            std::vector<double>& transMat,
                            std::vector<double>& mean,
                            std::vector<double>& eigenvalues);

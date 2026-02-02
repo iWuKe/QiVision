@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file PolarTransform.h
  * @brief Public API for polar coordinate transformation
@@ -58,7 +60,7 @@ enum class PolarInterpolation {
  * @param mode Mapping mode (Linear or SemiLog)
  * @param interp Interpolation method
  */
-void CartesianToPolar(
+QIVISION_API void CartesianToPolar(
     const QImage& src,
     QImage& dst,
     const Point2d& center,
@@ -83,7 +85,7 @@ void CartesianToPolar(
  * @param mode Mapping mode (must match forward transform)
  * @param interp Interpolation method
  */
-void PolarToCartesian(
+QIVISION_API void PolarToCartesian(
     const QImage& src,
     QImage& dst,
     const Point2d& center,
@@ -109,7 +111,7 @@ void PolarToCartesian(
  * @param inverse If true, transform Polar->Cartesian; if false, Cartesian->Polar
  * @param interp Interpolation method
  */
-void WarpPolar(
+QIVISION_API void WarpPolar(
     const QImage& src,
     QImage& dst,
     const Point2d& center,
@@ -128,7 +130,7 @@ void WarpPolar(
  * @param center Center of polar system
  * @return Point where x = angle (radians, [0, 2*pi)), y = radius
  */
-Point2d PointCartesianToPolar(const Point2d& pt, const Point2d& center);
+QIVISION_API Point2d PointCartesianToPolar(const Point2d& pt, const Point2d& center);
 
 /**
  * @brief Convert a single point from Polar to Cartesian coordinates
@@ -138,6 +140,6 @@ Point2d PointCartesianToPolar(const Point2d& pt, const Point2d& center);
  * @param center Center of polar system
  * @return Point in Cartesian coordinates
  */
-Point2d PointPolarToCartesian(double angle, double radius, const Point2d& center);
+QIVISION_API Point2d PointPolarToCartesian(double angle, double radius, const Point2d& center);
 
 } // namespace Qi::Vision::Transform

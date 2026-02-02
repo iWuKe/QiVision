@@ -3,6 +3,8 @@
 # =============================================================================
 
 set(QIVISION_SOURCES
+    # C API
+    CAPI/QiVisionC.cpp
     # Core
     Core/Types.cpp
     Core/QImage.cpp
@@ -90,10 +92,10 @@ set(QIVISION_SOURCES
     # Segment (Feature Layer)
     Segment/Segment.cpp
     # Display (Feature Layer)
-    Display/Display.cpp
-    Display/Draw.cpp
+    $<$<BOOL:${QIVISION_BUILD_DISPLAY}>:Display/Display.cpp>
+    $<$<BOOL:${QIVISION_BUILD_DISPLAY}>:Display/Draw.cpp>
     # GUI (Feature Layer)
-    GUI/Window.cpp
+    $<$<BOOL:${QIVISION_BUILD_GUI}>:GUI/Window.cpp>
     # Calib (Feature Layer)
     Calib/CameraModel.cpp
     Calib/Undistort.cpp
@@ -118,10 +120,14 @@ set(QIVISION_SOURCES
 set(QIVISION_HEADERS
     # Main header
     ${CMAKE_SOURCE_DIR}/include/QiVision/QiVision.h
+    ${CMAKE_BINARY_DIR}/include/QiVision/QiVisionConfig.h
+    # C API
+    ${CMAKE_SOURCE_DIR}/include/QiVision/CAPI/QiVisionC.h
     # Core
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/Types.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/Constants.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/Exception.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Core/Export.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/QImage.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/QRegion.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Core/QMatrix.h
@@ -207,10 +213,10 @@ set(QIVISION_HEADERS
     # Segment (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Segment/Segment.h
     # Display (Feature Layer)
-    ${CMAKE_SOURCE_DIR}/include/QiVision/Display/Display.h
-    ${CMAKE_SOURCE_DIR}/include/QiVision/Display/Draw.h
+    $<$<BOOL:${QIVISION_BUILD_DISPLAY}>:${CMAKE_SOURCE_DIR}/include/QiVision/Display/Display.h>
+    $<$<BOOL:${QIVISION_BUILD_DISPLAY}>:${CMAKE_SOURCE_DIR}/include/QiVision/Display/Draw.h>
     # GUI (Feature Layer)
-    ${CMAKE_SOURCE_DIR}/include/QiVision/GUI/Window.h
+    $<$<BOOL:${QIVISION_BUILD_GUI}>:${CMAKE_SOURCE_DIR}/include/QiVision/GUI/Window.h>
     # Calib (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/CameraModel.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/Undistort.h
@@ -238,11 +244,28 @@ add_library(QiVision ${QIVISION_SOURCES} ${QIVISION_HEADERS})
 # Include directories
 target_include_directories(QiVision
     PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_SOURCE_DIR}/third_party
 )
+
+# Shared/static export macros
+if(BUILD_SHARED_LIBS)
+    target_compile_definitions(QiVision PRIVATE QIVISION_BUILD_SHARED)
+else()
+    target_compile_definitions(QiVision PRIVATE QIVISION_STATIC)
+endif()
+
+target_compile_definitions(QiVision
+    PUBLIC
+        $<$<BOOL:${BUILD_SHARED_LIBS}>:QIVISION_USE_SHARED>
+)
+
+if(BUILD_SHARED_LIBS AND WIN32)
+    set_target_properties(QiVision PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 
 # Link libraries
 if(QIVISION_ENABLE_OPENMP)
@@ -256,11 +279,11 @@ endif()
 # Platform-specific GUI support
 # =============================================================================
 
-if(WIN32)
+if(QIVISION_BUILD_GUI AND WIN32)
     # Windows: Win32 GDI (built-in, no extra libs needed)
     message(STATUS "Platform: Windows - GUI support enabled (Win32 GDI)")
 
-elseif(APPLE)
+elseif(QIVISION_BUILD_GUI AND APPLE)
     # macOS: Cocoa support (optional, requires .mm compilation)
     # Currently using stub - full Cocoa support requires Window.mm
     message(STATUS "Platform: macOS/iOS - GUI stub (Cocoa requires .mm)")
@@ -273,12 +296,12 @@ elseif(APPLE)
     #     target_compile_definitions(QiVision PRIVATE QIVISION_HAS_COCOA)
     # endif()
 
-elseif(ANDROID)
+elseif(QIVISION_BUILD_GUI AND ANDROID)
     # Android: GUI requires Java layer (Activity/View)
     message(STATUS "Platform: Android - GUI stub (requires Java layer)")
     target_compile_definitions(QiVision PRIVATE QIVISION_NO_GUI)
 
-elseif(UNIX)
+elseif(QIVISION_BUILD_GUI AND UNIX)
     # Linux: X11 (optional)
     find_package(X11 QUIET)
     if(X11_FOUND)
@@ -295,6 +318,13 @@ else()
     # Unknown platform
     message(STATUS "Platform: Unknown - GUI stub")
     target_compile_definitions(QiVision PRIVATE QIVISION_NO_GUI)
+endif()
+
+if(NOT QIVISION_BUILD_GUI)
+    target_compile_definitions(QiVision PRIVATE QIVISION_NO_GUI)
+endif()
+if(NOT QIVISION_BUILD_DISPLAY)
+    target_compile_definitions(QiVision PRIVATE QIVISION_NO_DISPLAY)
 endif()
 
 # Compiler definitions

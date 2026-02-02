@@ -15,6 +15,7 @@
  */
 
 #include <QiVision/Calib/CalibBoard.h>
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Internal/CornerRefine.h>
 #include <QiVision/Internal/Threshold.h>
 #include <QiVision/Internal/Histogram.h>
@@ -89,6 +90,9 @@ void NormalizeImage(const QImage& src, QImage& dst) {
         dst = QImage();
         return;
     }
+    if (!src.IsValid()) {
+        throw InvalidArgumentException("NormalizeImage: invalid image");
+    }
 
     dst = QImage(src.Width(), src.Height(), src.Type(), src.GetChannelType());
 
@@ -122,6 +126,9 @@ void BoxBlur(const QImage& src, QImage& dst, int32_t kernelSize) {
     if (src.Empty() || kernelSize < 3) {
         dst = src.Clone();
         return;
+    }
+    if (!src.IsValid()) {
+        throw InvalidArgumentException("BoxBlur: invalid image");
     }
 
     const int32_t width = src.Width();
@@ -536,8 +543,15 @@ CornerGrid FindChessboardCorners(
     result.rows = patternRows;
     result.found = false;
 
-    if (image.Empty() || patternCols < 2 || patternRows < 2) {
+    if (image.Empty()) {
         return result;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("FindChessboardCorners: invalid image");
+    }
+
+    if (patternCols < 2 || patternRows < 2) {
+        throw InvalidArgumentException("FindChessboardCorners: pattern size must be >= 2x2");
     }
 
     // Ensure grayscale
@@ -720,6 +734,26 @@ void CornerSubPix(
     int32_t maxIterations,
     double epsilon)
 {
+    if (image.Empty() || corners.empty()) {
+        return;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("CornerSubPix: invalid image");
+    }
+    if (winSize <= 0) {
+        throw InvalidArgumentException("CornerSubPix: winSize must be > 0");
+    }
+    if (maxIterations <= 0) {
+        throw InvalidArgumentException("CornerSubPix: maxIterations must be > 0");
+    }
+    if (epsilon <= 0.0) {
+        throw InvalidArgumentException("CornerSubPix: epsilon must be > 0");
+    }
+    for (const auto& p : corners) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("CornerSubPix: invalid corner");
+        }
+    }
     Internal::RefineCorners(image, corners, winSize, maxIterations, epsilon);
 }
 
@@ -728,6 +762,12 @@ std::vector<Point3d> GenerateChessboardPoints(
     int32_t patternRows,
     double squareSize)
 {
+    if (patternCols <= 0 || patternRows <= 0) {
+        throw InvalidArgumentException("GenerateChessboardPoints: pattern size must be > 0");
+    }
+    if (squareSize <= 0.0) {
+        throw InvalidArgumentException("GenerateChessboardPoints: squareSize must be > 0");
+    }
     std::vector<Point3d> points;
     points.reserve(patternCols * patternRows);
 
@@ -747,6 +787,14 @@ void DrawChessboardCorners(
 {
     if (!grid.IsValid() || image.Empty()) {
         return;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("DrawChessboardCorners: invalid image");
+    }
+    for (const auto& p : grid.corners) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("DrawChessboardCorners: invalid corner");
+        }
     }
 
     // Ensure image is RGB for color drawing

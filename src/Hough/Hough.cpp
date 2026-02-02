@@ -29,6 +29,9 @@ void ValidateBinaryInput(const QImage& image, const char* funcName) {
         return;  // Empty input -> empty output (don't throw)
     }
 
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
     if (image.Type() != PixelType::UInt8) {
         throw UnsupportedException(std::string(funcName) + " requires UInt8 image");
     }
@@ -38,12 +41,26 @@ void ValidateBinaryInput(const QImage& image, const char* funcName) {
     }
 }
 
+void RequireFinite(double value, const char* message) {
+    if (!std::isfinite(value)) {
+        throw InvalidArgumentException(message);
+    }
+}
+
 Internal::HoughLineParams BuildInternalLineParams(
     double rhoResolution,
     double thetaResolution,
     int32_t threshold,
     int32_t maxLines
 ) {
+    RequireFinite(rhoResolution, "HoughLines: invalid rhoResolution");
+    RequireFinite(thetaResolution, "HoughLines: invalid thetaResolution");
+    if (rhoResolution <= 0.0 || thetaResolution <= 0.0) {
+        throw InvalidArgumentException("HoughLines: rhoResolution/thetaResolution must be > 0");
+    }
+    if (maxLines < 0) {
+        throw InvalidArgumentException("HoughLines: maxLines must be >= 0");
+    }
     Internal::HoughLineParams params;
     params.rhoResolution = rhoResolution;
     params.thetaResolution = thetaResolution;
@@ -71,6 +88,19 @@ Internal::HoughLineProbParams BuildInternalLinePParams(
     double minLineLength,
     double maxLineGap
 ) {
+    RequireFinite(rhoResolution, "HoughLinesP: invalid rhoResolution");
+    RequireFinite(thetaResolution, "HoughLinesP: invalid thetaResolution");
+    RequireFinite(minLineLength, "HoughLinesP: invalid minLineLength");
+    RequireFinite(maxLineGap, "HoughLinesP: invalid maxLineGap");
+    if (rhoResolution <= 0.0 || thetaResolution <= 0.0) {
+        throw InvalidArgumentException("HoughLinesP: rhoResolution/thetaResolution must be > 0");
+    }
+    if (threshold <= 0) {
+        throw InvalidArgumentException("HoughLinesP: threshold must be > 0");
+    }
+    if (minLineLength < 0.0 || maxLineGap < 0.0) {
+        throw InvalidArgumentException("HoughLinesP: lengths must be >= 0");
+    }
     Internal::HoughLineProbParams params;
     params.rhoResolution = rhoResolution;
     params.thetaResolution = thetaResolution;
@@ -89,6 +119,22 @@ Internal::HoughCircleParams BuildInternalCircleParams(
     int32_t minRadius,
     int32_t maxRadius
 ) {
+    RequireFinite(dp, "HoughCircles: invalid dp");
+    RequireFinite(minDist, "HoughCircles: invalid minDist");
+    RequireFinite(param1, "HoughCircles: invalid param1");
+    RequireFinite(param2, "HoughCircles: invalid param2");
+    if (dp <= 0.0) {
+        throw InvalidArgumentException("HoughCircles: dp must be > 0");
+    }
+    if (minDist < 0.0) {
+        throw InvalidArgumentException("HoughCircles: minDist must be >= 0");
+    }
+    if (minRadius < 0 || maxRadius < 0) {
+        throw InvalidArgumentException("HoughCircles: radius must be >= 0");
+    }
+    if (maxRadius > 0 && maxRadius < minRadius) {
+        throw InvalidArgumentException("HoughCircles: maxRadius must be >= minRadius");
+    }
     Internal::HoughCircleParams params;
     params.dp = dp;
     params.minDist = minDist;
@@ -202,6 +248,14 @@ void HoughLines(
     if (points.empty()) {
         return;
     }
+    if (imageWidth <= 0 || imageHeight <= 0) {
+        throw InvalidArgumentException("HoughLines: imageWidth/imageHeight must be > 0");
+    }
+    for (const auto& pt : points) {
+        if (!pt.IsValid()) {
+            throw InvalidArgumentException("HoughLines: invalid point");
+        }
+    }
 
     Internal::HoughLineParams params = BuildInternalLineParams(
         rhoResolution, thetaResolution, threshold, maxLines);
@@ -262,6 +316,13 @@ void HoughLinesXld(
     if (contours.Empty()) {
         return;
     }
+    RequireFinite(angleResolution, "HoughLinesXld: invalid angleResolution");
+    if (angleResolution <= 0.0) {
+        throw InvalidArgumentException("HoughLinesXld: angleResolution must be > 0");
+    }
+    if (maxLines < 0) {
+        throw InvalidArgumentException("HoughLinesXld: maxLines must be >= 0");
+    }
 
     // Collect all contour points
     std::vector<Point2d> points;
@@ -274,6 +335,9 @@ void HoughLinesXld(
         const QContour& contour = contours[i];
         for (size_t j = 0; j < contour.Size(); ++j) {
             Point2d pt = contour.PointAt(j);
+            if (!pt.IsValid()) {
+                throw InvalidArgumentException("HoughLinesXld: invalid contour point");
+            }
             points.push_back(pt);
             minX = std::min(minX, pt.x);
             maxX = std::max(maxX, pt.x);
@@ -288,6 +352,9 @@ void HoughLinesXld(
 
     int32_t imageWidth = static_cast<int32_t>(maxX - minX) + 1;
     int32_t imageHeight = static_cast<int32_t>(maxY - minY) + 1;
+    if (imageWidth <= 0 || imageHeight <= 0) {
+        return;
+    }
 
     Internal::HoughLineParams params;
     params.rhoResolution = 1.0;
@@ -355,6 +422,30 @@ void HoughCircles(
     }
 
     ValidateBinaryInput(edgeImage, "HoughCircles");
+    if (gradientX.Empty() || gradientY.Empty()) {
+        return;
+    }
+    if (!gradientX.IsValid() || !gradientY.IsValid()) {
+        throw InvalidArgumentException("HoughCircles: invalid gradient image");
+    }
+    if (gradientX.Width() != edgeImage.Width() || gradientX.Height() != edgeImage.Height() ||
+        gradientY.Width() != edgeImage.Width() || gradientY.Height() != edgeImage.Height()) {
+        throw InvalidArgumentException("HoughCircles: gradient size mismatch");
+    }
+    RequireFinite(minDist, "HoughCircles: invalid minDist");
+    RequireFinite(threshold, "HoughCircles: invalid threshold");
+    if (minDist < 0.0) {
+        throw InvalidArgumentException("HoughCircles: minDist must be >= 0");
+    }
+    if (threshold <= 0.0) {
+        throw InvalidArgumentException("HoughCircles: threshold must be > 0");
+    }
+    if (minRadius < 0 || maxRadius < 0) {
+        throw InvalidArgumentException("HoughCircles: radius must be >= 0");
+    }
+    if (maxRadius > 0 && maxRadius < minRadius) {
+        throw InvalidArgumentException("HoughCircles: maxRadius must be >= minRadius");
+    }
 
     Internal::HoughCircleParams params;
     params.dp = 1.0;
@@ -389,13 +480,27 @@ void HoughCirclesXld(
     if (contours.Empty()) {
         return;
     }
+    RequireFinite(radiusResolution, "HoughCirclesXld: invalid radiusResolution");
+    if (radiusResolution <= 0.0) {
+        throw InvalidArgumentException("HoughCirclesXld: radiusResolution must be > 0");
+    }
+    if (minRadius < 0.0 || maxRadius < 0.0) {
+        throw InvalidArgumentException("HoughCirclesXld: radius must be >= 0");
+    }
+    if (maxRadius > 0.0 && maxRadius < minRadius) {
+        throw InvalidArgumentException("HoughCirclesXld: maxRadius must be >= minRadius");
+    }
 
     // Collect all contour points
     std::vector<Point2d> points;
     for (size_t i = 0; i < contours.Size(); ++i) {
         const QContour& contour = contours[i];
         for (size_t j = 0; j < contour.Size(); ++j) {
-            points.push_back(contour.PointAt(j));
+            Point2d pt = contour.PointAt(j);
+            if (!pt.IsValid()) {
+                throw InvalidArgumentException("HoughCirclesXld: invalid contour point");
+            }
+            points.push_back(pt);
         }
     }
 
@@ -429,6 +534,9 @@ void DrawHoughLines(
     if (image.Empty() || lines.empty()) {
         return;
     }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("DrawHoughLines: invalid image");
+    }
 
     int32_t width = image.Width();
     int32_t height = image.Height();
@@ -451,6 +559,9 @@ void DrawHoughCircles(
 ) {
     if (image.Empty() || circles.empty()) {
         return;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("DrawHoughCircles: invalid image");
     }
 
     for (const auto& circle : circles) {
@@ -486,6 +597,22 @@ void DetectHoughLines(
     }
 
     ValidateBinaryInput(edgeImage, "DetectHoughLines");
+    RequireFinite(params.rhoResolution, "DetectHoughLines: invalid rhoResolution");
+    RequireFinite(params.thetaResolution, "DetectHoughLines: invalid thetaResolution");
+    RequireFinite(params.threshold, "DetectHoughLines: invalid threshold");
+    RequireFinite(params.minDistance, "DetectHoughLines: invalid minDistance");
+    if (params.rhoResolution <= 0.0 || params.thetaResolution <= 0.0) {
+        throw InvalidArgumentException("DetectHoughLines: rhoResolution/thetaResolution must be > 0");
+    }
+    if (params.threshold < 0.0) {
+        throw InvalidArgumentException("DetectHoughLines: threshold must be >= 0");
+    }
+    if (params.maxLines < 0) {
+        throw InvalidArgumentException("DetectHoughLines: maxLines must be >= 0");
+    }
+    if (params.minDistance < 0.0) {
+        throw InvalidArgumentException("DetectHoughLines: minDistance must be >= 0");
+    }
 
     Internal::HoughLineParams internalParams;
     internalParams.rhoResolution = params.rhoResolution;
@@ -516,6 +643,22 @@ void DetectHoughLinesP(
     }
 
     ValidateBinaryInput(edgeImage, "DetectHoughLinesP");
+    RequireFinite(params.rhoResolution, "DetectHoughLinesP: invalid rhoResolution");
+    RequireFinite(params.thetaResolution, "DetectHoughLinesP: invalid thetaResolution");
+    RequireFinite(params.minLineLength, "DetectHoughLinesP: invalid minLineLength");
+    RequireFinite(params.maxLineGap, "DetectHoughLinesP: invalid maxLineGap");
+    if (params.rhoResolution <= 0.0 || params.thetaResolution <= 0.0) {
+        throw InvalidArgumentException("DetectHoughLinesP: rhoResolution/thetaResolution must be > 0");
+    }
+    if (params.threshold <= 0) {
+        throw InvalidArgumentException("DetectHoughLinesP: threshold must be > 0");
+    }
+    if (params.minLineLength < 0.0 || params.maxLineGap < 0.0) {
+        throw InvalidArgumentException("DetectHoughLinesP: lengths must be >= 0");
+    }
+    if (params.maxLines < 0) {
+        throw InvalidArgumentException("DetectHoughLinesP: maxLines must be >= 0");
+    }
 
     Internal::HoughLineProbParams internalParams;
     internalParams.rhoResolution = params.rhoResolution;
@@ -545,6 +688,25 @@ void DetectHoughCircles(
     }
 
     ValidateBinaryInput(edgeImage, "DetectHoughCircles");
+    RequireFinite(params.dp, "DetectHoughCircles: invalid dp");
+    RequireFinite(params.minDist, "DetectHoughCircles: invalid minDist");
+    RequireFinite(params.param1, "DetectHoughCircles: invalid param1");
+    RequireFinite(params.param2, "DetectHoughCircles: invalid param2");
+    if (params.dp <= 0.0) {
+        throw InvalidArgumentException("DetectHoughCircles: dp must be > 0");
+    }
+    if (params.minDist < 0.0) {
+        throw InvalidArgumentException("DetectHoughCircles: minDist must be >= 0");
+    }
+    if (params.minRadius < 0 || params.maxRadius < 0) {
+        throw InvalidArgumentException("DetectHoughCircles: radius must be >= 0");
+    }
+    if (params.maxRadius > 0 && params.maxRadius < params.minRadius) {
+        throw InvalidArgumentException("DetectHoughCircles: maxRadius must be >= minRadius");
+    }
+    if (params.maxCircles < 0) {
+        throw InvalidArgumentException("DetectHoughCircles: maxCircles must be >= 0");
+    }
 
     Internal::HoughCircleParams internalParams;
     internalParams.dp = params.dp;
@@ -575,6 +737,11 @@ std::vector<HoughLine> MergeHoughLines(
     if (lines.empty()) {
         return {};
     }
+    RequireFinite(rhoThreshold, "MergeHoughLines: invalid rhoThreshold");
+    RequireFinite(thetaThreshold, "MergeHoughLines: invalid thetaThreshold");
+    if (rhoThreshold < 0.0 || thetaThreshold < 0.0) {
+        throw InvalidArgumentException("MergeHoughLines: thresholds must be >= 0");
+    }
 
     // Convert to Internal format
     std::vector<Internal::HoughLine> internalLines;
@@ -603,6 +770,11 @@ std::vector<HoughCircle> MergeHoughCircles(
 ) {
     if (circles.empty()) {
         return {};
+    }
+    RequireFinite(centerThreshold, "MergeHoughCircles: invalid centerThreshold");
+    RequireFinite(radiusThreshold, "MergeHoughCircles: invalid radiusThreshold");
+    if (centerThreshold < 0.0 || radiusThreshold < 0.0) {
+        throw InvalidArgumentException("MergeHoughCircles: thresholds must be >= 0");
     }
 
     // Convert to Internal format
@@ -634,6 +806,12 @@ Segment2d ClipHoughLineToImage(
     int32_t imageWidth,
     int32_t imageHeight
 ) {
+    if (imageWidth <= 0 || imageHeight <= 0) {
+        throw InvalidArgumentException("ClipHoughLineToImage: imageWidth/imageHeight must be > 0");
+    }
+    if (!std::isfinite(line.rho) || !std::isfinite(line.theta)) {
+        throw InvalidArgumentException("ClipHoughLineToImage: invalid line");
+    }
     Internal::HoughLine internalLine(line.rho, line.theta, line.score);
     return Internal::ClipHoughLineToImage(internalLine, imageWidth, imageHeight);
 }
@@ -643,6 +821,10 @@ bool HoughLinesIntersection(
     const HoughLine& line2,
     Point2d& intersection
 ) {
+    if (!std::isfinite(line1.rho) || !std::isfinite(line1.theta) ||
+        !std::isfinite(line2.rho) || !std::isfinite(line2.theta)) {
+        throw InvalidArgumentException("HoughLinesIntersection: invalid line");
+    }
     Internal::HoughLine internal1(line1.rho, line1.theta, line1.score);
     Internal::HoughLine internal2(line2.rho, line2.theta, line2.score);
 
@@ -654,6 +836,11 @@ bool AreHoughLinesParallel(
     const HoughLine& line2,
     double angleTolerance
 ) {
+    if (!std::isfinite(line1.rho) || !std::isfinite(line1.theta) ||
+        !std::isfinite(line2.rho) || !std::isfinite(line2.theta)) {
+        throw InvalidArgumentException("AreHoughLinesParallel: invalid line");
+    }
+    RequireFinite(angleTolerance, "AreHoughLinesParallel: invalid angleTolerance");
     Internal::HoughLine internal1(line1.rho, line1.theta, line1.score);
     Internal::HoughLine internal2(line2.rho, line2.theta, line2.score);
 
@@ -664,6 +851,9 @@ double PointToHoughLineDistance(
     const Point2d& point,
     const HoughLine& line
 ) {
+    if (!point.IsValid() || !std::isfinite(line.rho) || !std::isfinite(line.theta)) {
+        throw InvalidArgumentException("PointToHoughLineDistance: invalid input");
+    }
     Internal::HoughLine internalLine(line.rho, line.theta, line.score);
     return Internal::PointToHoughLineDistance(point, internalLine);
 }

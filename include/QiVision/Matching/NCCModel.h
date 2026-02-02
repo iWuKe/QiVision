@@ -32,6 +32,7 @@
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/QRegion.h>
 #include <QiVision/Core/Types.h>
+#include <QiVision/Core/Export.h>
 
 #include <cstdint>
 #include <memory>
@@ -66,7 +67,7 @@ class NCCModelImpl;
  *              "true", 0, rows, cols, angles, scores);
  * @endcode
  */
-class NCCModel {
+class QIVISION_API NCCModel {
 public:
     NCCModel();
     ~NCCModel();
@@ -107,7 +108,7 @@ private:
  * @note The center of the template is used as the model origin.
  *       Use SetNCCModelOrigin() to change it.
  */
-void CreateNCCModel(
+QIVISION_API void CreateNCCModel(
     const QImage& templateImage,
     NCCModel& model,
     int32_t numLevels,
@@ -129,7 +130,7 @@ void CreateNCCModel(
  * @param angleStep     Step length of angles [rad] (0 = auto)
  * @param metric        Match metric
  */
-void CreateNCCModel(
+QIVISION_API void CreateNCCModel(
     const QImage& templateImage,
     const Rect2i& roi,
     NCCModel& model,
@@ -162,7 +163,7 @@ void CreateNCCModel(
  * CreateNCCModel(image, circle, model, 4, 0, RAD(360), 0, "use_polarity");
  * @endcode
  */
-void CreateNCCModel(
+QIVISION_API void CreateNCCModel(
     const QImage& templateImage,
     const QRegion& region,
     NCCModel& model,
@@ -189,7 +190,7 @@ void CreateNCCModel(
  * @param scaleStep     Scale step (0 = auto)
  * @param metric        Match metric
  */
-void CreateScaledNCCModel(
+QIVISION_API void CreateScaledNCCModel(
     const QImage& templateImage,
     NCCModel& model,
     int32_t numLevels,
@@ -225,7 +226,7 @@ void CreateScaledNCCModel(
  * @param angles        [out] Rotation angles of found instances [rad]
  * @param scores        [out] Match scores of found instances [0..1]
  */
-void FindNCCModel(
+QIVISION_API void FindNCCModel(
     const QImage& image,
     const NCCModel& model,
     double angleStart,
@@ -263,7 +264,7 @@ void FindNCCModel(
  * @param scales        [out] Scale factors
  * @param scores        [out] Match scores [0..1]
  */
-void FindScaledNCCModel(
+QIVISION_API void FindScaledNCCModel(
     const QImage& image,
     const NCCModel& model,
     double angleStart,
@@ -298,7 +299,7 @@ void FindScaledNCCModel(
  * @param angleStep     [out] Step length of angles [rad]
  * @param metric        [out] Match metric string
  */
-void GetNCCModelParams(
+QIVISION_API void GetNCCModelParams(
     const NCCModel& model,
     int32_t& numLevels,
     double& angleStart,
@@ -316,7 +317,7 @@ void GetNCCModelParams(
  * @param row           [out] Row coordinate of origin
  * @param col           [out] Column coordinate of origin
  */
-void GetNCCModelOrigin(
+QIVISION_API void GetNCCModelOrigin(
     const NCCModel& model,
     double& row,
     double& col
@@ -331,7 +332,7 @@ void GetNCCModelOrigin(
  * @param row           Row coordinate of new origin
  * @param col           Column coordinate of new origin
  */
-void SetNCCModelOrigin(
+QIVISION_API void SetNCCModelOrigin(
     NCCModel& model,
     double row,
     double col
@@ -344,7 +345,7 @@ void SetNCCModelOrigin(
  * @param width         [out] Template width
  * @param height        [out] Template height
  */
-void GetNCCModelSize(
+QIVISION_API void GetNCCModelSize(
     const NCCModel& model,
     int32_t& width,
     int32_t& height
@@ -362,7 +363,7 @@ void GetNCCModelSize(
  * @param model         NCC model handle
  * @param filename      Output file path
  */
-void WriteNCCModel(
+QIVISION_API void WriteNCCModel(
     const NCCModel& model,
     const std::string& filename
 );
@@ -375,7 +376,7 @@ void WriteNCCModel(
  * @param filename      Input file path
  * @param model         [out] Loaded NCC model handle
  */
-void ReadNCCModel(
+QIVISION_API void ReadNCCModel(
     const std::string& filename,
     NCCModel& model
 );
@@ -387,7 +388,7 @@ void ReadNCCModel(
  *
  * @param model         NCC model handle to clear
  */
-void ClearNCCModel(
+QIVISION_API void ClearNCCModel(
     NCCModel& model
 );
 
@@ -405,7 +406,7 @@ void ClearNCCModel(
  * @param numLevels     [out] Recommended pyramid levels
  * @param angleStep     [out] Recommended angle step
  */
-void DetermineNCCModelParams(
+QIVISION_API void DetermineNCCModelParams(
     const QImage& templateImage,
     const Rect2i& roi,
     int32_t& numLevels,

@@ -16,6 +16,7 @@
 
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/QRegion.h>
+#include <QiVision/Core/Export.h>
 #include <string>
 #include <memory>
 
@@ -41,7 +42,7 @@ namespace Qi::Vision::Defect {
  * QRegion defects = model.Compare(testImage);
  * @endcode
  */
-class VariationModel {
+class QIVISION_API VariationModel {
 public:
     /**
      * @brief Create empty model (for multi-image training)
@@ -222,7 +223,7 @@ private:
  * @param tolerance Tolerance value (applied uniformly)
  * @return Defect region
  */
-QRegion CompareImages(
+QIVISION_API QRegion CompareImages(
     const QImage& golden,
     const QImage& test,
     double tolerance = 10.0
@@ -236,7 +237,7 @@ QRegion CompareImages(
  * @param flatTolerance Tolerance for flat areas
  * @return Defect region
  */
-QRegion CompareImagesEdgeAware(
+QIVISION_API QRegion CompareImagesEdgeAware(
     const QImage& golden,
     const QImage& test,
     double edgeTolerance = 30.0,
@@ -250,7 +251,7 @@ QRegion CompareImagesEdgeAware(
  * @param threshold Difference threshold
  * @return Region where |image1 - image2| > threshold
  */
-QRegion AbsDiffThreshold(
+QIVISION_API QRegion AbsDiffThreshold(
     const QImage& image1,
     const QImage& image2,
     double threshold
@@ -262,7 +263,7 @@ QRegion AbsDiffThreshold(
  * @param image2 Second image
  * @param diffImage Output difference image
  */
-void AbsDiffImage(
+QIVISION_API void AbsDiffImage(
     const QImage& image1,
     const QImage& image2,
     QImage& diffImage

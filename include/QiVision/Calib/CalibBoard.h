@@ -13,6 +13,7 @@
 
 #include <QiVision/Core/Types.h>
 #include <QiVision/Core/QImage.h>
+#include <QiVision/Core/Export.h>
 
 #include <vector>
 
@@ -21,7 +22,7 @@ namespace Qi::Vision::Calib {
 /**
  * @brief Result of chessboard corner detection
  */
-struct CornerGrid {
+struct QIVISION_API CornerGrid {
     std::vector<Point2d> corners;   ///< Detected corners in row-major order
     int32_t rows = 0;               ///< Pattern rows (inner corners)
     int32_t cols = 0;               ///< Pattern columns (inner corners)
@@ -80,7 +81,7 @@ inline bool operator&(ChessboardFlags a, ChessboardFlags b) {
  * @param flags Detection flags
  * @return CornerGrid with detected corners (empty if not found)
  */
-CornerGrid FindChessboardCorners(
+QIVISION_API CornerGrid FindChessboardCorners(
     const QImage& image,
     int32_t patternCols,
     int32_t patternRows,
@@ -100,7 +101,7 @@ CornerGrid FindChessboardCorners(
  * @param maxIterations Maximum refinement iterations
  * @param epsilon Convergence threshold (pixel movement)
  */
-void CornerSubPix(
+QIVISION_API void CornerSubPix(
     const QImage& image,
     std::vector<Point2d>& corners,
     int32_t winSize = 5,
@@ -118,7 +119,7 @@ void CornerSubPix(
  * @param squareSize Size of each square (same units as world coordinates)
  * @return Vector of 3D corner positions
  */
-std::vector<Point3d> GenerateChessboardPoints(
+QIVISION_API std::vector<Point3d> GenerateChessboardPoints(
     int32_t patternCols,
     int32_t patternRows,
     double squareSize = 1.0
@@ -135,7 +136,7 @@ std::vector<Point3d> GenerateChessboardPoints(
  * @param grid Detected corner grid
  * @param drawOrder Draw lines connecting corners in order
  */
-void DrawChessboardCorners(
+QIVISION_API void DrawChessboardCorners(
     QImage& image,
     const CornerGrid& grid,
     bool drawOrder = true

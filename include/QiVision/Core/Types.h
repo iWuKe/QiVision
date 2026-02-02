@@ -6,6 +6,7 @@
  */
 
 #include <cstdint>
+#include <QiVision/Core/Export.h>
 #include <cmath>
 #include <vector>
 #include <optional>
@@ -45,23 +46,27 @@ enum class ChannelType {
  * @brief 2D point with integer coordinates
  * @note Uses int32_t to support >32K resolution (line scan cameras)
  */
-struct Point2i {
+struct QIVISION_API Point2i {
     int32_t x = 0;
     int32_t y = 0;
 
     Point2i() = default;
     Point2i(int32_t x_, int32_t y_) : x(x_), y(y_) {}
+
+    bool IsValid() const { return true; }
 };
 
 /**
  * @brief 2D point with sub-pixel precision
  */
-struct Point2d {
+struct QIVISION_API Point2d {
     double x = 0.0;
     double y = 0.0;
 
     Point2d() = default;
     Point2d(double x_, double y_) : x(x_), y(y_) {}
+
+    bool IsValid() const { return std::isfinite(x) && std::isfinite(y); }
 
     /// Vector addition
     Point2d operator+(const Point2d& other) const {
@@ -106,13 +111,15 @@ struct Point2d {
 /**
  * @brief 3D point with double precision
  */
-struct Point3d {
+struct QIVISION_API Point3d {
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
 
     Point3d() = default;
     Point3d(double x_, double y_, double z_) : x(x_), y(y_), z(z_) {}
+
+    bool IsValid() const { return std::isfinite(x) && std::isfinite(y) && std::isfinite(z); }
 };
 
 // =============================================================================
@@ -122,7 +129,7 @@ struct Point3d {
 /**
  * @brief 2D size with integer dimensions
  */
-struct Size2i {
+struct QIVISION_API Size2i {
     int32_t width = 0;
     int32_t height = 0;
 
@@ -130,6 +137,7 @@ struct Size2i {
     Size2i(int32_t w, int32_t h) : width(w), height(h) {}
 
     int64_t Area() const { return static_cast<int64_t>(width) * height; }
+    bool IsValid() const { return width >= 0 && height >= 0; }
 };
 
 // =============================================================================
@@ -139,7 +147,7 @@ struct Size2i {
 /**
  * @brief Axis-aligned rectangle with integer coordinates
  */
-struct Rect2i {
+struct QIVISION_API Rect2i {
     int32_t x = 0;      ///< Left
     int32_t y = 0;      ///< Top
     int32_t width = 0;
@@ -153,6 +161,7 @@ struct Rect2i {
     int32_t Bottom() const { return y + height; }
     int64_t Area() const { return static_cast<int64_t>(width) * height; }
     Point2i Center() const { return {x + width / 2, y + height / 2}; }
+    bool IsValid() const { return width >= 0 && height >= 0; }
 
     bool Contains(int32_t px, int32_t py) const {
         return px >= x && px < Right() && py >= y && py < Bottom();
@@ -166,7 +175,7 @@ struct Rect2i {
 /**
  * @brief Axis-aligned rectangle with double precision
  */
-struct Rect2d {
+struct QIVISION_API Rect2d {
     double x = 0.0;
     double y = 0.0;
     double width = 0.0;
@@ -178,6 +187,11 @@ struct Rect2d {
 
     double Area() const { return width * height; }
     Point2d Center() const { return {x + width / 2.0, y + height / 2.0}; }
+    bool IsValid() const {
+        return std::isfinite(x) && std::isfinite(y) &&
+               std::isfinite(width) && std::isfinite(height) &&
+               width >= 0.0 && height >= 0.0;
+    }
 };
 
 // =============================================================================
@@ -199,7 +213,7 @@ struct RotatedRect2d;
  * @brief 2D line in normalized form: ax + by + c = 0
  * @note Normalized such that a² + b² = 1
  */
-struct Line2d {
+struct QIVISION_API Line2d {
     double a = 0.0;
     double b = 0.0;
     double c = 0.0;
@@ -231,6 +245,11 @@ struct Line2d {
     double Distance(const Point2d& p) const {
         return std::abs(SignedDistance(p));
     }
+
+    bool IsValid() const {
+        return std::isfinite(a) && std::isfinite(b) && std::isfinite(c) &&
+               (std::abs(a) + std::abs(b) > 0.0);
+    }
 };
 
 // =============================================================================
@@ -240,7 +259,7 @@ struct Line2d {
 /**
  * @brief 2D circle
  */
-struct Circle2d {
+struct QIVISION_API Circle2d {
     Point2d center;
     double radius = 0.0;
 
@@ -255,6 +274,10 @@ struct Circle2d {
     bool Contains(const Point2d& p) const {
         return center.DistanceTo(p) <= radius;
     }
+
+    bool IsValid() const {
+        return center.IsValid() && std::isfinite(radius) && radius >= 0.0;
+    }
 };
 
 // =============================================================================
@@ -264,7 +287,7 @@ struct Circle2d {
 /**
  * @brief 2D line segment defined by two endpoints
  */
-struct Segment2d {
+struct QIVISION_API Segment2d {
     Point2d p1;
     Point2d p2;
 
@@ -304,6 +327,8 @@ struct Segment2d {
     Point2d PointAt(double t) const {
         return p1 + Direction() * t;
     }
+
+    bool IsValid() const { return p1.IsValid() && p2.IsValid(); }
 };
 
 // =============================================================================
@@ -313,7 +338,7 @@ struct Segment2d {
 /**
  * @brief 2D ellipse
  */
-struct Ellipse2d {
+struct QIVISION_API Ellipse2d {
     Point2d center;
     double a = 0.0;        ///< Semi-major axis
     double b = 0.0;        ///< Semi-minor axis
@@ -343,6 +368,11 @@ struct Ellipse2d {
 
     /// Get point on ellipse at angle theta (in ellipse local coordinates)
     Point2d PointAt(double theta) const;
+
+    bool IsValid() const {
+        return center.IsValid() && std::isfinite(a) && std::isfinite(b) &&
+               std::isfinite(angle) && a >= 0.0 && b >= 0.0;
+    }
 };
 
 // =============================================================================
@@ -352,7 +382,7 @@ struct Ellipse2d {
 /**
  * @brief 2D circular arc
  */
-struct Arc2d {
+struct QIVISION_API Arc2d {
     Point2d center;
     double radius = 0.0;
     double startAngle = 0.0;    ///< Start angle (radians)
@@ -399,6 +429,12 @@ struct Arc2d {
 
     /// Convert to full circle
     Circle2d ToCircle() const { return Circle2d(center, radius); }
+
+    bool IsValid() const {
+        return center.IsValid() && std::isfinite(radius) &&
+               std::isfinite(startAngle) && std::isfinite(sweepAngle) &&
+               radius >= 0.0;
+    }
 };
 
 // =============================================================================
@@ -408,7 +444,7 @@ struct Arc2d {
 /**
  * @brief 2D rotated rectangle
  */
-struct RotatedRect2d {
+struct QIVISION_API RotatedRect2d {
     Point2d center;
     double width = 0.0;     ///< Full width (along local X axis)
     double height = 0.0;    ///< Full height (along local Y axis)
@@ -431,6 +467,11 @@ struct RotatedRect2d {
 
     /// Check if point is inside
     bool Contains(const Point2d& p) const;
+
+    bool IsValid() const {
+        return center.IsValid() && std::isfinite(width) && std::isfinite(height) &&
+               std::isfinite(angle) && width >= 0.0 && height >= 0.0;
+    }
 };
 
 // =============================================================================

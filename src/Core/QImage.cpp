@@ -10,7 +10,14 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image.h>
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
 #include <stb/stb_image_write.h>
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace Qi::Vision {
 
@@ -140,6 +147,9 @@ QImage QImage::FromFile(const std::string& path) {
 
 QImage QImage::FromData(const void* data, int32_t width, int32_t height,
                        PixelType type, ChannelType channels) {
+    if (!data) {
+        throw InvalidArgumentException("FromData: data pointer is null");
+    }
     QImage img(width, height, type, channels);
 
     size_t bpp = img.impl_->BytesPerPixel();
@@ -248,6 +258,9 @@ Rect2i QImage::GetDomainBoundingBox() const {
 // =============================================================================
 
 QImage QImage::Clone() const {
+    if (Empty()) {
+        return QImage();
+    }
     QImage copy(impl_->width_, impl_->height_,
                 impl_->type_, impl_->channelType_);
 
@@ -272,8 +285,12 @@ QImage QImage::Clone() const {
 QImage QImage::SubImage(int32_t x, int32_t y, int32_t width, int32_t height) const {
     // Validate parameters
     if (Empty()) return QImage();
-    if (x < 0 || y < 0 || width <= 0 || height <= 0) return QImage();
-    if (x + width > impl_->width_ || y + height > impl_->height_) return QImage();
+    if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+        throw InvalidArgumentException("SubImage: invalid region parameters");
+    }
+    if (x + width > impl_->width_ || y + height > impl_->height_) {
+        throw InvalidArgumentException("SubImage: region exceeds image bounds");
+    }
 
     // Create new image
     QImage sub(width, height, impl_->type_, impl_->channelType_);
@@ -294,11 +311,16 @@ QImage QImage::SubImage(int32_t x, int32_t y, int32_t width, int32_t height) con
 }
 
 bool QImage::SaveToFile(const std::string& path) const {
-    if (Empty()) return false;
+    if (path.empty()) {
+        throw InvalidArgumentException("SaveToFile: path is empty");
+    }
+    if (Empty()) {
+        throw InvalidArgumentException("SaveToFile: image is empty");
+    }
 
     // Only support UInt8 for now
     if (impl_->type_ != PixelType::UInt8) {
-        return false;
+        throw UnsupportedException("SaveToFile only supports UInt8 images");
     }
 
     int channels = Channels();

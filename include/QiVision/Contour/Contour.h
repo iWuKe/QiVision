@@ -21,6 +21,7 @@
  * This module wraps Internal layer contour operations into Halcon-style public API.
  */
 
+#include <QiVision/Core/Export.h>
 #include <QiVision/Core/QContour.h>
 #include <QiVision/Core/QContourArray.h>
 #include <QiVision/Core/QRegion.h>
@@ -50,7 +51,7 @@ namespace Qi::Vision::Contour {
  * SmoothContoursXld(contours, smooth, 5);
  * @endcode
  */
-void SmoothContoursXld(
+QIVISION_API void SmoothContoursXld(
     const QContourArray& contours,
     QContourArray& smoothed,
     int32_t numPoints = 5
@@ -63,7 +64,7 @@ void SmoothContoursXld(
  * @param smoothed Output smoothed contours
  * @param sigma Gaussian sigma
  */
-void SmoothContoursGaussXld(
+QIVISION_API void SmoothContoursGaussXld(
     const QContourArray& contours,
     QContourArray& smoothed,
     double sigma = 1.0
@@ -83,7 +84,7 @@ void SmoothContoursGaussXld(
  * SimplifyContoursXld(contours, simple, 1.0);  // 1 pixel tolerance
  * @endcode
  */
-void SimplifyContoursXld(
+QIVISION_API void SimplifyContoursXld(
     const QContourArray& contours,
     QContourArray& simplified,
     double epsilon = 1.0
@@ -103,7 +104,7 @@ void SimplifyContoursXld(
  * ResampleContoursXld(contours, uniform, 2.0);  // 2 pixel spacing
  * @endcode
  */
-void ResampleContoursXld(
+QIVISION_API void ResampleContoursXld(
     const QContourArray& contours,
     QContourArray& resampled,
     double distance
@@ -116,7 +117,7 @@ void ResampleContoursXld(
  * @param resampled Output resampled contours
  * @param numPoints Target number of points per contour
  */
-void ResampleContoursNumXld(
+QIVISION_API void ResampleContoursNumXld(
     const QContourArray& contours,
     QContourArray& resampled,
     int32_t numPoints
@@ -135,7 +136,7 @@ void ResampleContoursNumXld(
  * CloseContoursXld(contours, closedContours);
  * @endcode
  */
-void CloseContoursXld(
+QIVISION_API void CloseContoursXld(
     const QContourArray& contours,
     QContourArray& closed
 );
@@ -146,7 +147,7 @@ void CloseContoursXld(
  * @param contours Input contour array
  * @param reversed Output reversed contours
  */
-void ReverseContoursXld(
+QIVISION_API void ReverseContoursXld(
     const QContourArray& contours,
     QContourArray& reversed
 );
@@ -167,7 +168,7 @@ void ReverseContoursXld(
  * double len = LengthXld(contour);
  * @endcode
  */
-double LengthXld(const QContour& contour);
+QIVISION_API double LengthXld(const QContour& contour);
 
 /**
  * @brief Compute lengths of multiple contours
@@ -175,7 +176,7 @@ double LengthXld(const QContour& contour);
  * @param contours Input contour array
  * @return Vector of lengths
  */
-std::vector<double> LengthXld(const QContourArray& contours);
+QIVISION_API std::vector<double> LengthXld(const QContourArray& contours);
 
 /**
  * @brief Compute area and centroid of a closed contour
@@ -192,7 +193,7 @@ std::vector<double> LengthXld(const QContourArray& contours);
  * double area = AreaCenterXld(contour, row, col);
  * @endcode
  */
-double AreaCenterXld(const QContour& contour, double& row, double& column);
+QIVISION_API double AreaCenterXld(const QContour& contour, double& row, double& column);
 
 /**
  * @brief Compute contour perimeter
@@ -202,7 +203,7 @@ double AreaCenterXld(const QContour& contour, double& row, double& column);
  * @param contour Input contour
  * @return Perimeter length in pixels
  */
-double PerimeterXld(const QContour& contour);
+QIVISION_API double PerimeterXld(const QContour& contour);
 
 // =============================================================================
 // Contour Analysis - Bounding Geometry
@@ -224,7 +225,7 @@ double PerimeterXld(const QContour& contour);
  * SmallestRectangle1Xld(contour, r1, c1, r2, c2);
  * @endcode
  */
-void SmallestRectangle1Xld(
+QIVISION_API void SmallestRectangle1Xld(
     const QContour& contour,
     double& row1, double& col1,
     double& row2, double& col2
@@ -247,7 +248,7 @@ void SmallestRectangle1Xld(
  * SmallestRectangle2Xld(contour, row, col, phi, len1, len2);
  * @endcode
  */
-void SmallestRectangle2Xld(
+QIVISION_API void SmallestRectangle2Xld(
     const QContour& contour,
     double& row, double& column,
     double& phi,
@@ -269,7 +270,7 @@ void SmallestRectangle2Xld(
  * SmallestCircleXld(contour, row, col, radius);
  * @endcode
  */
-void SmallestCircleXld(
+QIVISION_API void SmallestCircleXld(
     const QContour& contour,
     double& row, double& column,
     double& radius
@@ -293,7 +294,7 @@ void SmallestCircleXld(
  * auto curvatures = CurvatureXld(contour, 5);
  * @endcode
  */
-std::vector<double> CurvatureXld(
+QIVISION_API std::vector<double> CurvatureXld(
     const QContour& contour,
     int32_t windowSize = 5
 );
@@ -304,7 +305,7 @@ std::vector<double> CurvatureXld(
  * @param contour Input contour
  * @return Mean absolute curvature
  */
-double MeanCurvatureXld(const QContour& contour);
+QIVISION_API double MeanCurvatureXld(const QContour& contour);
 
 /**
  * @brief Compute maximum curvature of a contour
@@ -312,7 +313,7 @@ double MeanCurvatureXld(const QContour& contour);
  * @param contour Input contour
  * @return Maximum absolute curvature
  */
-double MaxCurvatureXld(const QContour& contour);
+QIVISION_API double MaxCurvatureXld(const QContour& contour);
 
 // =============================================================================
 // Contour Analysis - Moments
@@ -336,7 +337,7 @@ double MaxCurvatureXld(const QContour& contour);
  * MomentsXld(contour, m00, m10, m01, m20, m11, m02);
  * @endcode
  */
-void MomentsXld(
+QIVISION_API void MomentsXld(
     const QContour& contour,
     double& m00, double& m10, double& m01,
     double& m20, double& m11, double& m02
@@ -353,7 +354,7 @@ void MomentsXld(
  * @param mu11 Output mu_11
  * @param mu02 Output mu_02
  */
-void CentralMomentsXld(
+QIVISION_API void CentralMomentsXld(
     const QContour& contour,
     double& mu00, double& mu20,
     double& mu11, double& mu02
@@ -367,7 +368,7 @@ void CentralMomentsXld(
  * @param contour Input contour
  * @return Orientation angle in radians [-PI/2, PI/2]
  */
-double OrientationXld(const QContour& contour);
+QIVISION_API double OrientationXld(const QContour& contour);
 
 // =============================================================================
 // Contour Analysis - Shape Descriptors
@@ -382,7 +383,7 @@ double OrientationXld(const QContour& contour);
  * @param contour Input contour (should be closed)
  * @return Circularity value in [0, 1]
  */
-double CircularityXld(const QContour& contour);
+QIVISION_API double CircularityXld(const QContour& contour);
 
 /**
  * @brief Compute convexity of a contour
@@ -393,7 +394,7 @@ double CircularityXld(const QContour& contour);
  * @param contour Input contour
  * @return Convexity value in [0, 1]
  */
-double ConvexityXld(const QContour& contour);
+QIVISION_API double ConvexityXld(const QContour& contour);
 
 /**
  * @brief Compute solidity of a contour
@@ -404,7 +405,7 @@ double ConvexityXld(const QContour& contour);
  * @param contour Input contour (should be closed)
  * @return Solidity value in [0, 1]
  */
-double SolidityXld(const QContour& contour);
+QIVISION_API double SolidityXld(const QContour& contour);
 
 /**
  * @brief Compute eccentricity of a contour
@@ -415,7 +416,7 @@ double SolidityXld(const QContour& contour);
  * @param contour Input contour
  * @return Eccentricity value in [0, 1)
  */
-double EccentricityXld(const QContour& contour);
+QIVISION_API double EccentricityXld(const QContour& contour);
 
 /**
  * @brief Compute compactness of a contour
@@ -426,7 +427,7 @@ double EccentricityXld(const QContour& contour);
  * @param contour Input contour (should be closed)
  * @return Compactness value (>= 4*PI)
  */
-double CompactnessXld(const QContour& contour);
+QIVISION_API double CompactnessXld(const QContour& contour);
 
 // =============================================================================
 // Contour Fitting
@@ -452,7 +453,7 @@ double CompactnessXld(const QContour& contour);
  * }
  * @endcode
  */
-bool FitEllipseContourXld(
+QIVISION_API bool FitEllipseContourXld(
     const QContour& contour,
     double& row, double& column,
     double& phi, double& ra, double& rb
@@ -480,7 +481,7 @@ bool FitEllipseContourXld(
  * }
  * @endcode
  */
-bool FitLineContourXld(
+QIVISION_API bool FitLineContourXld(
     const QContour& contour,
     double& rowBegin, double& colBegin,
     double& rowEnd, double& colEnd,
@@ -509,7 +510,7 @@ bool FitLineContourXld(
  * }
  * @endcode
  */
-bool FitCircleContourXld(
+QIVISION_API bool FitCircleContourXld(
     const QContour& contour,
     double& row, double& column,
     double& radius,
@@ -523,7 +524,7 @@ bool FitCircleContourXld(
  * @param contour Input contour
  * @param hull Output convex hull contour
  */
-void ConvexHullXld(const QContour& contour, QContour& hull);
+QIVISION_API void ConvexHullXld(const QContour& contour, QContour& hull);
 
 // =============================================================================
 // Contour Selection
@@ -548,7 +549,7 @@ void ConvexHullXld(const QContour& contour, QContour& hull);
  * SelectContoursXld(contours, large, "length", 100.0, 1e6);  // Length >= 100
  * @endcode
  */
-void SelectContoursXld(
+QIVISION_API void SelectContoursXld(
     const QContourArray& contours,
     QContourArray& selected,
     const std::string& feature,
@@ -562,7 +563,7 @@ void SelectContoursXld(
  * @param contours Input contour array
  * @param closed Output closed contours
  */
-void SelectClosedXld(
+QIVISION_API void SelectClosedXld(
     const QContourArray& contours,
     QContourArray& closed
 );
@@ -573,7 +574,7 @@ void SelectClosedXld(
  * @param contours Input contour array
  * @param open Output open contours
  */
-void SelectOpenXld(
+QIVISION_API void SelectOpenXld(
     const QContourArray& contours,
     QContourArray& open
 );
@@ -586,7 +587,7 @@ void SelectOpenXld(
  * @param feature Feature to sort by
  * @param ascending True for ascending order, false for descending
  */
-void SortContoursXld(
+QIVISION_API void SortContoursXld(
     const QContourArray& contours,
     QContourArray& sorted,
     const std::string& feature,
@@ -602,7 +603,7 @@ void SortContoursXld(
  * @param count Number of contours to select
  * @param largest True to select largest values, false for smallest
  */
-void SelectTopContoursXld(
+QIVISION_API void SelectTopContoursXld(
     const QContourArray& contours,
     QContourArray& selected,
     const std::string& feature,
@@ -630,7 +631,7 @@ void SelectTopContoursXld(
  * SegmentContoursXld(contour, segments, "lines_circles", 2.0, 2.0);
  * @endcode
  */
-void SegmentContoursXld(
+QIVISION_API void SegmentContoursXld(
     const QContour& contour,
     QContourArray& segments,
     const std::string& mode = "lines_circles",
@@ -652,7 +653,7 @@ void SegmentContoursXld(
  * SplitContoursXld(contours, split, 0.5);  // Split at ~28 degree corners
  * @endcode
  */
-void SplitContoursXld(
+QIVISION_API void SplitContoursXld(
     const QContourArray& contours,
     QContourArray& split,
     double maxAngle = 0.5
@@ -665,7 +666,7 @@ void SplitContoursXld(
  * @param curvatureThreshold Minimum curvature for corner detection
  * @return Indices of corner points
  */
-std::vector<int32_t> DetectCornersXld(
+QIVISION_API std::vector<int32_t> DetectCornersXld(
     const QContour& contour,
     double curvatureThreshold = 0.1
 );
@@ -688,7 +689,7 @@ std::vector<int32_t> DetectCornersXld(
  * GenContourRegionXld(region, boundaries, "border_holes");
  * @endcode
  */
-void GenContourRegionXld(
+QIVISION_API void GenContourRegionXld(
     const QRegion& region,
     QContourArray& contours,
     const std::string& mode = "border"
@@ -708,7 +709,7 @@ void GenContourRegionXld(
  * GenRegionContourXld(contour, filled, "filled");
  * @endcode
  */
-void GenRegionContourXld(
+QIVISION_API void GenRegionContourXld(
     const QContour& contour,
     QRegion& region,
     const std::string& mode = "filled"
@@ -721,7 +722,7 @@ void GenRegionContourXld(
  * @param region Output combined region
  * @param mode Fill mode
  */
-void GenRegionContoursXld(
+QIVISION_API void GenRegionContoursXld(
     const QContourArray& contours,
     QRegion& region,
     const std::string& mode = "filled"
@@ -744,7 +745,7 @@ void GenRegionContoursXld(
  * QContour rect = GenContourPolygonXld(pts);
  * @endcode
  */
-QContour GenContourPolygonXld(const std::vector<Point2d>& points);
+QIVISION_API QContour GenContourPolygonXld(const std::vector<Point2d>& points);
 
 /**
  * @brief Create contour from coordinate arrays
@@ -753,7 +754,7 @@ QContour GenContourPolygonXld(const std::vector<Point2d>& points);
  * @param cols X coordinates
  * @return Generated contour
  */
-QContour GenContourPolygonXld(
+QIVISION_API QContour GenContourPolygonXld(
     const std::vector<double>& rows,
     const std::vector<double>& cols
 );
@@ -777,7 +778,7 @@ QContour GenContourPolygonXld(
  * QContour arc = GenCircleContourXld(100, 100, 50, 0, 1.57);  // Quarter arc
  * @endcode
  */
-QContour GenCircleContourXld(
+QIVISION_API QContour GenCircleContourXld(
     double row, double column,
     double radius,
     double startAngle = 0.0,
@@ -805,7 +806,7 @@ QContour GenCircleContourXld(
  * QContour ellipse = GenEllipseContourXld(100, 100, 0.5, 80, 40);
  * @endcode
  */
-QContour GenEllipseContourXld(
+QIVISION_API QContour GenEllipseContourXld(
     double row, double column,
     double phi,
     double ra, double rb,
@@ -830,7 +831,7 @@ QContour GenEllipseContourXld(
  * QContour rect = GenRectangle2ContourXld(100, 100, 0.3, 50, 30);
  * @endcode
  */
-QContour GenRectangle2ContourXld(
+QIVISION_API QContour GenRectangle2ContourXld(
     double row, double column,
     double phi,
     double length1, double length2
@@ -845,7 +846,7 @@ QContour GenRectangle2ContourXld(
  * @param col2 Right X
  * @return Generated rectangle contour (closed)
  */
-QContour GenRectangle1ContourXld(
+QIVISION_API QContour GenRectangle1ContourXld(
     double row1, double col1,
     double row2, double col2
 );
@@ -859,7 +860,7 @@ QContour GenRectangle1ContourXld(
  * @param col2 End X
  * @return Generated line segment contour (open)
  */
-QContour GenLineContourXld(
+QIVISION_API QContour GenLineContourXld(
     double row1, double col1,
     double row2, double col2
 );
@@ -874,7 +875,7 @@ QContour GenLineContourXld(
  * @param contour Input contour
  * @return Number of points
  */
-int32_t CountPointsXld(const QContour& contour);
+QIVISION_API int32_t CountPointsXld(const QContour& contour);
 
 /**
  * @brief Get the number of points in each contour
@@ -882,7 +883,7 @@ int32_t CountPointsXld(const QContour& contour);
  * @param contours Input contour array
  * @return Vector of point counts
  */
-std::vector<int32_t> CountPointsXld(const QContourArray& contours);
+QIVISION_API std::vector<int32_t> CountPointsXld(const QContourArray& contours);
 
 /**
  * @brief Get contour points as coordinate arrays
@@ -891,7 +892,7 @@ std::vector<int32_t> CountPointsXld(const QContourArray& contours);
  * @param rows Output Y coordinates
  * @param cols Output X coordinates
  */
-void GetContourXld(
+QIVISION_API void GetContourXld(
     const QContour& contour,
     std::vector<double>& rows,
     std::vector<double>& cols
@@ -905,7 +906,7 @@ void GetContourXld(
  * @param column Point X coordinate
  * @return True if point is inside
  */
-bool TestPointXld(
+QIVISION_API bool TestPointXld(
     const QContour& contour,
     double row, double column
 );
@@ -918,7 +919,7 @@ bool TestPointXld(
  * @param column Point X coordinate
  * @return Distance to nearest contour point
  */
-double DistancePointXld(
+QIVISION_API double DistancePointXld(
     const QContour& contour,
     double row, double column
 );
@@ -930,7 +931,7 @@ double DistancePointXld(
  * @param contours2 Second contour array
  * @param result Output combined array
  */
-void UnionContoursXld(
+QIVISION_API void UnionContoursXld(
     const QContourArray& contours1,
     const QContourArray& contours2,
     QContourArray& result
@@ -943,7 +944,7 @@ void UnionContoursXld(
  * @param selected Output selected contours
  * @param indices Indices to select (0-based)
  */
-void SelectObjXld(
+QIVISION_API void SelectObjXld(
     const QContourArray& contours,
     QContourArray& selected,
     const std::vector<int32_t>& indices
@@ -956,7 +957,7 @@ void SelectObjXld(
  * @param index Index (0-based)
  * @return Selected contour
  */
-QContour SelectObjXld(
+QIVISION_API QContour SelectObjXld(
     const QContourArray& contours,
     int32_t index
 );
@@ -967,6 +968,6 @@ QContour SelectObjXld(
  * @param contours Input contour array
  * @return Number of contours
  */
-int32_t CountObjXld(const QContourArray& contours);
+QIVISION_API int32_t CountObjXld(const QContourArray& contours);
 
 } // namespace Qi::Vision::Contour

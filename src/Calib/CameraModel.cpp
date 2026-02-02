@@ -4,6 +4,7 @@
  */
 
 #include <QiVision/Calib/CameraModel.h>
+#include <QiVision/Core/Exception.h>
 
 #include <cmath>
 #include <algorithm>
@@ -37,6 +38,9 @@ CameraIntrinsics CameraIntrinsics::FromMatrix(const Internal::Mat33& K) {
 // ============================================================================
 
 Point2d CameraModel::Distort(const Point2d& normalized) const {
+    if (!normalized.IsValid()) {
+        throw InvalidArgumentException("CameraModel::Distort: invalid point");
+    }
     // Brown-Conrady distortion model
     // x' = x * (1 + k1*r^2 + k2*r^4 + k3*r^6) + 2*p1*x*y + p2*(r^2 + 2*x^2)
     // y' = y * (1 + k1*r^2 + k2*r^4 + k3*r^6) + p1*(r^2 + 2*y^2) + 2*p2*x*y
@@ -64,6 +68,13 @@ Point2d CameraModel::Distort(const Point2d& normalized) const {
 }
 
 Point2d CameraModel::Undistort(const Point2d& distorted, int maxIterations) const {
+    if (maxIterations <= 0) {
+        throw InvalidArgumentException("CameraModel::Undistort: maxIterations must be > 0");
+    }
+    if (!distorted.IsValid()) {
+        throw InvalidArgumentException("CameraModel::Undistort: invalid point");
+    }
+
     // Newton-Raphson iterative undistortion
     // Start with the distorted point as initial guess
     // Iterate: x_undist = distorted - (distort(x_undist) - distorted)
@@ -129,6 +140,9 @@ Point2d CameraModel::Undistort(const Point2d& distorted, int maxIterations) cons
 }
 
 Point2d CameraModel::ProjectPoint(const Point3d& p3d) const {
+    if (!p3d.IsValid()) {
+        throw InvalidArgumentException("CameraModel::ProjectPoint: invalid point");
+    }
     // Check for points at or behind camera
     if (p3d.z <= 0.0) {
         return Point2d(0.0, 0.0);
@@ -149,6 +163,9 @@ Point2d CameraModel::ProjectPoint(const Point3d& p3d) const {
 }
 
 Point3d CameraModel::UnprojectPixel(const Point2d& pixel) const {
+    if (!pixel.IsValid()) {
+        throw InvalidArgumentException("CameraModel::UnprojectPixel: invalid pixel");
+    }
     // Convert to normalized coordinates
     double x_norm = (pixel.x - intrinsics_.cx) / intrinsics_.fx;
     double y_norm = (pixel.y - intrinsics_.cy) / intrinsics_.fy;

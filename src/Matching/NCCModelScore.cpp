@@ -42,6 +42,7 @@ double NCCModelImpl::ComputeNCCScore(
     int32_t angleIndex,
     int32_t level) const
 {
+    (void)integralImage;
     if (level < 0 || level >= static_cast<int32_t>(levels_.size())) {
         return -1.0;
     }

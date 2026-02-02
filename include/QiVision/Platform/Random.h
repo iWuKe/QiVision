@@ -17,6 +17,7 @@
 #include <random>
 #include <algorithm>
 #include <type_traits>
+#include <QiVision/Core/Export.h>
 
 namespace Qi::Vision::Platform {
 
@@ -26,7 +27,7 @@ namespace Qi::Vision::Platform {
  * Uses MT19937-64 for high quality randomness.
  * Each thread has its own generator instance.
  */
-class Random {
+class QIVISION_API Random {
 public:
     /**
      * @brief Get thread-local random instance
@@ -174,7 +175,7 @@ private:
 // =========================================================================
 
 template<typename T>
-std::vector<T> Random::Sample(const std::vector<T>& items, size_t k) {
+QIVISION_API std::vector<T> Random::Sample(const std::vector<T>& items, size_t k) {
     if (k >= items.size()) {
         return items; // Return all items
     }
@@ -189,7 +190,7 @@ std::vector<T> Random::Sample(const std::vector<T>& items, size_t k) {
 }
 
 template<typename T>
-void Random::Shuffle(std::vector<T>& items) {
+QIVISION_API void Random::Shuffle(std::vector<T>& items) {
     std::shuffle(items.begin(), items.end(), gen_);
 }
 

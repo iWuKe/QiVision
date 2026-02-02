@@ -7,11 +7,13 @@
  */
 
 #include "ShapeModelImpl.h"
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Core/QContourArray.h>
 #include <QiVision/Platform/FileIO.h>
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
@@ -33,29 +35,54 @@ bool g_debugCreateModel = false;
 namespace {
 
 OptimizationMode ParseOptimization(const std::string& str) {
-    if (str == "none") return OptimizationMode::None;
-    if (str == "auto") return OptimizationMode::Auto;
-    if (str == "point_reduction_low") return OptimizationMode::PointReductionLow;
-    if (str == "point_reduction_medium") return OptimizationMode::PointReductionMedium;
-    if (str == "point_reduction_high") return OptimizationMode::PointReductionHigh;
-    return OptimizationMode::Auto;  // default
+    std::string lower;
+    lower.reserve(str.size());
+    for (char c : str) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower.empty() || lower == "auto") return OptimizationMode::Auto;
+    if (lower == "none") return OptimizationMode::None;
+    if (lower == "point_reduction_low") return OptimizationMode::PointReductionLow;
+    if (lower == "point_reduction_medium") return OptimizationMode::PointReductionMedium;
+    if (lower == "point_reduction_high") return OptimizationMode::PointReductionHigh;
+    throw InvalidArgumentException("Unknown optimization: " + str);
 }
 
 MetricMode ParseMetric(const std::string& str) {
-    if (str == "use_polarity") return MetricMode::UsePolarity;
-    if (str == "ignore_global_polarity") return MetricMode::IgnoreGlobalPolarity;
-    if (str == "ignore_local_polarity") return MetricMode::IgnoreLocalPolarity;
-    if (str == "ignore_color_polarity") return MetricMode::IgnoreColorPolarity;
-    return MetricMode::UsePolarity;  // default
+    std::string lower;
+    lower.reserve(str.size());
+    for (char c : str) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower.empty() || lower == "use_polarity") return MetricMode::UsePolarity;
+    if (lower == "ignore_global_polarity") return MetricMode::IgnoreGlobalPolarity;
+    if (lower == "ignore_local_polarity") return MetricMode::IgnoreLocalPolarity;
+    if (lower == "ignore_color_polarity") return MetricMode::IgnoreColorPolarity;
+    throw InvalidArgumentException("Unknown metric: " + str);
 }
 
 SubpixelMethod ParseSubpixel(const std::string& str) {
-    if (str == "none" || str == "false") return SubpixelMethod::None;
-    if (str == "interpolation" || str == "true") return SubpixelMethod::Parabolic;
-    if (str == "least_squares") return SubpixelMethod::LeastSquares;
-    if (str == "least_squares_high") return SubpixelMethod::LeastSquaresHigh;
-    if (str == "least_squares_very_high") return SubpixelMethod::LeastSquaresVeryHigh;
-    return SubpixelMethod::LeastSquares;  // default
+    std::string lower;
+    lower.reserve(str.size());
+    for (char c : str) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower.empty() || lower == "least_squares") return SubpixelMethod::LeastSquares;
+    if (lower == "none" || lower == "false") return SubpixelMethod::None;
+    if (lower == "interpolation" || lower == "true") return SubpixelMethod::Parabolic;
+    if (lower == "least_squares_high") return SubpixelMethod::LeastSquaresHigh;
+    if (lower == "least_squares_very_high") return SubpixelMethod::LeastSquaresVeryHigh;
+    throw InvalidArgumentException("Unknown subpixel mode: " + str);
+}
+
+bool RequireValidImage(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    return true;
 }
 
 std::string MetricToString(MetricMode mode) {
@@ -117,6 +144,29 @@ double EstimateAutoMinContrastFromPyramid(const AnglePyramid& pyramid) {
     return minContrast;
 }
 
+void ValidateLevels(int32_t numLevels, const char* funcName) {
+    if (numLevels < 0) {
+        throw InvalidArgumentException(std::string(funcName) + ": numLevels must be >= 0");
+    }
+}
+
+void ValidateAngleStep(double angleStep, const char* funcName) {
+    if (angleStep < 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": angleStep must be >= 0");
+    }
+}
+
+void ValidateRoi(const QImage& image, const Rect2i& roi, const char* funcName) {
+    if (roi.width <= 0 || roi.height <= 0) {
+        throw InvalidArgumentException(std::string(funcName) + ": ROI width/height must be > 0");
+    }
+    if (roi.x < 0 || roi.y < 0 ||
+        roi.x + roi.width > image.Width() ||
+        roi.y + roi.height > image.Height()) {
+        throw InvalidArgumentException(std::string(funcName) + ": ROI out of bounds");
+    }
+}
+
 /**
  * @brief Parse contrast parameter string
  *
@@ -145,23 +195,26 @@ void ParseContrast(const std::string& str, ContrastMode& mode,
     if (str.empty()) {
         return;
     }
+    std::string lower = str;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     // Check for auto modes
-    if (str == "auto" || str == "auto_contrast") {
+    if (lower == "auto" || lower == "auto_contrast") {
         mode = ContrastMode::Auto;
         contrastHigh = 0.0;  // Will be auto-detected
         contrastLow = 0.0;
         return;
     }
 
-    if (str == "auto_contrast_hyst" || str == "auto_hyst") {
+    if (lower == "auto_contrast_hyst" || lower == "auto_hyst") {
         mode = ContrastMode::AutoHysteresis;
         contrastHigh = 0.0;
         contrastLow = 0.0;
         return;
     }
 
-    if (str == "auto_min_size") {
+    if (lower == "auto_min_size") {
         mode = ContrastMode::AutoMinSize;
         contrastHigh = 0.0;
         contrastLow = 0.0;
@@ -169,8 +222,8 @@ void ParseContrast(const std::string& str, ContrastMode& mode,
     }
 
     // Check for [low,high] or [low,high,minSize] format
-    if (str.size() > 2 && str.front() == '[' && str.back() == ']') {
-        std::string inner = str.substr(1, str.size() - 2);
+    if (lower.size() > 2 && lower.front() == '[' && lower.back() == ']') {
+        std::string inner = lower.substr(1, lower.size() - 2);
 
         // Split by commas
         std::vector<std::string> parts;
@@ -200,14 +253,11 @@ void ParseContrast(const std::string& str, ContrastMode& mode,
 
     // Try to parse as single numeric value
     try {
-        contrastHigh = std::stod(str);
+        contrastHigh = std::stod(lower);
         contrastLow = 0.0;
         mode = ContrastMode::Manual;
     } catch (...) {
-        // Invalid format, use default
-        mode = ContrastMode::Manual;
-        contrastHigh = 30.0;
-        contrastLow = 0.0;
+        throw InvalidArgumentException("Invalid contrast format: " + str);
     }
 }
 
@@ -255,6 +305,11 @@ void CreateShapeModel(
     const std::string& contrast,
     double minContrast)
 {
+    if (!templateImage.IsValid()) {
+        throw InvalidArgumentException("CreateShapeModel: invalid template image");
+    }
+    ValidateLevels(numLevels, "CreateShapeModel");
+    ValidateAngleStep(angleStep, "CreateShapeModel");
     CreateShapeModel(templateImage, Rect2i{}, model, numLevels,
                      angleStart, angleExtent, angleStep,
                      optimization, metric, contrast, minContrast);
@@ -273,6 +328,14 @@ void CreateShapeModel(
     const std::string& contrast,
     double minContrast)
 {
+    if (!templateImage.IsValid()) {
+        throw InvalidArgumentException("CreateShapeModel: invalid template image");
+    }
+    ValidateLevels(numLevels, "CreateShapeModel");
+    ValidateAngleStep(angleStep, "CreateShapeModel");
+    if (roi.width > 0 || roi.height > 0) {
+        ValidateRoi(templateImage, roi, "CreateShapeModel");
+    }
     model = ShapeModel();
 
     // Set up parameters
@@ -311,6 +374,14 @@ void CreateShapeModel(
     const std::string& contrast,
     double minContrast)
 {
+    if (!templateImage.IsValid()) {
+        throw InvalidArgumentException("CreateShapeModel: invalid template image");
+    }
+    if (region.Empty()) {
+        throw InvalidArgumentException("CreateShapeModel: empty region");
+    }
+    ValidateLevels(numLevels, "CreateShapeModel");
+    ValidateAngleStep(angleStep, "CreateShapeModel");
     model = ShapeModel();
 
     // Set up parameters
@@ -357,6 +428,14 @@ void CreateScaledShapeModel(
     const std::string& contrast,
     double minContrast)
 {
+    if (!templateImage.IsValid()) {
+        throw InvalidArgumentException("CreateScaledShapeModel: invalid template image");
+    }
+    ValidateLevels(numLevels, "CreateScaledShapeModel");
+    ValidateAngleStep(angleStep, "CreateScaledShapeModel");
+    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0 || scaleMax < scaleMin) {
+        throw InvalidArgumentException("CreateScaledShapeModel: invalid scale range");
+    }
     CreateScaledShapeModel(templateImage, Rect2i{}, model, numLevels,
                            angleStart, angleExtent, angleStep,
                            scaleMin, scaleMax, scaleStep,
@@ -379,6 +458,17 @@ void CreateScaledShapeModel(
     const std::string& contrast,
     double minContrast)
 {
+    if (!templateImage.IsValid()) {
+        throw InvalidArgumentException("CreateScaledShapeModel: invalid template image");
+    }
+    ValidateLevels(numLevels, "CreateScaledShapeModel");
+    ValidateAngleStep(angleStep, "CreateScaledShapeModel");
+    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0 || scaleMax < scaleMin) {
+        throw InvalidArgumentException("CreateScaledShapeModel: invalid scale range");
+    }
+    if (roi.width > 0 || roi.height > 0) {
+        ValidateRoi(templateImage, roi, "CreateScaledShapeModel");
+    }
     model = ShapeModel();
 
     ModelParams params;
@@ -421,6 +511,17 @@ void CreateScaledShapeModel(
     const std::string& contrast,
     double minContrast)
 {
+    if (!templateImage.IsValid()) {
+        throw InvalidArgumentException("CreateScaledShapeModel: invalid template image");
+    }
+    if (region.Empty()) {
+        throw InvalidArgumentException("CreateScaledShapeModel: empty region");
+    }
+    ValidateLevels(numLevels, "CreateScaledShapeModel");
+    ValidateAngleStep(angleStep, "CreateScaledShapeModel");
+    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0 || scaleMax < scaleMin) {
+        throw InvalidArgumentException("CreateScaledShapeModel: invalid scale range");
+    }
     model = ShapeModel();
 
     ModelParams params;
@@ -480,9 +581,27 @@ void FindShapeModel(
     angles.clear();
     scores.clear();
 
-    if (!model.IsValid()) {
+    if (!RequireValidImage(image, "FindShapeModel")) {
         return;
     }
+
+    if (!model.IsValid()) {
+        throw InvalidArgumentException("FindShapeModel: invalid ShapeModel");
+    }
+    if (!std::isfinite(angleStart) || !std::isfinite(angleExtent)) {
+        throw InvalidArgumentException("FindShapeModel: invalid angle range");
+    }
+    if (!std::isfinite(minScore) || minScore < 0.0) {
+        throw InvalidArgumentException("FindShapeModel: minScore must be >= 0");
+    }
+    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0) {
+        throw InvalidArgumentException("FindShapeModel: maxOverlap must be >= 0");
+    }
+    if (!std::isfinite(greediness) || greediness <= 0.0 || greediness > 1.0) {
+        throw InvalidArgumentException("FindShapeModel: greediness must be in (0,1]");
+    }
+
+    ValidateLevels(numLevels, "FindShapeModel");
 
     auto* impl = const_cast<Internal::ShapeModelImpl*>(model.Impl());
 
@@ -502,7 +621,8 @@ void FindShapeModel(
     auto tPyramidStart = std::chrono::high_resolution_clock::now();
 
     Internal::AnglePyramidParams pyramidParams;
-    pyramidParams.numLevels = static_cast<int32_t>(impl->levels_.size());
+    int32_t modelLevels = static_cast<int32_t>(impl->levels_.size());
+    pyramidParams.numLevels = (numLevels > 0) ? std::min(numLevels, modelLevels) : modelLevels;
 
     // Keep pyramid minContrast low; scoring applies search-time thresholds
     pyramidParams.minContrast = 1.0;
@@ -578,14 +698,31 @@ void FindScaledShapeModel(
     scales.clear();
     scores.clear();
 
-    if (!model.IsValid()) {
+    if (!RequireValidImage(image, "FindScaledShapeModel")) {
         return;
     }
 
-    // Validate scale range
-    if (scaleMin <= 0 || scaleMax <= 0 || scaleMin > scaleMax) {
-        return;
+    if (!model.IsValid()) {
+        throw InvalidArgumentException("FindScaledShapeModel: invalid ShapeModel");
     }
+    if (!std::isfinite(angleStart) || !std::isfinite(angleExtent)) {
+        throw InvalidArgumentException("FindScaledShapeModel: invalid angle range");
+    }
+    if (!std::isfinite(scaleMin) || !std::isfinite(scaleMax) || scaleMin <= 0.0 || scaleMax <= 0.0 ||
+        scaleMax < scaleMin) {
+        throw InvalidArgumentException("FindScaledShapeModel: invalid scale range");
+    }
+    if (!std::isfinite(minScore) || minScore < 0.0) {
+        throw InvalidArgumentException("FindScaledShapeModel: minScore must be >= 0");
+    }
+    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0) {
+        throw InvalidArgumentException("FindScaledShapeModel: maxOverlap must be >= 0");
+    }
+    if (!std::isfinite(greediness) || greediness <= 0.0 || greediness > 1.0) {
+        throw InvalidArgumentException("FindScaledShapeModel: greediness must be in (0,1]");
+    }
+
+    ValidateLevels(numLevels, "FindScaledShapeModel");
 
     // If scale range is essentially 1.0, use regular FindShapeModel
     constexpr double SCALE_TOLERANCE = 1e-6;
@@ -645,6 +782,7 @@ void FindScaledShapeModel(
     std::vector<ScaledMatch> allMatches;
 
     // Search at each scale level
+    SubpixelMethod subpixelMethod = ParseSubpixel(subPixel);
     for (double scale = scaleMin; scale <= scaleMax + SCALE_TOLERANCE; scale += scaleStep) {
         SearchParams params;
         params.angleStart = angleStart;
@@ -652,7 +790,7 @@ void FindScaledShapeModel(
         params.minScore = minScore;
         params.maxMatches = (numMatches == 0) ? 1000 : numMatches;
         params.maxOverlap = maxOverlap;
-        params.subpixelMethod = ParseSubpixel(subPixel);
+        params.subpixelMethod = subpixelMethod;
         params.numLevels = numLevels;
         params.greediness = greediness;
 
@@ -742,14 +880,14 @@ void GetShapeModelContours(
     contourCols.clear();
 
     if (!model.IsValid()) {
-        return;
+        throw InvalidArgumentException("GetShapeModelContours: invalid ShapeModel");
     }
 
     auto* impl = model.Impl();
     int32_t actualLevel = (level >= 1) ? level - 1 : 0;  // Halcon uses 1-based
 
     if (actualLevel < 0 || actualLevel >= static_cast<int32_t>(impl->levels_.size())) {
-        return;
+        throw InvalidArgumentException("GetShapeModelContours: level out of range");
     }
 
     const auto& points = impl->levels_[actualLevel].points;
@@ -770,14 +908,14 @@ void GetShapeModelXLD(
     contours = QContourArray();
 
     if (!model.IsValid()) {
-        return;
+        throw InvalidArgumentException("GetShapeModelXLD: invalid ShapeModel");
     }
 
     auto* impl = model.Impl();
     int32_t actualLevel = (level >= 1) ? level - 1 : 0;
 
     if (actualLevel < 0 || actualLevel >= static_cast<int32_t>(impl->levels_.size())) {
-        return;
+        throw InvalidArgumentException("GetShapeModelXLD: level out of range");
     }
 
     const auto& levelModel = impl->levels_[actualLevel];
@@ -838,15 +976,7 @@ void GetShapeModelParams(
     std::string& metric)
 {
     if (!model.IsValid()) {
-        numLevels = 0;
-        angleStart = 0;
-        angleExtent = 0;
-        angleStep = 0;
-        scaleMin = 1.0;
-        scaleMax = 1.0;
-        scaleStep = 0;
-        metric = "use_polarity";
-        return;
+        throw InvalidArgumentException("GetShapeModelParams: invalid ShapeModel");
     }
 
     auto* impl = model.Impl();
@@ -866,9 +996,7 @@ void GetShapeModelOrigin(
     double& col)
 {
     if (!model.IsValid()) {
-        row = 0;
-        col = 0;
-        return;
+        throw InvalidArgumentException("GetShapeModelOrigin: invalid ShapeModel");
     }
 
     auto* impl = model.Impl();
@@ -882,7 +1010,10 @@ void SetShapeModelOrigin(
     double col)
 {
     if (!model.IsValid()) {
-        return;
+        throw InvalidArgumentException("SetShapeModelOrigin: invalid ShapeModel");
+    }
+    if (!std::isfinite(row) || !std::isfinite(col)) {
+        throw InvalidArgumentException("SetShapeModelOrigin: invalid origin");
     }
 
     auto* impl = model.Impl();
@@ -899,7 +1030,10 @@ void WriteShapeModel(
     const std::string& filename)
 {
     if (!model.IsValid()) {
-        throw std::runtime_error("Cannot write invalid shape model");
+        throw InvalidArgumentException("WriteShapeModel: invalid ShapeModel");
+    }
+    if (filename.empty()) {
+        throw InvalidArgumentException("WriteShapeModel: filename is empty");
     }
 
     auto* impl = model.Impl();
@@ -907,7 +1041,7 @@ void WriteShapeModel(
     using Platform::BinaryWriter;
     BinaryWriter writer(filename);
     if (!writer.IsOpen()) {
-        throw std::runtime_error("Cannot open file for writing: " + filename);
+        throw IOException("Cannot open file for writing: " + filename);
     }
 
     // Magic number and version
@@ -979,21 +1113,24 @@ void ReadShapeModel(
     const std::string& filename,
     ShapeModel& model)
 {
+    if (filename.empty()) {
+        throw InvalidArgumentException("ReadShapeModel: filename is empty");
+    }
     using Platform::BinaryReader;
     BinaryReader reader(filename);
     if (!reader.IsOpen()) {
-        throw std::runtime_error("Cannot open file for reading: " + filename);
+        throw IOException("Cannot open file for reading: " + filename);
     }
 
     const uint32_t MAGIC = 0x4D495351;
     uint32_t magic = reader.Read<uint32_t>();
     if (magic != MAGIC) {
-        throw std::runtime_error("Invalid shape model file format");
+        throw InvalidArgumentException("Invalid shape model file format");
     }
 
     uint32_t version = reader.Read<uint32_t>();
     if (version < 1 || version > 4) {
-        throw std::runtime_error("Unsupported shape model version");
+        throw VersionMismatchException("Unsupported shape model version");
     }
 
     model = ShapeModel();

@@ -10,6 +10,7 @@
 #include <QiVision/Core/Exception.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <unordered_map>
@@ -94,7 +95,18 @@ void Connection(const QImage& binaryImage,
                 std::vector<QRegion>& regions,
                 Connectivity connectivity) {
     regions.clear();
-    if (binaryImage.Empty()) return;
+    if (binaryImage.Empty()) {
+        return;
+    }
+    if (!binaryImage.IsValid()) {
+        throw InvalidArgumentException("Connection: invalid image");
+    }
+    if (binaryImage.Type() != PixelType::UInt8) {
+        throw UnsupportedException("Connection: requires UInt8 binary image");
+    }
+    if (binaryImage.Channels() != 1) {
+        throw UnsupportedException("Connection: requires single-channel image");
+    }
 
     int32_t numLabels = 0;
     QImage labels = Internal::LabelConnectedComponents(binaryImage, connectivity, numLabels);
@@ -114,7 +126,7 @@ void Connection(const QImage& binaryImage,
 
 QRegion SelectObj(const std::vector<QRegion>& regions, int32_t index) {
     if (index < 1 || index > static_cast<int32_t>(regions.size())) {
-        return QRegion();
+        throw InvalidArgumentException("SelectObj: index out of range");
     }
     return regions[index - 1];
 }
@@ -231,6 +243,34 @@ void Eccentricity(const QRegion& region,
     structureFactor = anisometry * bulkiness - 1.0;
 }
 
+std::array<double, 7> HuMoments(const QRegion& region) {
+    if (region.Empty()) {
+        return {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    }
+    return Internal::ComputeHuMoments(region);
+}
+
+void HuMoments(const QRegion& region,
+                double& hu1, double& hu2, double& hu3, double& hu4,
+                double& hu5, double& hu6, double& hu7) {
+    auto hu = HuMoments(region);
+    hu1 = hu[0];
+    hu2 = hu[1];
+    hu3 = hu[2];
+    hu4 = hu[3];
+    hu5 = hu[4];
+    hu6 = hu[5];
+    hu7 = hu[6];
+}
+
+void HuMoments(const std::vector<QRegion>& regions,
+                std::vector<std::array<double, 7>>& huMoments) {
+    huMoments.resize(regions.size());
+    for (size_t i = 0; i < regions.size(); ++i) {
+        huMoments[i] = HuMoments(regions[i]);
+    }
+}
+
 // =============================================================================
 // Region Selection
 // =============================================================================
@@ -328,6 +368,7 @@ ShapeFeature ParseShapeFeature(const std::string& name) {
     std::string lower = name;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
+    if (lower.empty()) return ShapeFeature::Area;
     if (lower == "area") return ShapeFeature::Area;
     if (lower == "row") return ShapeFeature::Row;
     if (lower == "column" || lower == "col") return ShapeFeature::Column;
@@ -348,7 +389,7 @@ ShapeFeature ParseShapeFeature(const std::string& name) {
     if (lower == "inner_radius") return ShapeFeature::InnerRadius;
     if (lower == "holes") return ShapeFeature::Holes;
 
-    return ShapeFeature::Area; // default
+    throw InvalidArgumentException("Unknown shape feature: " + name);
 }
 
 std::string GetShapeFeatureName(ShapeFeature feature) {
@@ -383,12 +424,20 @@ void SelectShape(const std::vector<QRegion>& regions,
                  const std::string& operation,
                  double minValue,
                  double maxValue) {
+    if (regions.empty()) {
+        selected.clear();
+        return;
+    }
     ShapeFeature feature = ParseShapeFeature(features);
     SelectOperation op = SelectOperation::And;
     std::string lowerOp = operation;
     std::transform(lowerOp.begin(), lowerOp.end(), lowerOp.begin(), ::tolower);
-    if (lowerOp == "or") {
+    if (lowerOp.empty() || lowerOp == "and") {
+        op = SelectOperation::And;
+    } else if (lowerOp == "or") {
         op = SelectOperation::Or;
+    } else {
+        throw InvalidArgumentException("Unknown select operation: " + operation);
     }
     SelectShape(regions, selected, feature, op, minValue, maxValue);
 }
@@ -481,19 +530,32 @@ void SortRegion(const std::vector<QRegion>& regions,
                 const std::string& sortMode,
                 const std::string& order,
                 const std::string& /*rowOrCol*/) {
+    if (regions.empty()) {
+        sorted.clear();
+        return;
+    }
     std::string lowerMode = sortMode;
     std::transform(lowerMode.begin(), lowerMode.end(), lowerMode.begin(), ::tolower);
 
     SortMode mode = SortMode::None;
-    if (lowerMode == "area") mode = SortMode::Area;
+    if (lowerMode.empty() || lowerMode == "none") mode = SortMode::None;
+    else if (lowerMode == "area") mode = SortMode::Area;
     else if (lowerMode == "first_point") mode = SortMode::FirstPoint;
     else if (lowerMode == "last_point") mode = SortMode::LastPoint;
     else if (lowerMode == "character" || lowerMode == "row") mode = SortMode::Row;
     else if (lowerMode == "column") mode = SortMode::Column;
+    else throw InvalidArgumentException("Unknown sort mode: " + sortMode);
 
     std::string lowerOrder = order;
     std::transform(lowerOrder.begin(), lowerOrder.end(), lowerOrder.begin(), ::tolower);
-    bool ascending = (lowerOrder != "false" && lowerOrder != "descending");
+    bool ascending = true;
+    if (lowerOrder.empty() || lowerOrder == "true" || lowerOrder == "ascending") {
+        ascending = true;
+    } else if (lowerOrder == "false" || lowerOrder == "descending") {
+        ascending = false;
+    } else {
+        throw InvalidArgumentException("Unknown sort order: " + order);
+    }
 
     SortRegion(regions, sorted, mode, ascending);
 }
@@ -721,7 +783,10 @@ void SelectShapeStd(const std::vector<QRegion>& regions,
                     ShapeFeature feature,
                     double deviationFactor) {
     selected.clear();
-    if (regions.empty() || deviationFactor <= 0) return;
+    if (regions.empty()) return;
+    if (deviationFactor <= 0) {
+        throw InvalidArgumentException("SelectShapeStd: deviationFactor must be > 0");
+    }
 
     // Compute feature values
     std::vector<double> values = GetRegionFeatures(regions, feature);
@@ -756,7 +821,7 @@ void SelectShapeMulti(const std::vector<QRegion>& regions,
     selected.clear();
     if (regions.empty() || features.empty()) return;
     if (features.size() != minValues.size() || features.size() != maxValues.size()) {
-        return;
+        throw InvalidArgumentException("SelectShapeMulti: feature/value size mismatch");
     }
 
     for (const auto& region : regions) {
@@ -804,7 +869,10 @@ void SelectShapeProto(const std::vector<QRegion>& regions,
                       int32_t n,
                       bool largest) {
     selected.clear();
-    if (regions.empty() || n <= 0) return;
+    if (regions.empty()) return;
+    if (n <= 0) {
+        throw InvalidArgumentException("SelectShapeProto: n must be > 0");
+    }
     if (n >= static_cast<int32_t>(regions.size())) {
         selected = regions;
         return;

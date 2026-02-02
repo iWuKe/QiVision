@@ -6,6 +6,7 @@
  */
 
 #include <QiVision/Internal/AnglePyramid.h>
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Internal/Gradient.h>
 #include <QiVision/Internal/Gaussian.h>
 #include <QiVision/Internal/Convolution.h>
@@ -20,7 +21,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
-#include <stdexcept>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -1929,7 +1929,7 @@ const AnglePyramidTiming& AnglePyramid::GetTiming() const {
 
 const PyramidLevelData& AnglePyramid::GetLevel(int32_t level) const {
     if (level < 0 || level >= static_cast<int32_t>(impl_->levels_.size())) {
-        throw std::out_of_range("Pyramid level out of range");
+        throw OutOfRangeException("AnglePyramid::GetLevel: level out of range");
     }
     return impl_->levels_[level];
 }

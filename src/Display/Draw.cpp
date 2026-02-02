@@ -5,6 +5,7 @@
 
 #include <QiVision/Display/Draw.h>
 #include <QiVision/Core/QContourArray.h>
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Matching/ShapeModel.h>
 #include <QiVision/Matching/MatchTypes.h>
 #include <QiVision/Measure/MeasureHandle.h>
@@ -39,8 +40,56 @@ static void BresenhamLine(QImage& image, int32_t x1, int32_t y1, int32_t x2, int
     }
 }
 
+static bool RequireDrawableImage(QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    return true;
+}
+
+static void RequireFinite(double value, const char* message) {
+    if (!std::isfinite(value)) {
+        throw InvalidArgumentException(message);
+    }
+}
+
+static void RequirePointValid(const Point2d& point, const char* funcName) {
+    if (!point.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid point");
+    }
+}
+
+static void RequirePointsValid(const std::vector<Point2d>& points, const char* funcName) {
+    for (const auto& p : points) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException(std::string(funcName) + ": invalid point");
+        }
+    }
+}
+
+static void RequireMatchedContourPointsValid(const Matching::MatchedContour& contour,
+                                             const char* funcName) {
+    for (const auto& p : contour.points) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.quality)) {
+            throw InvalidArgumentException(std::string(funcName) + ": invalid contour point");
+        }
+        if (p.quality < 0.0 || p.quality > 1.0) {
+            throw InvalidArgumentException(std::string(funcName) + ": quality must be in [0,1]");
+        }
+    }
+}
+
 void Draw::Line(QImage& image, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
                 const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::Line")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Line: thickness must be > 0");
+    }
     if (thickness <= 1) {
         BresenhamLine(image, x1, y1, x2, y2, color);
     } else {
@@ -73,6 +122,13 @@ void Draw::Line(QImage& image, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
 
 void Draw::LineAA(QImage& image, double x1, double y1, double x2, double y2,
                   const Scalar& color) {
+    if (!RequireDrawableImage(image, "Draw::LineAA")) {
+        return;
+    }
+    RequireFinite(x1, "Draw::LineAA: invalid coordinate");
+    RequireFinite(y1, "Draw::LineAA: invalid coordinate");
+    RequireFinite(x2, "Draw::LineAA: invalid coordinate");
+    RequireFinite(y2, "Draw::LineAA: invalid coordinate");
     auto ipart = [](double x) { return static_cast<int32_t>(std::floor(x)); };
     auto fpart = [](double x) { return x - std::floor(x); };
     auto rfpart = [&fpart](double x) { return 1.0 - fpart(x); };
@@ -144,6 +200,15 @@ void Draw::LineAA(QImage& image, double x1, double y1, double x2, double y2,
 
 void Draw::Rectangle(QImage& image, int32_t x, int32_t y, int32_t width, int32_t height,
                      const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::Rectangle")) {
+        return;
+    }
+    if (width <= 0 || height <= 0) {
+        throw InvalidArgumentException("Draw::Rectangle: width/height must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Rectangle: thickness must be > 0");
+    }
     Line(image, x, y, x + width - 1, y, color, thickness);
     Line(image, x, y + height - 1, x + width - 1, y + height - 1, color, thickness);
     Line(image, x, y, x, y + height - 1, color, thickness);
@@ -151,6 +216,15 @@ void Draw::Rectangle(QImage& image, int32_t x, int32_t y, int32_t width, int32_t
 }
 
 void Draw::FilledRectangle(QImage& image, const Rect2i& rect, const Scalar& color) {
+    if (!RequireDrawableImage(image, "Draw::FilledRectangle")) {
+        return;
+    }
+    if (rect.width < 0 || rect.height < 0) {
+        throw InvalidArgumentException("Draw::FilledRectangle: invalid rectangle");
+    }
+    if (rect.width == 0 || rect.height == 0) {
+        return;
+    }
     int32_t x0 = std::max(0, rect.x);
     int32_t y0 = std::max(0, rect.y);
     int32_t x1 = std::min(image.Width(), rect.x + rect.width);
@@ -169,7 +243,15 @@ void Draw::FilledRectangle(QImage& image, const Rect2i& rect, const Scalar& colo
 
 void Draw::Circle(QImage& image, int32_t cx, int32_t cy, int32_t radius,
                   const Scalar& color, int32_t thickness) {
-    if (radius <= 0) return;
+    if (!RequireDrawableImage(image, "Draw::Circle")) {
+        return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("Draw::Circle: radius must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Circle: thickness must be > 0");
+    }
 
     // Use parametric method: connect points with lines for smooth result
     // Number of segments based on circumference
@@ -199,7 +281,12 @@ void Draw::Circle(QImage& image, int32_t cx, int32_t cy, int32_t radius,
 
 void Draw::FilledCircle(QImage& image, int32_t cx, int32_t cy, int32_t radius,
                         const Scalar& color) {
-    if (radius <= 0) return;
+    if (!RequireDrawableImage(image, "Draw::FilledCircle")) {
+        return;
+    }
+    if (radius <= 0) {
+        throw InvalidArgumentException("Draw::FilledCircle: radius must be > 0");
+    }
 
     for (int32_t y = -radius; y <= radius; ++y) {
         int32_t halfWidth = static_cast<int32_t>(std::sqrt(radius * radius - y * y));
@@ -216,7 +303,15 @@ void Draw::FilledCircle(QImage& image, int32_t cx, int32_t cy, int32_t radius,
 void Draw::Ellipse(QImage& image, int32_t cx, int32_t cy,
                    int32_t radiusX, int32_t radiusY,
                    const Scalar& color, int32_t thickness) {
-    if (radiusX <= 0 || radiusY <= 0) return;
+    if (!RequireDrawableImage(image, "Draw::Ellipse")) {
+        return;
+    }
+    if (radiusX <= 0 || radiusY <= 0) {
+        throw InvalidArgumentException("Draw::Ellipse: radius must be > 0");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Ellipse: thickness must be > 0");
+    }
 
     // Use parametric method with enough segments for smooth result
     int maxRadius = std::max(radiusX, radiusY);
@@ -245,7 +340,19 @@ void Draw::Ellipse(QImage& image, int32_t cx, int32_t cy,
 void Draw::Ellipse(QImage& image, const Point2d& center,
                    double radiusX, double radiusY, double angle,
                    const Scalar& color, int32_t thickness) {
-    if (radiusX <= 0 || radiusY <= 0) return;
+    if (!RequireDrawableImage(image, "Draw::Ellipse")) {
+        return;
+    }
+    RequirePointValid(center, "Draw::Ellipse");
+    if (!std::isfinite(radiusX) || !std::isfinite(radiusY) || radiusX <= 0.0 || radiusY <= 0.0) {
+        throw InvalidArgumentException("Draw::Ellipse: radius must be > 0");
+    }
+    if (!std::isfinite(angle)) {
+        throw InvalidArgumentException("Draw::Ellipse: invalid angle");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Ellipse: thickness must be > 0");
+    }
 
     // Use parametric method with rotation
     double cosA = std::cos(angle);
@@ -281,7 +388,12 @@ void Draw::Ellipse(QImage& image, const Point2d& center,
 
 void Draw::FilledEllipse(QImage& image, int32_t cx, int32_t cy,
                          int32_t radiusX, int32_t radiusY, const Scalar& color) {
-    if (radiusX <= 0 || radiusY <= 0) return;
+    if (!RequireDrawableImage(image, "Draw::FilledEllipse")) {
+        return;
+    }
+    if (radiusX <= 0 || radiusY <= 0) {
+        throw InvalidArgumentException("Draw::FilledEllipse: radius must be > 0");
+    }
 
     for (int32_t y = -radiusY; y <= radiusY; ++y) {
         double ratio = static_cast<double>(y) / radiusY;
@@ -298,6 +410,17 @@ void Draw::FilledEllipse(QImage& image, int32_t cx, int32_t cy,
 
 void Draw::Arrow(QImage& image, const Point2d& from, const Point2d& to,
                  const Scalar& color, int32_t thickness, double arrowSize) {
+    if (!RequireDrawableImage(image, "Draw::Arrow")) {
+        return;
+    }
+    RequirePointValid(from, "Draw::Arrow");
+    RequirePointValid(to, "Draw::Arrow");
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Arrow: thickness must be > 0");
+    }
+    if (!std::isfinite(arrowSize) || arrowSize <= 0.0) {
+        throw InvalidArgumentException("Draw::Arrow: arrowSize must be > 0");
+    }
     Line(image, from, to, color, thickness);
 
     double dx = to.x - from.x;
@@ -332,7 +455,19 @@ void Draw::Arrow(QImage& image, const Point2d& from, const Point2d& to,
 void Draw::Arc(QImage& image, const Point2d& center, double radius,
                double startAngle, double endAngle,
                const Scalar& color, int32_t thickness) {
-    if (radius <= 0) return;
+    if (!RequireDrawableImage(image, "Draw::Arc")) {
+        return;
+    }
+    RequirePointValid(center, "Draw::Arc");
+    if (!std::isfinite(radius) || radius <= 0.0) {
+        throw InvalidArgumentException("Draw::Arc: radius must be > 0");
+    }
+    if (!std::isfinite(startAngle) || !std::isfinite(endAngle)) {
+        throw InvalidArgumentException("Draw::Arc: invalid angle");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Arc: thickness must be > 0");
+    }
 
     // Normalize angles
     while (endAngle < startAngle) endAngle += 2.0 * 3.14159265358979323846;
@@ -357,7 +492,14 @@ void Draw::Arc(QImage& image, const Point2d& center, double radius,
 
 void Draw::Polyline(QImage& image, const std::vector<Point2d>& points,
                     const Scalar& color, int32_t thickness, bool closed) {
+    if (!RequireDrawableImage(image, "Draw::Polyline")) {
+        return;
+    }
     if (points.size() < 2) return;
+    RequirePointsValid(points, "Draw::Polyline");
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Polyline: thickness must be > 0");
+    }
 
     for (size_t i = 0; i < points.size() - 1; ++i) {
         Line(image, points[i], points[i + 1], color, thickness);
@@ -370,7 +512,11 @@ void Draw::Polyline(QImage& image, const std::vector<Point2d>& points,
 
 void Draw::FilledPolygon(QImage& image, const std::vector<Point2d>& points,
                          const Scalar& color) {
+    if (!RequireDrawableImage(image, "Draw::FilledPolygon")) {
+        return;
+    }
     if (points.size() < 3) return;
+    RequirePointsValid(points, "Draw::FilledPolygon");
 
     // Find bounding box
     double minY = points[0].y, maxY = points[0].y;
@@ -415,6 +561,19 @@ void Draw::FilledPolygon(QImage& image, const std::vector<Point2d>& points,
 void Draw::RotatedRectangle(QImage& image, const Point2d& center,
                             double width, double height, double angle,
                             const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::RotatedRectangle")) {
+        return;
+    }
+    RequirePointValid(center, "Draw::RotatedRectangle");
+    if (!std::isfinite(width) || !std::isfinite(height) || width <= 0.0 || height <= 0.0) {
+        throw InvalidArgumentException("Draw::RotatedRectangle: width/height must be > 0");
+    }
+    if (!std::isfinite(angle)) {
+        throw InvalidArgumentException("Draw::RotatedRectangle: invalid angle");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::RotatedRectangle: thickness must be > 0");
+    }
     double cosA = std::cos(angle);
     double sinA = std::sin(angle);
     double hw = width / 2.0;
@@ -436,6 +595,15 @@ void Draw::RotatedRectangle(QImage& image, const Point2d& center,
 
 void Draw::MatchResult(QImage& image, const Matching::MatchResult& match,
                        const Scalar& color, int32_t markerSize) {
+    if (!RequireDrawableImage(image, "Draw::MatchResult")) {
+        return;
+    }
+    if (!std::isfinite(match.x) || !std::isfinite(match.y) || !std::isfinite(match.angle)) {
+        throw InvalidArgumentException("Draw::MatchResult: invalid match");
+    }
+    if (markerSize <= 0) {
+        throw InvalidArgumentException("Draw::MatchResult: markerSize must be > 0");
+    }
     Cross(image, Point2d{match.x, match.y}, markerSize, match.angle, color, 2);
 
     double cosA = std::cos(match.angle);
@@ -450,10 +618,18 @@ void Draw::MatchResult(QImage& image, const Matching::MatchResult& match,
 void Draw::MatchResultWithContour(QImage& image, const Matching::MatchResult& match,
                                    const std::vector<Point2d>& modelContour,
                                    const Scalar& color, int32_t /*thickness*/) {
+    if (!RequireDrawableImage(image, "Draw::MatchResultWithContour")) {
+        return;
+    }
+    if (!std::isfinite(match.x) || !std::isfinite(match.y) || !std::isfinite(match.angle) ||
+        !std::isfinite(match.scaleX) || !std::isfinite(match.scaleY)) {
+        throw InvalidArgumentException("Draw::MatchResultWithContour: invalid match");
+    }
     if (modelContour.empty()) {
         MatchResult(image, match, color, 20);
         return;
     }
+    RequirePointsValid(modelContour, "Draw::MatchResultWithContour");
 
     double cosA = std::cos(match.angle);
     double sinA = std::sin(match.angle);
@@ -475,6 +651,20 @@ void Draw::MatchResultWithContour(QImage& image, const Matching::MatchResult& ma
 
 void Draw::MatchResults(QImage& image, const std::vector<Matching::MatchResult>& matches,
                         const Scalar& color, int32_t markerSize) {
+    if (!RequireDrawableImage(image, "Draw::MatchResults")) {
+        return;
+    }
+    if (matches.empty()) {
+        return;
+    }
+    if (markerSize <= 0) {
+        throw InvalidArgumentException("Draw::MatchResults: markerSize must be > 0");
+    }
+    for (const auto& match : matches) {
+        if (!std::isfinite(match.x) || !std::isfinite(match.y) || !std::isfinite(match.angle)) {
+            throw InvalidArgumentException("Draw::MatchResults: invalid match");
+        }
+    }
     std::vector<Scalar> colors = {
         Scalar::Green(), Scalar::Red(), Scalar::Blue(),
         Scalar::Yellow(), Scalar::Cyan(), Scalar::Magenta()
@@ -686,7 +876,15 @@ static const uint8_t FONT_5x7[][7] = {
 
 void Draw::Text(QImage& image, int32_t x, int32_t y, const std::string& text,
                 const Scalar& color, int32_t scale) {
-    if (scale < 1) scale = 1;
+    if (!RequireDrawableImage(image, "Draw::Text")) {
+        return;
+    }
+    if (text.empty()) {
+        return;
+    }
+    if (scale < 1) {
+        throw InvalidArgumentException("Draw::Text: scale must be > 0");
+    }
     int32_t curX = x;
 
     for (unsigned char c : text) {
@@ -738,6 +936,15 @@ namespace Qi::Vision {
 
 void Draw::MeasureRect(QImage& image, const Measure::MeasureRectangle2& handle,
                        const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::MeasureRect")) {
+        return;
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("Draw::MeasureRect: invalid handle");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MeasureRect: thickness must be > 0");
+    }
     // MeasureRectangle2 geometry (Halcon compatible):
     // - Row, Column: Rectangle center
     // - Phi: Edge direction (perpendicular to profile/measurement direction)
@@ -778,6 +985,15 @@ void Draw::MeasureRect(QImage& image, const Measure::MeasureRectangle2& handle,
 
 void Draw::MeasureArc(QImage& image, const Measure::MeasureArc& handle,
                       const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::MeasureArc")) {
+        return;
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("Draw::MeasureArc: invalid handle");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MeasureArc: thickness must be > 0");
+    }
     // MeasureArc geometry (Halcon compatible):
     // - CenterRow, CenterCol: Arc center
     // - Radius: Arc radius (center of annular region)
@@ -824,6 +1040,15 @@ void Draw::MeasureArc(QImage& image, const Measure::MeasureArc& handle,
 
 void Draw::MeasureConcentric(QImage& image, const Measure::MeasureConcentricCircles& handle,
                               const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::MeasureConcentric")) {
+        return;
+    }
+    if (!handle.IsValid()) {
+        throw InvalidArgumentException("Draw::MeasureConcentric: invalid handle");
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MeasureConcentric: thickness must be > 0");
+    }
     // MeasureConcentricCircles geometry:
     // - CenterRow, CenterCol: Circle center
     // - InnerRadius, OuterRadius: Radial extent
@@ -872,7 +1097,18 @@ void Draw::MeasureConcentric(QImage& image, const Measure::MeasureConcentricCirc
 void Draw::MeasureRects(QImage& image,
                         const std::vector<Measure::MeasureRectangle2>& handles,
                         const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::MeasureRects")) {
+        return;
+    }
     if (handles.empty()) return;
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MeasureRects: thickness must be > 0");
+    }
+    for (const auto& handle : handles) {
+        if (!handle.IsValid()) {
+            throw InvalidArgumentException("Draw::MeasureRects: invalid handle");
+        }
+    }
 
     // 1. Calculate geometric center and average radius
     double centerX = 0, centerY = 0;
@@ -908,8 +1144,15 @@ void Draw::MeasureRects(QImage& image,
 
 void Draw::Contour(QImage& image, const QContour& contour,
                    const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::Contour")) {
+        return;
+    }
     auto points = contour.GetPoints();
     if (points.size() < 2) return;
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::Contour: thickness must be > 0");
+    }
+    RequirePointsValid(points, "Draw::Contour");
 
     for (size_t i = 0; i < points.size() - 1; ++i) {
         Line(image, points[i], points[i + 1], color, thickness);
@@ -926,7 +1169,10 @@ void Draw::Contour(QImage& image, const QContour& contour,
 // =============================================================================
 
 void Draw::Region(QImage& image, const QRegion& region, const Scalar& color) {
-    if (region.Empty() || image.Empty()) return;
+    if (!RequireDrawableImage(image, "Draw::Region")) {
+        return;
+    }
+    if (region.Empty()) return;
 
     uint8_t* data = static_cast<uint8_t*>(image.Data());
     int32_t stride = image.Stride();
@@ -956,7 +1202,13 @@ void Draw::Region(QImage& image, const QRegion& region, const Scalar& color) {
 
 void Draw::RegionContour(QImage& image, const QRegion& region,
                          const Scalar& color, int32_t thickness) {
-    if (region.Empty() || image.Empty()) return;
+    if (!RequireDrawableImage(image, "Draw::RegionContour")) {
+        return;
+    }
+    if (region.Empty()) return;
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::RegionContour: thickness must be > 0");
+    }
 
     int32_t width = image.Width();
     int32_t height = image.Height();
@@ -1012,7 +1264,13 @@ void Draw::RegionContour(QImage& image, const QRegion& region,
 
 void Draw::RegionAlpha(QImage& image, const QRegion& region,
                        const Scalar& color, double alpha) {
-    if (region.Empty() || image.Empty()) return;
+    if (!RequireDrawableImage(image, "Draw::RegionAlpha")) {
+        return;
+    }
+    if (region.Empty()) return;
+    if (!std::isfinite(alpha) || alpha < 0.0 || alpha > 1.0) {
+        throw InvalidArgumentException("Draw::RegionAlpha: alpha must be in [0,1]");
+    }
     if (alpha <= 0.0) return;
     if (alpha >= 1.0) {
         Region(image, region, color);
@@ -1050,6 +1308,13 @@ void Draw::RegionAlpha(QImage& image, const QRegion& region,
 
 void Draw::EdgePoints(QImage& image, const std::vector<Point2d>& points,
                       const Scalar& color, int32_t markerSize) {
+    if (!RequireDrawableImage(image, "Draw::EdgePoints")) {
+        return;
+    }
+    RequirePointsValid(points, "Draw::EdgePoints");
+    if (markerSize <= 0) {
+        throw InvalidArgumentException("Draw::EdgePoints: markerSize must be > 0");
+    }
     for (const auto& pt : points) {
         Cross(image, pt, markerSize, color, 1);
     }
@@ -1057,6 +1322,12 @@ void Draw::EdgePoints(QImage& image, const std::vector<Point2d>& points,
 
 void Draw::MetrologyLine(QImage& image, const Measure::MetrologyLineResult& result,
                          const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::MetrologyLine")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MetrologyLine: thickness must be > 0");
+    }
     if (!result.IsValid()) return;
 
     // Draw the fitted line segment
@@ -1067,6 +1338,12 @@ void Draw::MetrologyLine(QImage& image, const Measure::MetrologyLineResult& resu
 
 void Draw::MetrologyCircle(QImage& image, const Measure::MetrologyCircleResult& result,
                            const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::MetrologyCircle")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MetrologyCircle: thickness must be > 0");
+    }
     if (!result.IsValid()) return;
 
     // Draw the fitted circle
@@ -1076,6 +1353,12 @@ void Draw::MetrologyCircle(QImage& image, const Measure::MetrologyCircleResult& 
 
 void Draw::MetrologyEllipse(QImage& image, const Measure::MetrologyEllipseResult& result,
                             const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::MetrologyEllipse")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MetrologyEllipse: thickness must be > 0");
+    }
     if (!result.IsValid()) return;
 
     // Draw the fitted ellipse (ra = semi-major, rb = semi-minor)
@@ -1085,6 +1368,12 @@ void Draw::MetrologyEllipse(QImage& image, const Measure::MetrologyEllipseResult
 
 void Draw::MetrologyRectangle(QImage& image, const Measure::MetrologyRectangle2Result& result,
                               const Scalar& color, int32_t thickness) {
+    if (!RequireDrawableImage(image, "Draw::MetrologyRectangle")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MetrologyRectangle: thickness must be > 0");
+    }
     if (!result.IsValid()) return;
 
     // Draw the fitted rectangle
@@ -1096,6 +1385,18 @@ void Draw::MetrologyRectangle(QImage& image, const Measure::MetrologyRectangle2R
 
 void Draw::EdgePointsWeighted(QImage& image, const std::vector<Point2d>& points,
                                const std::vector<double>& weights, int32_t markerSize) {
+    if (!RequireDrawableImage(image, "Draw::EdgePointsWeighted")) {
+        return;
+    }
+    RequirePointsValid(points, "Draw::EdgePointsWeighted");
+    if (markerSize <= 0) {
+        throw InvalidArgumentException("Draw::EdgePointsWeighted: markerSize must be > 0");
+    }
+    for (double w : weights) {
+        if (!std::isfinite(w)) {
+            throw InvalidArgumentException("Draw::EdgePointsWeighted: invalid weight");
+        }
+    }
     if (points.empty()) return;
 
     // Detect if weights are binary (RANSAC/Tukey) or continuous (Huber)
@@ -1137,7 +1438,13 @@ void Draw::MetrologyModelResult(QImage& image, const Measure::MetrologyModel& mo
                                 bool drawPoints) {
     using namespace Measure;
 
+    if (!RequireDrawableImage(image, "Draw::MetrologyModelResult")) {
+        return;
+    }
     int32_t numObjects = model.NumObjects();
+    if (numObjects <= 0) {
+        return;
+    }
 
     for (int32_t idx = 0; idx < numObjects; ++idx) {
         const MetrologyObject* obj = model.GetObject(idx);
@@ -1207,6 +1514,12 @@ void Draw::ShapeMatchingResults(QImage& image,
     (void)unmatchedColor;  // Reserved for quality-based coloring
     (void)threshold;
 
+    if (!RequireDrawableImage(image, "Draw::ShapeMatchingResults")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::ShapeMatchingResults: thickness must be > 0");
+    }
     if (!model.IsValid() || matches.empty()) {
         return;
     }
@@ -1216,6 +1529,9 @@ void Draw::ShapeMatchingResults(QImage& image,
     Matching::GetShapeModelXLD(model, 1, contours);
 
     for (const auto& match : matches) {
+        if (!std::isfinite(match.x) || !std::isfinite(match.y) || !std::isfinite(match.angle)) {
+            throw InvalidArgumentException("Draw::ShapeMatchingResults: invalid match");
+        }
         double cosA = std::cos(match.angle);
         double sinA = std::sin(match.angle);
 
@@ -1249,6 +1565,13 @@ void Draw::MatchedContour(QImage& image,
                            const Scalar& unmatchedColor,
                            int32_t thickness)
 {
+    if (!RequireDrawableImage(image, "Draw::MatchedContour")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MatchedContour: thickness must be > 0");
+    }
+    RequireMatchedContourPointsValid(contour, "Draw::MatchedContour");
     MatchedContourSegment(image, contour, matchedColor, unmatchedColor, thickness, true);
 }
 
@@ -1259,6 +1582,13 @@ void Draw::MatchedContourSegment(QImage& image,
                                   int32_t thickness,
                                   bool autoClose)
 {
+    if (!RequireDrawableImage(image, "Draw::MatchedContourSegment")) {
+        return;
+    }
+    if (thickness <= 0) {
+        throw InvalidArgumentException("Draw::MatchedContourSegment: thickness must be > 0");
+    }
+    RequireMatchedContourPointsValid(contour, "Draw::MatchedContourSegment");
     if (contour.points.size() < 2) return;
 
     for (size_t i = 1; i < contour.points.size(); ++i) {

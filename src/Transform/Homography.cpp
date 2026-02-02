@@ -6,14 +6,56 @@
 #include <QiVision/Transform/Homography.h>
 #include <QiVision/Internal/Homography.h>
 #include <QiVision/Internal/Interpolate.h>
+#include <QiVision/Core/Exception.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 
 namespace Qi::Vision::Transform {
 
 namespace {
+
+bool RequireImage(const QImage& src, QImage& dst, const char* funcName) {
+    (void)funcName;
+    if (src.Empty()) {
+        dst = QImage();
+        return false;
+    }
+    if (!src.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    return true;
+}
+
+void RequireFinite(double value, const char* name, const char* funcName) {
+    if (!std::isfinite(value)) {
+        throw InvalidArgumentException(std::string(funcName) + ": " + name + " is invalid");
+    }
+}
+
+void RequireNonNegativeSize(int32_t value, const char* name, const char* funcName) {
+    if (value < 0) {
+        throw InvalidArgumentException(std::string(funcName) + ": " + name + " must be >= 0");
+    }
+}
+
+void RequireHomographyFinite(const HomMat3d& homMat3d, const char* funcName) {
+    double elements[9];
+    homMat3d.GetElements(elements);
+    for (double v : elements) {
+        if (!std::isfinite(v)) {
+            throw InvalidArgumentException(std::string(funcName) + ": invalid homography");
+        }
+    }
+}
+
+void RequirePointValid(const Point2d& point, const char* funcName) {
+    if (!point.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid point");
+    }
+}
 
 // Convert string to interpolation method
 Internal::InterpolationMethod ToInternalInterp(const std::string& interp) {
@@ -26,8 +68,10 @@ Internal::InterpolationMethod ToInternalInterp(const std::string& interp) {
     } else if (lower == "bicubic") {
         return Internal::InterpolationMethod::Bicubic;
     }
-    // Default to bilinear
-    return Internal::InterpolationMethod::Bilinear;
+    if (lower.empty() || lower == "bilinear") {
+        return Internal::InterpolationMethod::Bilinear;
+    }
+    throw InvalidArgumentException("Unknown interpolation: " + interp);
 }
 
 // Convert string to border mode
@@ -43,8 +87,10 @@ Internal::BorderMode ToInternalBorderMode(const std::string& mode) {
     } else if (lower == "wrap") {
         return Internal::BorderMode::Wrap;
     }
-    // Default to constant
-    return Internal::BorderMode::Constant;
+    if (lower.empty() || lower == "constant") {
+        return Internal::BorderMode::Constant;
+    }
+    throw InvalidArgumentException("Unknown border mode: " + mode);
 }
 
 // Convert HomMat3d to Internal::Homography
@@ -205,6 +251,11 @@ void ProjectiveTransImage(
     const std::string& borderMode,
     double borderValue)
 {
+    if (!RequireImage(src, dst, "ProjectiveTransImage")) {
+        return;
+    }
+    RequireHomographyFinite(homMat3d, "ProjectiveTransImage");
+    RequireFinite(borderValue, "borderValue", "ProjectiveTransImage");
     Internal::Homography internal = ToInternalHomography(homMat3d);
     dst = Internal::WarpPerspective(
         src,
@@ -226,6 +277,13 @@ void ProjectiveTransImage(
     const std::string& borderMode,
     double borderValue)
 {
+    if (!RequireImage(src, dst, "ProjectiveTransImage")) {
+        return;
+    }
+    RequireHomographyFinite(homMat3d, "ProjectiveTransImage");
+    RequireNonNegativeSize(dstWidth, "dstWidth", "ProjectiveTransImage");
+    RequireNonNegativeSize(dstHeight, "dstHeight", "ProjectiveTransImage");
+    RequireFinite(borderValue, "borderValue", "ProjectiveTransImage");
     Internal::Homography internal = ToInternalHomography(homMat3d);
     dst = Internal::WarpPerspective(
         src,
@@ -246,14 +304,24 @@ HomMat3d ProjHomMat2dIdentity() {
 }
 
 HomMat3d HomMat2dToProjHomMat(const QMatrix& homMat2d) {
+    double elements[6];
+    homMat2d.GetElements(elements);
+    for (double v : elements) {
+        if (!std::isfinite(v)) {
+            throw InvalidArgumentException("HomMat2dToProjHomMat: invalid affine matrix");
+        }
+    }
     return HomMat3d::FromAffine(homMat2d);
 }
 
 HomMat3d ProjHomMat2dCompose(const HomMat3d& homMat3d1, const HomMat3d& homMat3d2) {
+    RequireHomographyFinite(homMat3d1, "ProjHomMat2dCompose");
+    RequireHomographyFinite(homMat3d2, "ProjHomMat2dCompose");
     return homMat3d1 * homMat3d2;
 }
 
 HomMat3d ProjHomMat2dInvert(const HomMat3d& homMat3d) {
+    RequireHomographyFinite(homMat3d, "ProjHomMat2dInvert");
     return homMat3d.Inverse();
 }
 
@@ -262,6 +330,8 @@ HomMat3d ProjHomMat2dInvert(const HomMat3d& homMat3d) {
 // =============================================================================
 
 Point2d ProjectiveTransPoint2d(const HomMat3d& homMat3d, const Point2d& point) {
+    RequireHomographyFinite(homMat3d, "ProjectiveTransPoint2d");
+    RequirePointValid(point, "ProjectiveTransPoint2d");
     return homMat3d.Transform(point);
 }
 
@@ -270,6 +340,9 @@ void ProjectiveTransPoint2d(
     double py, double px,
     double& qy, double& qx)
 {
+    RequireHomographyFinite(homMat3d, "ProjectiveTransPoint2d");
+    RequireFinite(py, "py", "ProjectiveTransPoint2d");
+    RequireFinite(px, "px", "ProjectiveTransPoint2d");
     Point2d result = homMat3d.Transform(px, py);
     qx = result.x;
     qy = result.y;
@@ -279,6 +352,12 @@ std::vector<Point2d> ProjectiveTransPoint2d(
     const HomMat3d& homMat3d,
     const std::vector<Point2d>& points)
 {
+    RequireHomographyFinite(homMat3d, "ProjectiveTransPoint2d");
+    for (const auto& p : points) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("ProjectiveTransPoint2d: invalid point");
+        }
+    }
     return homMat3d.Transform(points);
 }
 
@@ -291,6 +370,25 @@ bool VectorToProjHomMat2d(
     const std::vector<Point2d>& dstPoints,
     HomMat3d& homMat3d)
 {
+    if (srcPoints.empty() || dstPoints.empty()) {
+        throw InvalidArgumentException("VectorToProjHomMat2d: input points are empty");
+    }
+    if (srcPoints.size() != dstPoints.size()) {
+        throw InvalidArgumentException("VectorToProjHomMat2d: source and destination size mismatch");
+    }
+    if (srcPoints.size() < 4) {
+        throw InvalidArgumentException("VectorToProjHomMat2d: at least 4 points required");
+    }
+    for (const auto& p : srcPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("VectorToProjHomMat2d: invalid source point");
+        }
+    }
+    for (const auto& p : dstPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("VectorToProjHomMat2d: invalid destination point");
+        }
+    }
     auto result = Internal::EstimateHomography(srcPoints, dstPoints);
     if (result) {
         homMat3d = FromInternalHomography(*result);
@@ -304,6 +402,16 @@ bool HomVectorToProjHomMat2d(
     const std::array<Point2d, 4>& dstPoints,
     HomMat3d& homMat3d)
 {
+    for (const auto& p : srcPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("HomVectorToProjHomMat2d: invalid source point");
+        }
+    }
+    for (const auto& p : dstPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("HomVectorToProjHomMat2d: invalid destination point");
+        }
+    }
     auto result = Internal::Homography::From4Points(srcPoints, dstPoints);
     if (result) {
         homMat3d = FromInternalHomography(*result);
@@ -321,6 +429,36 @@ bool ProjMatchPointsRansac(
     int32_t maxIterations,
     std::vector<bool>* inlierMask)
 {
+    if (srcPoints.empty() || dstPoints.empty()) {
+        throw InvalidArgumentException("ProjMatchPointsRansac: input points are empty");
+    }
+    if (srcPoints.size() != dstPoints.size()) {
+        throw InvalidArgumentException("ProjMatchPointsRansac: source and destination size mismatch");
+    }
+    if (srcPoints.size() < 4) {
+        throw InvalidArgumentException("ProjMatchPointsRansac: at least 4 points required");
+    }
+    for (const auto& p : srcPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("ProjMatchPointsRansac: invalid source point");
+        }
+    }
+    for (const auto& p : dstPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("ProjMatchPointsRansac: invalid destination point");
+        }
+    }
+    RequireFinite(distanceThreshold, "distanceThreshold", "ProjMatchPointsRansac");
+    RequireFinite(confidence, "confidence", "ProjMatchPointsRansac");
+    if (distanceThreshold <= 0.0) {
+        throw InvalidArgumentException("ProjMatchPointsRansac: distanceThreshold must be > 0");
+    }
+    if (confidence <= 0.0 || confidence >= 1.0) {
+        throw InvalidArgumentException("ProjMatchPointsRansac: confidence must be in (0, 1)");
+    }
+    if (maxIterations <= 0) {
+        throw InvalidArgumentException("ProjMatchPointsRansac: maxIterations must be > 0");
+    }
     auto result = Internal::EstimateHomographyRANSAC(
         srcPoints, dstPoints,
         distanceThreshold, confidence, maxIterations,
@@ -344,6 +482,16 @@ bool RectifyQuadrilateral(
     double height,
     HomMat3d& homMat3d)
 {
+    for (const auto& p : quadPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("RectifyQuadrilateral: invalid point");
+        }
+    }
+    RequireFinite(width, "width", "RectifyQuadrilateral");
+    RequireFinite(height, "height", "RectifyQuadrilateral");
+    if (width <= 0.0 || height <= 0.0) {
+        throw InvalidArgumentException("RectifyQuadrilateral: width/height must be > 0");
+    }
     auto result = Internal::RectifyQuadrilateral(quadPoints, width, height);
     if (result) {
         homMat3d = FromInternalHomography(*result);
@@ -358,6 +506,16 @@ bool RectangleToQuadrilateral(
     const std::array<Point2d, 4>& quadPoints,
     HomMat3d& homMat3d)
 {
+    for (const auto& p : quadPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("RectangleToQuadrilateral: invalid point");
+        }
+    }
+    RequireFinite(width, "width", "RectangleToQuadrilateral");
+    RequireFinite(height, "height", "RectangleToQuadrilateral");
+    if (width <= 0.0 || height <= 0.0) {
+        throw InvalidArgumentException("RectangleToQuadrilateral: width/height must be > 0");
+    }
     auto result = Internal::RectangleToQuadrilateral(width, height, quadPoints);
     if (result) {
         homMat3d = FromInternalHomography(*result);
@@ -367,6 +525,10 @@ bool RectangleToQuadrilateral(
 }
 
 bool IsValidHomography(const HomMat3d& homMat3d, int32_t srcWidth, int32_t srcHeight) {
+    if (srcWidth <= 0 || srcHeight <= 0) {
+        throw InvalidArgumentException("IsValidHomography: srcWidth/srcHeight must be > 0");
+    }
+    RequireHomographyFinite(homMat3d, "IsValidHomography");
     Internal::Homography internal = ToInternalHomography(homMat3d);
     return Internal::IsValidHomography(internal, srcWidth, srcHeight);
 }
@@ -376,6 +538,23 @@ double HomographyError(
     const std::vector<Point2d>& dstPoints,
     const HomMat3d& homMat3d)
 {
+    if (srcPoints.empty() || dstPoints.empty()) {
+        throw InvalidArgumentException("HomographyError: input points are empty");
+    }
+    if (srcPoints.size() != dstPoints.size()) {
+        throw InvalidArgumentException("HomographyError: source and destination size mismatch");
+    }
+    RequireHomographyFinite(homMat3d, "HomographyError");
+    for (const auto& p : srcPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("HomographyError: invalid source point");
+        }
+    }
+    for (const auto& p : dstPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("HomographyError: invalid destination point");
+        }
+    }
     Internal::Homography internal = ToInternalHomography(homMat3d);
     return Internal::ComputeHomographyError(srcPoints, dstPoints, internal);
 }
@@ -386,6 +565,26 @@ void RefineHomography(
     HomMat3d& homMat3d,
     int32_t maxIterations)
 {
+    if (srcPoints.empty() || dstPoints.empty()) {
+        throw InvalidArgumentException("RefineHomography: input points are empty");
+    }
+    if (srcPoints.size() != dstPoints.size()) {
+        throw InvalidArgumentException("RefineHomography: source and destination size mismatch");
+    }
+    RequireHomographyFinite(homMat3d, "RefineHomography");
+    for (const auto& p : srcPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("RefineHomography: invalid source point");
+        }
+    }
+    for (const auto& p : dstPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("RefineHomography: invalid destination point");
+        }
+    }
+    if (maxIterations <= 0) {
+        throw InvalidArgumentException("RefineHomography: maxIterations must be > 0");
+    }
     Internal::Homography internal = ToInternalHomography(homMat3d);
     Internal::Homography refined = Internal::RefineHomographyLM(
         srcPoints, dstPoints, internal, maxIterations

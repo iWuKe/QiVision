@@ -1,10 +1,10 @@
 #include <QiVision/Core/QContour.h>
 #include <QiVision/Core/QMatrix.h>
 #include <QiVision/Core/Constants.h>
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Internal/ContourProcess.h>
 #include <algorithm>
 #include <cmath>
-#include <stdexcept>
 #include <numeric>
 #include <functional>
 
@@ -18,6 +18,11 @@ QContour::QContour() = default;
 
 QContour::QContour(const std::vector<Point2d>& points, bool closed)
     : closed_(closed) {
+    for (const auto& p : points) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("QContour::QContour: invalid point");
+        }
+    }
     points_.reserve(points.size());
     for (const auto& p : points) {
         points_.emplace_back(p.x, p.y);
@@ -25,7 +30,15 @@ QContour::QContour(const std::vector<Point2d>& points, bool closed)
 }
 
 QContour::QContour(const std::vector<ContourPoint>& points, bool closed)
-    : points_(points), closed_(closed) {}
+    : points_(points), closed_(closed) {
+    for (const auto& p : points_) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+            !std::isfinite(p.amplitude) || !std::isfinite(p.direction) ||
+            !std::isfinite(p.curvature)) {
+            throw InvalidArgumentException("QContour::QContour: invalid contour point");
+        }
+    }
+}
 
 QContour::QContour(size_t capacity) {
     points_.reserve(capacity);
@@ -37,14 +50,14 @@ QContour::QContour(size_t capacity) {
 
 const ContourPoint& QContour::At(size_t index) const {
     if (index >= points_.size()) {
-        throw std::out_of_range("Contour point index out of range");
+        throw OutOfRangeException("QContour::At: index out of range");
     }
     return points_[index];
 }
 
 ContourPoint& QContour::At(size_t index) {
     if (index >= points_.size()) {
-        throw std::out_of_range("Contour point index out of range");
+        throw OutOfRangeException("QContour::At: index out of range");
     }
     InvalidateCache();
     return points_[index];
@@ -68,23 +81,39 @@ std::vector<Point2d> QContour::GetPoints() const {
 // =============================================================================
 
 void QContour::AddPoint(const Point2d& p) {
+    if (!p.IsValid()) {
+        throw InvalidArgumentException("QContour::AddPoint: invalid point");
+    }
     points_.emplace_back(p.x, p.y);
     InvalidateCache();
 }
 
 void QContour::AddPoint(double x, double y) {
+    if (!std::isfinite(x) || !std::isfinite(y)) {
+        throw InvalidArgumentException("QContour::AddPoint: invalid point");
+    }
     points_.emplace_back(x, y);
     InvalidateCache();
 }
 
 void QContour::AddPoint(const ContourPoint& p) {
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+        !std::isfinite(p.amplitude) || !std::isfinite(p.direction) ||
+        !std::isfinite(p.curvature)) {
+        throw InvalidArgumentException("QContour::AddPoint: invalid contour point");
+    }
     points_.push_back(p);
     InvalidateCache();
 }
 
 void QContour::InsertPoint(size_t index, const ContourPoint& p) {
     if (index > points_.size()) {
-        throw std::out_of_range("Insert index out of range");
+        throw OutOfRangeException("QContour::InsertPoint: index out of range");
+    }
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+        !std::isfinite(p.amplitude) || !std::isfinite(p.direction) ||
+        !std::isfinite(p.curvature)) {
+        throw InvalidArgumentException("QContour::InsertPoint: invalid contour point");
     }
     points_.insert(points_.begin() + static_cast<ptrdiff_t>(index), p);
     InvalidateCache();
@@ -92,7 +121,7 @@ void QContour::InsertPoint(size_t index, const ContourPoint& p) {
 
 void QContour::RemovePoint(size_t index) {
     if (index >= points_.size()) {
-        throw std::out_of_range("Remove index out of range");
+        throw OutOfRangeException("QContour::RemovePoint: index out of range");
     }
     points_.erase(points_.begin() + static_cast<ptrdiff_t>(index));
     InvalidateCache();
@@ -108,6 +137,11 @@ void QContour::Reserve(size_t capacity) {
 }
 
 void QContour::SetPoints(const std::vector<Point2d>& points) {
+    for (const auto& p : points) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("QContour::SetPoints: invalid point");
+        }
+    }
     points_.clear();
     points_.reserve(points.size());
     for (const auto& p : points) {
@@ -117,6 +151,13 @@ void QContour::SetPoints(const std::vector<Point2d>& points) {
 }
 
 void QContour::SetPoints(const std::vector<ContourPoint>& points) {
+    for (const auto& p : points) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+            !std::isfinite(p.amplitude) || !std::isfinite(p.direction) ||
+            !std::isfinite(p.curvature)) {
+            throw InvalidArgumentException("QContour::SetPoints: invalid contour point");
+        }
+    }
     points_ = points;
     InvalidateCache();
 }
@@ -309,6 +350,9 @@ void QContour::Reverse() {
 // =============================================================================
 
 Point2d QContour::PointAt(double t) const {
+    if (!std::isfinite(t)) {
+        throw InvalidArgumentException("QContour::PointAt: t must be finite");
+    }
     if (points_.empty()) {
         return {0.0, 0.0};
     }
@@ -351,6 +395,9 @@ Point2d QContour::PointAt(double t) const {
 }
 
 double QContour::TangentAt(double t) const {
+    if (!std::isfinite(t)) {
+        throw InvalidArgumentException("QContour::TangentAt: t must be finite");
+    }
     if (points_.size() < 2) {
         return 0.0;
     }
@@ -390,6 +437,9 @@ double QContour::NormalAt(double t) const {
 }
 
 void QContour::NearestPoint(const Point2d& p, double& t, double& distance) const {
+    if (!p.IsValid()) {
+        throw InvalidArgumentException("QContour::NearestPoint: invalid point");
+    }
     if (points_.empty()) {
         t = 0.0;
         distance = 0.0;
@@ -443,16 +493,25 @@ void QContour::NearestPoint(const Point2d& p, double& t, double& distance) const
 }
 
 double QContour::DistanceToPoint(const Point2d& p) const {
+    if (!p.IsValid()) {
+        throw InvalidArgumentException("QContour::DistanceToPoint: invalid point");
+    }
     double t, dist;
     NearestPoint(p, t, dist);
     return dist;
 }
 
 bool QContour::Contains(const Point2d& p) const {
+    if (!p.IsValid()) {
+        throw InvalidArgumentException("QContour::Contains: invalid point");
+    }
     return Contains(p.x, p.y);
 }
 
 bool QContour::Contains(double x, double y) const {
+    if (!std::isfinite(x) || !std::isfinite(y)) {
+        throw InvalidArgumentException("QContour::Contains: invalid point");
+    }
     if (!closed_ || points_.size() < 3) {
         return false;
     }
@@ -486,6 +545,9 @@ bool QContour::Contains(double x, double y) const {
 // =============================================================================
 
 QContour QContour::Translate(double dx, double dy) const {
+    if (!std::isfinite(dx) || !std::isfinite(dy)) {
+        throw InvalidArgumentException("QContour::Translate: invalid offset");
+    }
     QContour result(*this);
     for (auto& p : result.points_) {
         p.x += dx;
@@ -496,6 +558,9 @@ QContour QContour::Translate(double dx, double dy) const {
 }
 
 QContour QContour::Translate(const Point2d& offset) const {
+    if (!offset.IsValid()) {
+        throw InvalidArgumentException("QContour::Translate: invalid offset");
+    }
     return Translate(offset.x, offset.y);
 }
 
@@ -504,11 +569,17 @@ QContour QContour::Scale(double factor) const {
 }
 
 QContour QContour::Scale(double sx, double sy) const {
+    if (!std::isfinite(sx) || !std::isfinite(sy)) {
+        throw InvalidArgumentException("QContour::Scale: invalid scale");
+    }
     Point2d center = Centroid();
     return Scale(sx, sy, center);
 }
 
 QContour QContour::Scale(double sx, double sy, const Point2d& center) const {
+    if (!std::isfinite(sx) || !std::isfinite(sy) || !center.IsValid()) {
+        throw InvalidArgumentException("QContour::Scale: invalid scale or center");
+    }
     QContour result(*this);
     for (auto& p : result.points_) {
         p.x = center.x + (p.x - center.x) * sx;
@@ -519,11 +590,17 @@ QContour QContour::Scale(double sx, double sy, const Point2d& center) const {
 }
 
 QContour QContour::Rotate(double angle) const {
+    if (!std::isfinite(angle)) {
+        throw InvalidArgumentException("QContour::Rotate: invalid angle");
+    }
     Point2d center = Centroid();
     return Rotate(angle, center);
 }
 
 QContour QContour::Rotate(double angle, const Point2d& center) const {
+    if (!std::isfinite(angle) || !center.IsValid()) {
+        throw InvalidArgumentException("QContour::Rotate: invalid angle or center");
+    }
     double c = std::cos(angle);
     double s = std::sin(angle);
 
@@ -564,26 +641,41 @@ QContour QContour::Clone() const {
 // =============================================================================
 
 QContour QContour::Smooth(double sigma) const {
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("QContour::Smooth: sigma must be > 0");
+    }
     // Delegate to ContourProcess module
     return Internal::SmoothContourGaussian(*this, {sigma});
 }
 
 QContour QContour::Simplify(double tolerance) const {
+    if (!std::isfinite(tolerance) || tolerance < 0.0) {
+        throw InvalidArgumentException("QContour::Simplify: tolerance must be >= 0");
+    }
     // Delegate to ContourProcess module
     return Internal::SimplifyContourDouglasPeucker(*this, {tolerance});
 }
 
 QContour QContour::Resample(double interval) const {
+    if (!std::isfinite(interval) || interval <= 0.0) {
+        throw InvalidArgumentException("QContour::Resample: interval must be > 0");
+    }
     // Delegate to ContourProcess module
     return Internal::ResampleContourByDistance(*this, {interval});
 }
 
 QContour QContour::ResampleCount(size_t count) const {
+    if (count < 2) {
+        throw InvalidArgumentException("QContour::ResampleCount: count must be >= 2");
+    }
     // Delegate to ContourProcess module
     return Internal::ResampleContourByCount(*this, {count});
 }
 
 void QContour::ComputeCurvature(int windowSize) {
+    if (windowSize < 2) {
+        throw InvalidArgumentException("QContour::ComputeCurvature: windowSize must be >= 2");
+    }
     if (points_.size() < 3) {
         return;
     }
@@ -665,6 +757,7 @@ std::vector<Segment2d> QContour::ToSegments(double maxError) const {
 }
 
 std::vector<Arc2d> QContour::ToArcs(double maxError) const {
+    (void)maxError;
     // Simplified implementation: detect regions of similar curvature
     // and fit arcs to them
     std::vector<Arc2d> arcs;
@@ -685,6 +778,13 @@ std::vector<Arc2d> QContour::ToArcs(double maxError) const {
 // =============================================================================
 
 QContour QContour::FromSegment(const Segment2d& segment, double interval) {
+    if (!segment.IsValid()) {
+        throw InvalidArgumentException("QContour::FromSegment: invalid segment");
+    }
+    if (!std::isfinite(interval) || interval <= 0.0) {
+        throw InvalidArgumentException("QContour::FromSegment: interval must be > 0");
+    }
+
     QContour result;
 
     double len = segment.Length();
@@ -704,6 +804,13 @@ QContour QContour::FromSegment(const Segment2d& segment, double interval) {
 }
 
 QContour QContour::FromArc(const Arc2d& arc, double interval) {
+    if (!arc.IsValid()) {
+        throw InvalidArgumentException("QContour::FromArc: invalid arc");
+    }
+    if (!std::isfinite(interval) || interval <= 0.0) {
+        throw InvalidArgumentException("QContour::FromArc: interval must be > 0");
+    }
+
     QContour result;
 
     double len = arc.Length();
@@ -725,6 +832,13 @@ QContour QContour::FromArc(const Arc2d& arc, double interval) {
 }
 
 QContour QContour::FromCircle(const Circle2d& circle, size_t numPoints) {
+    if (!circle.IsValid()) {
+        throw InvalidArgumentException("QContour::FromCircle: invalid circle");
+    }
+    if (numPoints < 3) {
+        throw InvalidArgumentException("QContour::FromCircle: numPoints must be >= 3");
+    }
+
     QContour result;
     result.Reserve(numPoints);
 
@@ -739,6 +853,13 @@ QContour QContour::FromCircle(const Circle2d& circle, size_t numPoints) {
 }
 
 QContour QContour::FromEllipse(const Ellipse2d& ellipse, size_t numPoints) {
+    if (!ellipse.IsValid()) {
+        throw InvalidArgumentException("QContour::FromEllipse: invalid ellipse");
+    }
+    if (numPoints < 3) {
+        throw InvalidArgumentException("QContour::FromEllipse: numPoints must be >= 3");
+    }
+
     QContour result;
     result.Reserve(numPoints);
 
@@ -759,6 +880,10 @@ QContour QContour::FromEllipse(const Ellipse2d& ellipse, size_t numPoints) {
 }
 
 QContour QContour::FromRectangle(const Rect2d& rect) {
+    if (!rect.IsValid()) {
+        throw InvalidArgumentException("QContour::FromRectangle: invalid rectangle");
+    }
+
     QContour result;
     result.Reserve(4);
 
@@ -772,6 +897,10 @@ QContour QContour::FromRectangle(const Rect2d& rect) {
 }
 
 QContour QContour::FromRotatedRect(const RotatedRect2d& rect) {
+    if (!rect.IsValid()) {
+        throw InvalidArgumentException("QContour::FromRotatedRect: invalid rotated rectangle");
+    }
+
     QContour result;
     result.Reserve(4);
 
@@ -787,6 +916,14 @@ QContour QContour::FromRotatedRect(const RotatedRect2d& rect) {
 }
 
 QContour QContour::FromPolygon(const std::vector<Point2d>& vertices, bool closed) {
+    if (vertices.empty()) {
+        return QContour();
+    }
+    for (const auto& p : vertices) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("QContour::FromPolygon: invalid vertex");
+        }
+    }
     return QContour(vertices, closed);
 }
 

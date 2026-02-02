@@ -66,7 +66,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
     //
     // The factor of 4 ensures coarse step is at least 4x fine step for efficiency,
     // while the 10° minimum prevents too many angles in coarse search.
-    constexpr double PYRAMID_REFINE_ANGLE_RANGE = 6.0 * PI / 180.0;  // ±6° at first refine level
+    [[maybe_unused]] constexpr double PYRAMID_REFINE_ANGLE_RANGE = 6.0 * PI / 180.0;  // ±6° at first refine level
 
     // Coarse step can be larger than 2*6°=12° because:
     // 1. Refinement has some tolerance for nearby angles

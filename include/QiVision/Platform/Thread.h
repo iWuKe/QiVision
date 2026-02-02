@@ -41,6 +41,7 @@
 #include <condition_variable>
 #include <queue>
 #include <atomic>
+#include <QiVision/Core/Export.h>
 
 namespace Qi::Vision::Platform {
 
@@ -52,7 +53,7 @@ namespace Qi::Vision::Platform {
  * @brief Get number of hardware threads (logical cores)
  * @return Number of threads, minimum 1
  */
-size_t GetNumCores();
+QIVISION_API size_t GetNumCores();
 
 /**
  * @brief Get recommended number of worker threads
@@ -60,7 +61,7 @@ size_t GetNumCores();
  *
  * Leaves one core for the main thread.
  */
-size_t GetRecommendedThreadCount();
+QIVISION_API size_t GetRecommendedThreadCount();
 
 // ============================================================================
 // Thread Pool
@@ -72,7 +73,7 @@ size_t GetRecommendedThreadCount();
  * Singleton pattern - use Instance() to access.
  * Automatically sized based on hardware.
  */
-class ThreadPool {
+class QIVISION_API ThreadPool {
 public:
     /**
      * @brief Get global thread pool instance
@@ -155,7 +156,7 @@ private:
  * Work is distributed across the thread pool.
  */
 template<typename Func>
-void ParallelFor(size_t begin, size_t end, Func&& func, size_t grainSize = 0);
+QIVISION_API void ParallelFor(size_t begin, size_t end, Func&& func, size_t grainSize = 0);
 
 /**
  * @brief Execute a function for ranges of indices
@@ -168,7 +169,7 @@ void ParallelFor(size_t begin, size_t end, Func&& func, size_t grainSize = 0);
  * The function handles its own loop: func(start, end)
  */
 template<typename Func>
-void ParallelForRange(size_t begin, size_t end, Func&& func, size_t numChunks = 0);
+QIVISION_API void ParallelForRange(size_t begin, size_t end, Func&& func, size_t numChunks = 0);
 
 /**
  * @brief Execute a 2D parallel for (for image processing)
@@ -181,7 +182,7 @@ void ParallelForRange(size_t begin, size_t end, Func&& func, size_t numChunks = 
  * This is cache-friendly for row-major image data.
  */
 template<typename Func>
-void ParallelFor2D(size_t rows, size_t cols, Func&& func, size_t rowGrain = 0);
+QIVISION_API void ParallelFor2D(size_t rows, size_t cols, Func&& func, size_t rowGrain = 0);
 
 /**
  * @brief Execute a 2D parallel for with row ranges
@@ -192,7 +193,7 @@ void ParallelFor2D(size_t rows, size_t cols, Func&& func, size_t rowGrain = 0);
  * More efficient version where func handles the row loop.
  */
 template<typename Func>
-void ParallelFor2DRange(size_t rows, size_t cols, Func&& func);
+QIVISION_API void ParallelFor2DRange(size_t rows, size_t cols, Func&& func);
 
 // ============================================================================
 // Utility
@@ -214,7 +215,7 @@ inline bool ShouldParallelize(size_t workSize, size_t minWorkPerThread = 1000) {
  * @param minGrain Minimum grain size
  * @return Recommended grain size
  */
-size_t CalculateGrainSize(size_t totalWork, size_t minGrain = 1);
+QIVISION_API size_t CalculateGrainSize(size_t totalWork, size_t minGrain = 1);
 
 // ============================================================================
 // Template Implementations
@@ -245,7 +246,7 @@ auto ThreadPool::Submit(F&& f, Args&&... args)
 }
 
 template<typename F>
-void ThreadPool::Execute(F&& f) {
+QIVISION_API void ThreadPool::Execute(F&& f) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (stop_) {
@@ -257,7 +258,7 @@ void ThreadPool::Execute(F&& f) {
 }
 
 template<typename Func>
-void ParallelFor(size_t begin, size_t end, Func&& func, size_t grainSize) {
+QIVISION_API void ParallelFor(size_t begin, size_t end, Func&& func, size_t grainSize) {
     if (begin >= end) return;
 
     size_t count = end - begin;
@@ -300,7 +301,7 @@ void ParallelFor(size_t begin, size_t end, Func&& func, size_t grainSize) {
 }
 
 template<typename Func>
-void ParallelForRange(size_t begin, size_t end, Func&& func, size_t numChunks) {
+QIVISION_API void ParallelForRange(size_t begin, size_t end, Func&& func, size_t numChunks) {
     if (begin >= end) return;
 
     size_t count = end - begin;
@@ -342,7 +343,7 @@ void ParallelForRange(size_t begin, size_t end, Func&& func, size_t numChunks) {
 }
 
 template<typename Func>
-void ParallelFor2D(size_t rows, size_t cols, Func&& func, size_t rowGrain) {
+QIVISION_API void ParallelFor2D(size_t rows, size_t cols, Func&& func, size_t rowGrain) {
     if (rows == 0 || cols == 0) return;
 
     // Parallelize over rows
@@ -354,7 +355,7 @@ void ParallelFor2D(size_t rows, size_t cols, Func&& func, size_t rowGrain) {
 }
 
 template<typename Func>
-void ParallelFor2DRange(size_t rows, size_t cols, Func&& func) {
+QIVISION_API void ParallelFor2DRange(size_t rows, size_t cols, Func&& func) {
     if (rows == 0 || cols == 0) return;
 
     ParallelForRange(0, rows, [&func, cols](size_t rowStart, size_t rowEnd) {

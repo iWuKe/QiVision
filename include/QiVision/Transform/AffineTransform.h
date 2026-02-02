@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file AffineTransform.h
  * @brief Public API for affine transformation operations
@@ -42,7 +44,7 @@ namespace Qi::Vision::Transform {
  * @param borderMode Border handling: "constant" (default), "replicate", "reflect", "wrap"
  * @param borderValue Border value for constant mode
  */
-void AffineTransImage(
+QIVISION_API void AffineTransImage(
     const QImage& src,
     QImage& dst,
     const QMatrix& matrix,
@@ -63,7 +65,7 @@ void AffineTransImage(
  * @param borderMode Border handling mode
  * @param borderValue Border value for constant mode
  */
-void AffineTransImage(
+QIVISION_API void AffineTransImage(
     const QImage& src,
     QImage& dst,
     const QMatrix& matrix,
@@ -85,7 +87,7 @@ void AffineTransImage(
  * @param angle Rotation angle in radians (positive = counter-clockwise)
  * @param interpolation Interpolation method: "nearest", "bilinear" (default), "bicubic"
  */
-void RotateImage(
+QIVISION_API void RotateImage(
     const QImage& src,
     QImage& dst,
     double angle,
@@ -102,7 +104,7 @@ void RotateImage(
  * @param centerCol Center X coordinate
  * @param interpolation Interpolation method
  */
-void RotateImage(
+QIVISION_API void RotateImage(
     const QImage& src,
     QImage& dst,
     double angle,
@@ -122,7 +124,7 @@ void RotateImage(
  * @param scaleY Vertical scale factor
  * @param interpolation Interpolation method: "nearest", "bilinear" (default), "bicubic"
  */
-void ScaleImage(
+QIVISION_API void ScaleImage(
     const QImage& src,
     QImage& dst,
     double scaleX,
@@ -139,7 +141,7 @@ void ScaleImage(
  * @param dstHeight Target height
  * @param interpolation Interpolation method
  */
-void ZoomImageSize(
+QIVISION_API void ZoomImageSize(
     const QImage& src,
     QImage& dst,
     int32_t dstWidth,
@@ -158,7 +160,7 @@ void ZoomImageSize(
  *
  * @return Identity QMatrix
  */
-QMatrix HomMat2dIdentity();
+QIVISION_API QMatrix HomMat2dIdentity();
 
 /**
  * @brief Create rotation transformation matrix
@@ -170,7 +172,7 @@ QMatrix HomMat2dIdentity();
  * @param cx Center X coordinate (column)
  * @return Rotation QMatrix
  */
-QMatrix HomMat2dRotate(double phi, double cy, double cx);
+QIVISION_API QMatrix HomMat2dRotate(double phi, double cy, double cx);
 
 /**
  * @brief Create scaling transformation matrix
@@ -183,7 +185,7 @@ QMatrix HomMat2dRotate(double phi, double cy, double cx);
  * @param cx Center X coordinate (column)
  * @return Scaling QMatrix
  */
-QMatrix HomMat2dScale(double sy, double sx, double cy, double cx);
+QIVISION_API QMatrix HomMat2dScale(double sy, double sx, double cy, double cx);
 
 /**
  * @brief Add translation to transformation matrix
@@ -196,7 +198,7 @@ QMatrix HomMat2dScale(double sy, double sx, double cy, double cx);
  * @param tx Translation in X direction (column)
  * @return Translated QMatrix
  */
-QMatrix HomMat2dTranslate(const QMatrix& homMat2d, double ty, double tx);
+QIVISION_API QMatrix HomMat2dTranslate(const QMatrix& homMat2d, double ty, double tx);
 
 /**
  * @brief Create translation-only matrix
@@ -205,7 +207,7 @@ QMatrix HomMat2dTranslate(const QMatrix& homMat2d, double ty, double tx);
  * @param tx Translation in X direction
  * @return Translation QMatrix
  */
-QMatrix HomMat2dTranslateOnly(double ty, double tx);
+QIVISION_API QMatrix HomMat2dTranslateOnly(double ty, double tx);
 
 /**
  * @brief Compose two transformation matrices
@@ -216,7 +218,7 @@ QMatrix HomMat2dTranslateOnly(double ty, double tx);
  * @param homMat2d2 Second transformation matrix (applied first)
  * @return Composed QMatrix
  */
-QMatrix HomMat2dCompose(const QMatrix& homMat2d1, const QMatrix& homMat2d2);
+QIVISION_API QMatrix HomMat2dCompose(const QMatrix& homMat2d1, const QMatrix& homMat2d2);
 
 /**
  * @brief Invert transformation matrix
@@ -226,7 +228,7 @@ QMatrix HomMat2dCompose(const QMatrix& homMat2d1, const QMatrix& homMat2d2);
  * @param homMat2d Input transformation matrix
  * @return Inverted QMatrix (identity if not invertible)
  */
-QMatrix HomMat2dInvert(const QMatrix& homMat2d);
+QIVISION_API QMatrix HomMat2dInvert(const QMatrix& homMat2d);
 
 /**
  * @brief Add rotation to transformation matrix
@@ -240,7 +242,7 @@ QMatrix HomMat2dInvert(const QMatrix& homMat2d);
  * @param cx Center X coordinate
  * @return Rotated QMatrix
  */
-QMatrix HomMat2dRotateLocal(const QMatrix& homMat2d, double phi, double cy, double cx);
+QIVISION_API QMatrix HomMat2dRotateLocal(const QMatrix& homMat2d, double phi, double cy, double cx);
 
 /**
  * @brief Add scaling to transformation matrix
@@ -255,7 +257,7 @@ QMatrix HomMat2dRotateLocal(const QMatrix& homMat2d, double phi, double cy, doub
  * @param cx Center X coordinate
  * @return Scaled QMatrix
  */
-QMatrix HomMat2dScaleLocal(const QMatrix& homMat2d, double sy, double sx, double cy, double cx);
+QIVISION_API QMatrix HomMat2dScaleLocal(const QMatrix& homMat2d, double sy, double sx, double cy, double cx);
 
 // =============================================================================
 // Point Transformation
@@ -268,7 +270,7 @@ QMatrix HomMat2dScaleLocal(const QMatrix& homMat2d, double sy, double sx, double
  * @param point Input point
  * @return Transformed point
  */
-Point2d AffineTransPoint2d(const QMatrix& homMat2d, const Point2d& point);
+QIVISION_API Point2d AffineTransPoint2d(const QMatrix& homMat2d, const Point2d& point);
 
 /**
  * @brief Transform a single point using affine matrix (row/col version)
@@ -279,7 +281,7 @@ Point2d AffineTransPoint2d(const QMatrix& homMat2d, const Point2d& point);
  * @param qy Output Y coordinate (row)
  * @param qx Output X coordinate (column)
  */
-void AffineTransPoint2d(
+QIVISION_API void AffineTransPoint2d(
     const QMatrix& homMat2d,
     double py, double px,
     double& qy, double& qx
@@ -292,7 +294,7 @@ void AffineTransPoint2d(
  * @param points Input points
  * @return Transformed points
  */
-std::vector<Point2d> AffineTransPoint2d(
+QIVISION_API std::vector<Point2d> AffineTransPoint2d(
     const QMatrix& homMat2d,
     const std::vector<Point2d>& points
 );
@@ -306,7 +308,7 @@ std::vector<Point2d> AffineTransPoint2d(
  * @param qy Output Y coordinates
  * @param qx Output X coordinates
  */
-void AffineTransPoint2d(
+QIVISION_API void AffineTransPoint2d(
     const QMatrix& homMat2d,
     const std::vector<double>& py, const std::vector<double>& px,
     std::vector<double>& qy, std::vector<double>& qx
@@ -327,7 +329,7 @@ void AffineTransPoint2d(
  * @param homMat2d Output transformation matrix
  * @return true if estimation succeeded
  */
-bool VectorToHomMat2d(
+QIVISION_API bool VectorToHomMat2d(
     const std::vector<Point2d>& srcPoints,
     const std::vector<Point2d>& dstPoints,
     QMatrix& homMat2d
@@ -344,7 +346,7 @@ bool VectorToHomMat2d(
  * @param homMat2d Output transformation matrix
  * @return true if estimation succeeded
  */
-bool VectorToRigid(
+QIVISION_API bool VectorToRigid(
     const std::vector<Point2d>& srcPoints,
     const std::vector<Point2d>& dstPoints,
     QMatrix& homMat2d
@@ -360,7 +362,7 @@ bool VectorToRigid(
  * @param homMat2d Output transformation matrix
  * @return true if estimation succeeded
  */
-bool VectorToSimilarity(
+QIVISION_API bool VectorToSimilarity(
     const std::vector<Point2d>& srcPoints,
     const std::vector<Point2d>& dstPoints,
     QMatrix& homMat2d
@@ -384,7 +386,7 @@ bool VectorToSimilarity(
  * @param theta Output shear angle (radians)
  * @return true if decomposition succeeded
  */
-bool HomMat2dToAffinePar(
+QIVISION_API bool HomMat2dToAffinePar(
     const QMatrix& homMat2d,
     double& ty, double& tx,
     double& phi,
@@ -399,7 +401,7 @@ bool HomMat2dToAffinePar(
  * @param tolerance Numerical tolerance
  * @return true if the transform is rigid (rotation + translation only)
  */
-bool HomMat2dIsRigid(const QMatrix& homMat2d, double tolerance = 1e-6);
+QIVISION_API bool HomMat2dIsRigid(const QMatrix& homMat2d, double tolerance = 1e-6);
 
 /**
  * @brief Check if matrix represents a similarity transformation
@@ -408,7 +410,7 @@ bool HomMat2dIsRigid(const QMatrix& homMat2d, double tolerance = 1e-6);
  * @param tolerance Numerical tolerance
  * @return true if the transform is similarity (rigid + uniform scale)
  */
-bool HomMat2dIsSimilarity(const QMatrix& homMat2d, double tolerance = 1e-6);
+QIVISION_API bool HomMat2dIsSimilarity(const QMatrix& homMat2d, double tolerance = 1e-6);
 
 /**
  * @brief Get determinant of transformation matrix
@@ -416,6 +418,6 @@ bool HomMat2dIsSimilarity(const QMatrix& homMat2d, double tolerance = 1e-6);
  * @param homMat2d Input transformation matrix
  * @return Determinant of the linear part
  */
-double HomMat2dDeterminant(const QMatrix& homMat2d);
+QIVISION_API double HomMat2dDeterminant(const QMatrix& homMat2d);
 
 } // namespace Qi::Vision::Transform

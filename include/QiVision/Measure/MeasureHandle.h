@@ -16,6 +16,7 @@
 
 #include <QiVision/Core/Types.h>
 #include <QiVision/Measure/MeasureTypes.h>
+#include <QiVision/Core/Export.h>
 
 #include <cmath>
 #include <cstdint>
@@ -48,7 +49,7 @@ enum class HandleType {
  * sampling information. This allows efficient repeated measurements in
  * the same region.
  */
-class MeasureHandle {
+class QIVISION_API MeasureHandle {
 public:
     virtual ~MeasureHandle() = default;
 
@@ -102,7 +103,7 @@ protected:
  *
  * Halcon equivalent: gen_measure_rectangle2
  */
-class MeasureRectangle2 : public MeasureHandle {
+class QIVISION_API MeasureRectangle2 : public MeasureHandle {
 public:
     /**
      * @brief Default constructor
@@ -209,7 +210,7 @@ private:
  *
  * Halcon equivalent: gen_measure_arc
  */
-class MeasureArc : public MeasureHandle {
+class QIVISION_API MeasureArc : public MeasureHandle {
 public:
     /**
      * @brief Default constructor
@@ -314,7 +315,7 @@ private:
  * - angle: Direction angle for radial profile
  * - angularWidth: Angular width for averaging
  */
-class MeasureConcentricCircles : public MeasureHandle {
+class QIVISION_API MeasureConcentricCircles : public MeasureHandle {
 public:
     /**
      * @brief Default constructor
@@ -400,7 +401,7 @@ private:
  * @param interpolation Interpolation method: "nearest", "bilinear", "bicubic"
  * @return MeasureRectangle2 handle
  */
-MeasureRectangle2 GenMeasureRectangle2(double row, double column,
+QIVISION_API MeasureRectangle2 GenMeasureRectangle2(double row, double column,
                                         double phi, double length1, double length2,
                                         int32_t width = 0, int32_t height = 0,
                                         const std::string& interpolation = "bilinear");
@@ -419,7 +420,7 @@ MeasureRectangle2 GenMeasureRectangle2(double row, double column,
  * @param interpolation Interpolation method
  * @return MeasureArc handle
  */
-MeasureArc GenMeasureArc(double centerRow, double centerCol,
+QIVISION_API MeasureArc GenMeasureArc(double centerRow, double centerCol,
                           double radius, double angleStart, double angleExtent,
                           double annulusRadius = 0.0,
                           int32_t width = 0, int32_t height = 0,
@@ -428,7 +429,7 @@ MeasureArc GenMeasureArc(double centerRow, double centerCol,
 /**
  * @brief Create concentric circles measurement handle
  */
-MeasureConcentricCircles CreateMeasureConcentric(double centerRow, double centerCol,
+QIVISION_API MeasureConcentricCircles CreateMeasureConcentric(double centerRow, double centerCol,
                                                    double innerRadius, double outerRadius,
                                                    double angle,
                                                    double angularWidth = 0.1,
@@ -438,13 +439,13 @@ MeasureConcentricCircles CreateMeasureConcentric(double centerRow, double center
 /**
  * @brief Create a measure handle covering a line segment
  */
-MeasureRectangle2 CreateMeasureFromSegment(const Point2d& p1, const Point2d& p2,
+QIVISION_API MeasureRectangle2 CreateMeasureFromSegment(const Point2d& p1, const Point2d& p2,
                                             double halfWidth = 5.0);
 
 /**
  * @brief Create a measure handle covering a rotated rectangle
  */
-MeasureRectangle2 CreateMeasureFromRect(const RotatedRect2d& rect);
+QIVISION_API MeasureRectangle2 CreateMeasureFromRect(const RotatedRect2d& rect);
 
 // =============================================================================
 // Handle Manipulation Functions (Halcon compatible)

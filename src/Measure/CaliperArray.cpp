@@ -4,12 +4,12 @@
  */
 
 #include <QiVision/Measure/CaliperArray.h>
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Internal/Fitting.h>
 
 #include <algorithm>
 #include <cmath>
 #include <numeric>
-#include <stdexcept>
 
 namespace Qi::Vision::Measure {
 
@@ -17,11 +17,14 @@ namespace {
 
 constexpr double PI = 3.14159265358979323846;
 
-// Normalize angle to [-PI, PI]
-double NormalizeAngle(double angle) {
-    while (angle > PI) angle -= 2.0 * PI;
-    while (angle < -PI) angle += 2.0 * PI;
-    return angle;
+bool RequireValidImage(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    return true;
 }
 
 // Internal parameters structure (not exposed in public API)
@@ -350,6 +353,11 @@ bool CaliperArray::Impl::GenerateContourHandles(const std::vector<Point2d>& poin
     if (points.size() < 2) {
         return false;
     }
+    for (const auto& p : points) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("CaliperArray::GenerateContourHandles: invalid point");
+        }
+    }
 
     pathType_ = PathType::Contour;
     params_ = params;
@@ -450,6 +458,13 @@ bool CaliperArray::CreateAlongLine(const Point2d& p1, const Point2d& p2,
                                     int32_t caliperCount,
                                     double profileLength,
                                     double handleWidth) {
+    if (!p1.IsValid() || !p2.IsValid()) {
+        throw InvalidArgumentException("CaliperArray::CreateAlongLine: invalid points");
+    }
+    if (!std::isfinite(profileLength) || profileLength <= 0.0 ||
+        !std::isfinite(handleWidth) || handleWidth <= 0.0) {
+        throw InvalidArgumentException("CaliperArray::CreateAlongLine: invalid profile");
+    }
     CaliperArrayParams params;
     params.caliperCount = caliperCount;
     params.profileLength = profileLength;
@@ -469,6 +484,14 @@ bool CaliperArray::CreateAlongArc(const Point2d& center, double radius,
                                    int32_t caliperCount,
                                    double profileLength,
                                    double handleWidth) {
+    if (!center.IsValid() || !std::isfinite(radius) || radius <= 0.0 ||
+        !std::isfinite(startAngle) || !std::isfinite(sweepAngle) || std::abs(sweepAngle) <= 0.0) {
+        throw InvalidArgumentException("CaliperArray::CreateAlongArc: invalid arc");
+    }
+    if (!std::isfinite(profileLength) || profileLength <= 0.0 ||
+        !std::isfinite(handleWidth) || handleWidth <= 0.0) {
+        throw InvalidArgumentException("CaliperArray::CreateAlongArc: invalid profile");
+    }
     CaliperArrayParams params;
     params.caliperCount = caliperCount;
     params.profileLength = profileLength;
@@ -488,6 +511,13 @@ bool CaliperArray::CreateAlongCircle(const Point2d& center, double radius,
                                       int32_t caliperCount,
                                       double profileLength,
                                       double handleWidth) {
+    if (!center.IsValid() || !std::isfinite(radius) || radius <= 0.0) {
+        throw InvalidArgumentException("CaliperArray::CreateAlongCircle: invalid circle");
+    }
+    if (!std::isfinite(profileLength) || profileLength <= 0.0 ||
+        !std::isfinite(handleWidth) || handleWidth <= 0.0) {
+        throw InvalidArgumentException("CaliperArray::CreateAlongCircle: invalid profile");
+    }
     CaliperArrayParams params;
     params.caliperCount = caliperCount;
     params.profileLength = profileLength;
@@ -506,6 +536,13 @@ bool CaliperArray::CreateAlongContour(const QContour& contour,
                                        int32_t caliperCount,
                                        double profileLength,
                                        double handleWidth) {
+    if (contour.Empty()) {
+        throw InvalidArgumentException("CaliperArray::CreateAlongContour: empty contour");
+    }
+    if (!std::isfinite(profileLength) || profileLength <= 0.0 ||
+        !std::isfinite(handleWidth) || handleWidth <= 0.0) {
+        throw InvalidArgumentException("CaliperArray::CreateAlongContour: invalid profile");
+    }
     CaliperArrayParams params;
     params.caliperCount = caliperCount;
     params.profileLength = profileLength;
@@ -540,7 +577,7 @@ double CaliperArray::GetPathLength() const {
 
 const MeasureRectangle2& CaliperArray::GetHandle(int32_t index) const {
     if (index < 0 || index >= static_cast<int32_t>(impl_->handles_.size())) {
-        throw std::out_of_range("CaliperArray index out of range");
+        throw InvalidArgumentException("CaliperArray::GetHandle: index out of range");
     }
     return impl_->handles_[index];
 }
@@ -551,21 +588,21 @@ const std::vector<MeasureRectangle2>& CaliperArray::GetHandles() const {
 
 double CaliperArray::GetPathPosition(int32_t index) const {
     if (index < 0 || index >= static_cast<int32_t>(impl_->pathPositions_.size())) {
-        return 0.0;
+        throw InvalidArgumentException("CaliperArray::GetPathPosition: index out of range");
     }
     return impl_->pathPositions_[index];
 }
 
 double CaliperArray::GetPathRatio(int32_t index) const {
     if (index < 0 || index >= static_cast<int32_t>(impl_->pathRatios_.size())) {
-        return 0.0;
+        throw InvalidArgumentException("CaliperArray::GetPathRatio: index out of range");
     }
     return impl_->pathRatios_[index];
 }
 
 Point2d CaliperArray::GetPathPoint(int32_t index) const {
     if (index < 0 || index >= static_cast<int32_t>(impl_->pathPoints_.size())) {
-        return {0, 0};
+        throw InvalidArgumentException("CaliperArray::GetPathPoint: index out of range");
     }
     return impl_->pathPoints_[index];
 }
@@ -579,8 +616,12 @@ CaliperArrayResult CaliperArray::MeasurePos(const QImage& image,
     CaliperArrayResult result;
     result.numCalipers = Size();
 
-    if (!IsValid()) {
+    if (!RequireValidImage(image, "CaliperArray::MeasurePos")) {
         return result;
+    }
+
+    if (!IsValid()) {
+        throw InvalidArgumentException("CaliperArray::MeasurePos: invalid CaliperArray");
     }
 
     result.results.reserve(result.numCalipers);
@@ -664,8 +705,12 @@ CaliperArrayResult CaliperArray::FuzzyMeasurePos(const QImage& image,
     CaliperArrayResult result;
     result.numCalipers = Size();
 
-    if (!IsValid()) {
+    if (!RequireValidImage(image, "CaliperArray::FuzzyMeasurePos")) {
         return result;
+    }
+
+    if (!IsValid()) {
+        throw InvalidArgumentException("CaliperArray::FuzzyMeasurePos: invalid CaliperArray");
     }
 
     result.results.reserve(result.numCalipers);
@@ -733,8 +778,12 @@ CaliperArrayResult CaliperArray::MeasurePairs(const QImage& image,
     CaliperArrayResult result;
     result.numCalipers = Size();
 
-    if (!IsValid()) {
+    if (!RequireValidImage(image, "CaliperArray::MeasurePairs")) {
         return result;
+    }
+
+    if (!IsValid()) {
+        throw InvalidArgumentException("CaliperArray::MeasurePairs: invalid CaliperArray");
     }
 
     result.results.reserve(result.numCalipers);
@@ -825,8 +874,12 @@ CaliperArrayResult CaliperArray::FuzzyMeasurePairs(const QImage& image,
     CaliperArrayResult result;
     result.numCalipers = Size();
 
-    if (!IsValid()) {
+    if (!RequireValidImage(image, "CaliperArray::FuzzyMeasurePairs")) {
         return result;
+    }
+
+    if (!IsValid()) {
+        throw InvalidArgumentException("CaliperArray::FuzzyMeasurePairs: invalid CaliperArray");
     }
 
     result.results.reserve(result.numCalipers);
@@ -958,9 +1011,11 @@ std::vector<Point2d> CaliperArray::GetPathPoints(int32_t numPoints) const {
     std::vector<Point2d> points;
     points.reserve(numPoints);
 
+    const double denom = (numPoints > 1) ? static_cast<double>(numPoints - 1) : 1.0;
+
     if (impl_->pathType_ == PathType::Line) {
         for (int32_t i = 0; i < numPoints; ++i) {
-            double t = static_cast<double>(i) / (numPoints - 1);
+            double t = static_cast<double>(i) / denom;
             Point2d pt;
             pt.x = impl_->lineStart_.x + t * (impl_->lineEnd_.x - impl_->lineStart_.x);
             pt.y = impl_->lineStart_.y + t * (impl_->lineEnd_.y - impl_->lineStart_.y);
@@ -968,7 +1023,7 @@ std::vector<Point2d> CaliperArray::GetPathPoints(int32_t numPoints) const {
         }
     } else if (impl_->pathType_ == PathType::Arc || impl_->pathType_ == PathType::Circle) {
         for (int32_t i = 0; i < numPoints; ++i) {
-            double t = static_cast<double>(i) / (numPoints - 1);
+            double t = static_cast<double>(i) / denom;
             double angle = impl_->arcStartAngle_ + t * impl_->arcSweepAngle_;
             Point2d pt;
             pt.x = impl_->arcCenter_.x + impl_->arcRadius_ * std::cos(angle);
@@ -977,7 +1032,7 @@ std::vector<Point2d> CaliperArray::GetPathPoints(int32_t numPoints) const {
         }
     } else if (impl_->pathType_ == PathType::Contour) {
         for (int32_t i = 0; i < numPoints; ++i) {
-            double t = static_cast<double>(i) / (numPoints - 1);
+            double t = static_cast<double>(i) / denom;
             points.push_back(impl_->GetContourPoint(t));
         }
     }
@@ -1064,6 +1119,15 @@ std::optional<Line2d> MeasureAndFitLine(const QImage& image,
                                          const std::string& transition,
                                          const std::string& select,
                                          std::vector<Point2d>* measuredPoints) {
+    if (!p1.IsValid() || !p2.IsValid()) {
+        throw InvalidArgumentException("MeasureAndFitLine: invalid points");
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasureAndFitLine: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasureAndFitLine: threshold must be >= 0");
+    }
     CaliperArray array = CreateCaliperArrayLine(p1, p2, caliperCount);
     auto result = array.MeasurePos(image, sigma, threshold, transition, select);
 
@@ -1092,6 +1156,15 @@ std::optional<Circle2d> MeasureAndFitCircle(const QImage& image,
                                              const std::string& transition,
                                              const std::string& select,
                                              std::vector<Point2d>* measuredPoints) {
+    if (!approxCenter.IsValid() || !std::isfinite(approxRadius) || approxRadius <= 0.0) {
+        throw InvalidArgumentException("MeasureAndFitCircle: invalid circle");
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasureAndFitCircle: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasureAndFitCircle: threshold must be >= 0");
+    }
     CaliperArray array = CreateCaliperArrayCircle(approxCenter, approxRadius, caliperCount);
     auto result = array.MeasurePos(image, sigma, threshold, transition, select);
 
@@ -1121,6 +1194,15 @@ bool MeasureWidthsAlongLine(const QImage& image,
                              double& meanWidth,
                              double& stdWidth,
                              std::vector<double>* widths) {
+    if (!p1.IsValid() || !p2.IsValid()) {
+        throw InvalidArgumentException("MeasureWidthsAlongLine: invalid points");
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasureWidthsAlongLine: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasureWidthsAlongLine: threshold must be >= 0");
+    }
     CaliperArray array = CreateCaliperArrayLine(p1, p2, caliperCount);
     auto result = array.MeasurePairs(image, sigma, threshold, transition, select);
 
@@ -1144,6 +1226,15 @@ bool MeasureWidthsAlongArc(const QImage& image,
                             double& meanWidth,
                             double& stdWidth,
                             std::vector<double>* widths) {
+    if (!arc.IsValid() || arc.radius <= 0.0 || std::abs(arc.sweepAngle) <= 0.0) {
+        throw InvalidArgumentException("MeasureWidthsAlongArc: invalid arc");
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasureWidthsAlongArc: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasureWidthsAlongArc: threshold must be >= 0");
+    }
     CaliperArray array = CreateCaliperArrayArc(arc, caliperCount);
     auto result = array.MeasurePairs(image, sigma, threshold, transition, select);
 

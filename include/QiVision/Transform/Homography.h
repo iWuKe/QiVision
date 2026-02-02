@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Homography.h
  * @brief Public API for projective (homography) transformation operations
@@ -39,7 +41,7 @@ namespace Qi::Vision::Transform {
  *
  * Output coordinates: x_dst = x'/w', y_dst = y'/w'
  */
-class HomMat3d {
+class QIVISION_API HomMat3d {
 public:
     /// Default constructor (identity matrix)
     HomMat3d();
@@ -138,7 +140,7 @@ private:
  * @param borderMode Border handling: "constant" (default), "replicate", "reflect", "wrap"
  * @param borderValue Border value for constant mode
  */
-void ProjectiveTransImage(
+QIVISION_API void ProjectiveTransImage(
     const QImage& src,
     QImage& dst,
     const HomMat3d& homMat3d,
@@ -159,7 +161,7 @@ void ProjectiveTransImage(
  * @param borderMode Border handling mode
  * @param borderValue Border value for constant mode
  */
-void ProjectiveTransImage(
+QIVISION_API void ProjectiveTransImage(
     const QImage& src,
     QImage& dst,
     const HomMat3d& homMat3d,
@@ -179,7 +181,7 @@ void ProjectiveTransImage(
  *
  * @return Identity HomMat3d
  */
-HomMat3d ProjHomMat2dIdentity();
+QIVISION_API HomMat3d ProjHomMat2dIdentity();
 
 /**
  * @brief Convert affine matrix to projective matrix
@@ -189,7 +191,7 @@ HomMat3d ProjHomMat2dIdentity();
  * @param homMat2d 2D affine transformation matrix
  * @return HomMat3d with h20 = h21 = 0, h22 = 1
  */
-HomMat3d HomMat2dToProjHomMat(const QMatrix& homMat2d);
+QIVISION_API HomMat3d HomMat2dToProjHomMat(const QMatrix& homMat2d);
 
 /**
  * @brief Compose two homography matrices
@@ -200,7 +202,7 @@ HomMat3d HomMat2dToProjHomMat(const QMatrix& homMat2d);
  * @param homMat3d2 Second homography (applied first)
  * @return Composed HomMat3d
  */
-HomMat3d ProjHomMat2dCompose(const HomMat3d& homMat3d1, const HomMat3d& homMat3d2);
+QIVISION_API HomMat3d ProjHomMat2dCompose(const HomMat3d& homMat3d1, const HomMat3d& homMat3d2);
 
 /**
  * @brief Invert homography matrix
@@ -208,7 +210,7 @@ HomMat3d ProjHomMat2dCompose(const HomMat3d& homMat3d1, const HomMat3d& homMat3d
  * @param homMat3d Input homography matrix
  * @return Inverted HomMat3d (identity if not invertible)
  */
-HomMat3d ProjHomMat2dInvert(const HomMat3d& homMat3d);
+QIVISION_API HomMat3d ProjHomMat2dInvert(const HomMat3d& homMat3d);
 
 // =============================================================================
 // Point Transformation
@@ -221,7 +223,7 @@ HomMat3d ProjHomMat2dInvert(const HomMat3d& homMat3d);
  * @param point Input point
  * @return Transformed point
  */
-Point2d ProjectiveTransPoint2d(const HomMat3d& homMat3d, const Point2d& point);
+QIVISION_API Point2d ProjectiveTransPoint2d(const HomMat3d& homMat3d, const Point2d& point);
 
 /**
  * @brief Transform a single point using projective matrix (row/col version)
@@ -232,7 +234,7 @@ Point2d ProjectiveTransPoint2d(const HomMat3d& homMat3d, const Point2d& point);
  * @param qy Output Y coordinate (row)
  * @param qx Output X coordinate (column)
  */
-void ProjectiveTransPoint2d(
+QIVISION_API void ProjectiveTransPoint2d(
     const HomMat3d& homMat3d,
     double py, double px,
     double& qy, double& qx
@@ -245,7 +247,7 @@ void ProjectiveTransPoint2d(
  * @param points Input points
  * @return Transformed points
  */
-std::vector<Point2d> ProjectiveTransPoint2d(
+QIVISION_API std::vector<Point2d> ProjectiveTransPoint2d(
     const HomMat3d& homMat3d,
     const std::vector<Point2d>& points
 );
@@ -265,7 +267,7 @@ std::vector<Point2d> ProjectiveTransPoint2d(
  * @param homMat3d Output homography matrix
  * @return true if estimation succeeded
  */
-bool VectorToProjHomMat2d(
+QIVISION_API bool VectorToProjHomMat2d(
     const std::vector<Point2d>& srcPoints,
     const std::vector<Point2d>& dstPoints,
     HomMat3d& homMat3d
@@ -279,7 +281,7 @@ bool VectorToProjHomMat2d(
  * @param homMat3d Output homography matrix
  * @return true if estimation succeeded
  */
-bool HomVectorToProjHomMat2d(
+QIVISION_API bool HomVectorToProjHomMat2d(
     const std::array<Point2d, 4>& srcPoints,
     const std::array<Point2d, 4>& dstPoints,
     HomMat3d& homMat3d
@@ -299,7 +301,7 @@ bool HomVectorToProjHomMat2d(
  * @param inlierMask Output inlier mask (optional)
  * @return true if estimation succeeded
  */
-bool ProjMatchPointsRansac(
+QIVISION_API bool ProjMatchPointsRansac(
     const std::vector<Point2d>& srcPoints,
     const std::vector<Point2d>& dstPoints,
     HomMat3d& homMat3d,
@@ -324,7 +326,7 @@ bool ProjMatchPointsRansac(
  * @param homMat3d Output homography matrix
  * @return true if estimation succeeded
  */
-bool RectifyQuadrilateral(
+QIVISION_API bool RectifyQuadrilateral(
     const std::array<Point2d, 4>& quadPoints,
     double width,
     double height,
@@ -340,7 +342,7 @@ bool RectifyQuadrilateral(
  * @param homMat3d Output homography matrix
  * @return true if estimation succeeded
  */
-bool RectangleToQuadrilateral(
+QIVISION_API bool RectangleToQuadrilateral(
     double width,
     double height,
     const std::array<Point2d, 4>& quadPoints,
@@ -360,7 +362,7 @@ bool RectangleToQuadrilateral(
  * @param srcHeight Source image height
  * @return true if the mapping is valid
  */
-bool IsValidHomography(const HomMat3d& homMat3d, int32_t srcWidth, int32_t srcHeight);
+QIVISION_API bool IsValidHomography(const HomMat3d& homMat3d, int32_t srcWidth, int32_t srcHeight);
 
 /**
  * @brief Compute reprojection error for homography
@@ -370,7 +372,7 @@ bool IsValidHomography(const HomMat3d& homMat3d, int32_t srcWidth, int32_t srcHe
  * @param homMat3d Homography matrix
  * @return RMS reprojection error (pixels)
  */
-double HomographyError(
+QIVISION_API double HomographyError(
     const std::vector<Point2d>& srcPoints,
     const std::vector<Point2d>& dstPoints,
     const HomMat3d& homMat3d
@@ -384,7 +386,7 @@ double HomographyError(
  * @param homMat3d Input/output homography (refined in place)
  * @param maxIterations Maximum optimization iterations
  */
-void RefineHomography(
+QIVISION_API void RefineHomography(
     const std::vector<Point2d>& srcPoints,
     const std::vector<Point2d>& dstPoints,
     HomMat3d& homMat3d,

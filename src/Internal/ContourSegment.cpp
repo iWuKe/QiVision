@@ -43,7 +43,7 @@ std::vector<Point2d> ExtractPoints(const QContour& contour, size_t startIdx, siz
 }
 
 // Compute RMS error between points and line
-double ComputeLineError(const std::vector<Point2d>& points, const Line2d& line) {
+[[maybe_unused]] double ComputeLineError(const std::vector<Point2d>& points, const Line2d& line) {
     if (points.empty()) return 0.0;
 
     double sumSqError = 0.0;
@@ -56,7 +56,7 @@ double ComputeLineError(const std::vector<Point2d>& points, const Line2d& line) 
 }
 
 // Compute max error between points and line
-double ComputeLineMaxError(const std::vector<Point2d>& points, const Line2d& line) {
+[[maybe_unused]] double ComputeLineMaxError(const std::vector<Point2d>& points, const Line2d& line) {
     double maxError = 0.0;
     for (const auto& p : points) {
         double d = line.Distance(p);
@@ -116,7 +116,7 @@ size_t FindMaxDistancePoint(const std::vector<Point2d>& points,
 }
 
 // Check if two angles are within threshold (handling wraparound)
-bool AnglesClose(double a1, double a2, double threshold) {
+[[maybe_unused]] bool AnglesClose(double a1, double a2, double threshold) {
     double diff = std::abs(NormalizeAngleLocal(a1 - a2));
     return diff < threshold || diff > (2 * PI - threshold);
 }

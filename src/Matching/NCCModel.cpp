@@ -18,6 +18,7 @@
 
 #include <QiVision/Core/Exception.h>
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <cmath>
 
@@ -26,6 +27,65 @@ namespace Qi::Vision::Matching {
 // =============================================================================
 // NCCModel Class Implementation
 // =============================================================================
+
+namespace {
+
+MetricMode ParseMetric(const std::string& metric) {
+    std::string lower;
+    lower.reserve(metric.size());
+    for (char c : metric) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower.empty() || lower == "use_polarity") return MetricMode::UsePolarity;
+    if (lower == "ignore_global_polarity") return MetricMode::IgnoreGlobalPolarity;
+    throw InvalidArgumentException("Unknown NCC metric: " + metric);
+}
+
+SubpixelMethod ParseSubPixel(const std::string& subPixel) {
+    std::string lower;
+    lower.reserve(subPixel.size());
+    for (char c : subPixel) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower.empty() || lower == "interpolation" || lower == "true") {
+        return SubpixelMethod::Parabolic;
+    }
+    if (lower == "none" || lower == "false") return SubpixelMethod::None;
+    throw InvalidArgumentException("Unknown subpixel mode: " + subPixel);
+}
+
+void ValidateLevels(int32_t numLevels, const char* funcName) {
+    if (numLevels < 0) {
+        throw InvalidArgumentException(std::string(funcName) + ": numLevels must be >= 0");
+    }
+}
+
+void ValidateAngleStep(double angleStep, const char* funcName) {
+    if (angleStep < 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": angleStep must be >= 0");
+    }
+}
+
+void ValidateScale(double scaleMin, double scaleMax, double scaleStep, const char* funcName) {
+    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": scale params must be > 0");
+    }
+    if (scaleMax < scaleMin) {
+        throw InvalidArgumentException(std::string(funcName) + ": scaleMax must be >= scaleMin");
+    }
+}
+
+bool RequireValidImage(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    return true;
+}
+
+} // anonymous namespace
 
 NCCModel::NCCModel()
     : impl_(std::make_unique<Internal::NCCModelImpl>())
@@ -81,8 +141,10 @@ void CreateNCCModel(
     const std::string& metric)
 {
     if (!templateImage.IsValid()) {
-        throw Exception("CreateNCCModel: Invalid template image");
+        throw InvalidArgumentException("CreateNCCModel: invalid template image");
     }
+    ValidateLevels(numLevels, "CreateNCCModel");
+    ValidateAngleStep(angleStep, "CreateNCCModel");
 
     // Set parameters
     auto* impl = model.Impl();
@@ -92,17 +154,11 @@ void CreateNCCModel(
     impl->params_.angleStep = angleStep;
 
     // Parse metric
-    if (metric == "use_polarity") {
-        impl->metric_ = MetricMode::UsePolarity;
-    } else if (metric == "ignore_global_polarity") {
-        impl->metric_ = MetricMode::IgnoreGlobalPolarity;
-    } else {
-        impl->metric_ = MetricMode::UsePolarity;
-    }
+    impl->metric_ = ParseMetric(metric);
 
     // Create model
     if (!impl->CreateModel(templateImage)) {
-        throw Exception("CreateNCCModel: Failed to create model");
+        throw InsufficientDataException("CreateNCCModel: failed to create model");
     }
 }
 
@@ -117,7 +173,17 @@ void CreateNCCModel(
     const std::string& metric)
 {
     if (!templateImage.IsValid()) {
-        throw Exception("CreateNCCModel: Invalid template image");
+        throw InvalidArgumentException("CreateNCCModel: invalid template image");
+    }
+    ValidateLevels(numLevels, "CreateNCCModel");
+    ValidateAngleStep(angleStep, "CreateNCCModel");
+    if (roi.width <= 0 || roi.height <= 0) {
+        throw InvalidArgumentException("CreateNCCModel: ROI width/height must be > 0");
+    }
+    if (roi.x < 0 || roi.y < 0 ||
+        roi.x + roi.width > templateImage.Width() ||
+        roi.y + roi.height > templateImage.Height()) {
+        throw InvalidArgumentException("CreateNCCModel: ROI out of bounds");
     }
 
     // Set parameters
@@ -128,17 +194,11 @@ void CreateNCCModel(
     impl->params_.angleStep = angleStep;
 
     // Parse metric
-    if (metric == "use_polarity") {
-        impl->metric_ = MetricMode::UsePolarity;
-    } else if (metric == "ignore_global_polarity") {
-        impl->metric_ = MetricMode::IgnoreGlobalPolarity;
-    } else {
-        impl->metric_ = MetricMode::UsePolarity;
-    }
+    impl->metric_ = ParseMetric(metric);
 
     // Create model with ROI
     if (!impl->CreateModel(templateImage, roi)) {
-        throw Exception("CreateNCCModel: Failed to create model from ROI");
+        throw InsufficientDataException("CreateNCCModel: failed to create model from ROI");
     }
 }
 
@@ -153,12 +213,14 @@ void CreateNCCModel(
     const std::string& metric)
 {
     if (!templateImage.IsValid()) {
-        throw Exception("CreateNCCModel: Invalid template image");
+        throw InvalidArgumentException("CreateNCCModel: invalid template image");
     }
 
     if (region.Empty()) {
-        throw Exception("CreateNCCModel: Empty region");
+        throw InvalidArgumentException("CreateNCCModel: empty region");
     }
+    ValidateLevels(numLevels, "CreateNCCModel");
+    ValidateAngleStep(angleStep, "CreateNCCModel");
 
     // Set parameters
     auto* impl = model.Impl();
@@ -168,17 +230,11 @@ void CreateNCCModel(
     impl->params_.angleStep = angleStep;
 
     // Parse metric
-    if (metric == "use_polarity") {
-        impl->metric_ = MetricMode::UsePolarity;
-    } else if (metric == "ignore_global_polarity") {
-        impl->metric_ = MetricMode::IgnoreGlobalPolarity;
-    } else {
-        impl->metric_ = MetricMode::UsePolarity;
-    }
+    impl->metric_ = ParseMetric(metric);
 
     // Create model with QRegion
     if (!impl->CreateModel(templateImage, region)) {
-        throw Exception("CreateNCCModel: Failed to create model from region");
+        throw InsufficientDataException("CreateNCCModel: failed to create model from region");
     }
 }
 
@@ -195,8 +251,11 @@ void CreateScaledNCCModel(
     const std::string& metric)
 {
     if (!templateImage.IsValid()) {
-        throw Exception("CreateScaledNCCModel: Invalid template image");
+        throw InvalidArgumentException("CreateScaledNCCModel: invalid template image");
     }
+    ValidateLevels(numLevels, "CreateScaledNCCModel");
+    ValidateAngleStep(angleStep, "CreateScaledNCCModel");
+    ValidateScale(scaleMin, scaleMax, scaleStep, "CreateScaledNCCModel");
 
     // Set parameters
     auto* impl = model.Impl();
@@ -208,17 +267,11 @@ void CreateScaledNCCModel(
     impl->params_.scaleMax = scaleMax;
 
     // Parse metric
-    if (metric == "use_polarity") {
-        impl->metric_ = MetricMode::UsePolarity;
-    } else if (metric == "ignore_global_polarity") {
-        impl->metric_ = MetricMode::IgnoreGlobalPolarity;
-    } else {
-        impl->metric_ = MetricMode::UsePolarity;
-    }
+    impl->metric_ = ParseMetric(metric);
 
     // Create model (scale search done during Find)
     if (!impl->CreateModel(templateImage)) {
-        throw Exception("CreateScaledNCCModel: Failed to create model");
+        throw InsufficientDataException("CreateScaledNCCModel: failed to create model");
     }
 }
 
@@ -247,13 +300,27 @@ void FindNCCModel(
     angles.clear();
     scores.clear();
 
-    if (!image.IsValid()) {
-        return;  // Empty result for invalid input
+    if (!RequireValidImage(image, "FindNCCModel")) {
+        return;
     }
 
     if (!model.IsValid()) {
-        throw Exception("FindNCCModel: Invalid model");
+        throw InvalidArgumentException("FindNCCModel: invalid model");
     }
+    if (!std::isfinite(angleStart) || !std::isfinite(angleExtent)) {
+        throw InvalidArgumentException("FindNCCModel: invalid angle range");
+    }
+    if (!std::isfinite(minScore) || minScore < 0.0) {
+        throw InvalidArgumentException("FindNCCModel: minScore must be >= 0");
+    }
+    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0) {
+        throw InvalidArgumentException("FindNCCModel: maxOverlap must be >= 0");
+    }
+    if (numMatches < 0) {
+        throw InvalidArgumentException("FindNCCModel: numMatches must be >= 0");
+    }
+
+    ValidateLevels(numLevels, "FindNCCModel");
 
     // Build search parameters
     SearchParams params;
@@ -265,13 +332,7 @@ void FindNCCModel(
     params.numLevels = numLevels;
 
     // Parse subpixel mode
-    if (subPixel == "none") {
-        params.subpixelMethod = SubpixelMethod::None;
-    } else if (subPixel == "true" || subPixel == "interpolation") {
-        params.subpixelMethod = SubpixelMethod::Parabolic;
-    } else {
-        params.subpixelMethod = SubpixelMethod::Parabolic;
-    }
+    params.subpixelMethod = ParseSubPixel(subPixel);
 
     // Find matches
     const auto* impl = model.Impl();
@@ -316,13 +377,32 @@ void FindScaledNCCModel(
     scales.clear();
     scores.clear();
 
-    if (!image.IsValid()) {
+    if (!RequireValidImage(image, "FindScaledNCCModel")) {
         return;
     }
 
     if (!model.IsValid()) {
-        throw Exception("FindScaledNCCModel: Invalid model");
+        throw InvalidArgumentException("FindScaledNCCModel: invalid model");
     }
+    if (!std::isfinite(angleStart) || !std::isfinite(angleExtent)) {
+        throw InvalidArgumentException("FindScaledNCCModel: invalid angle range");
+    }
+    if (!std::isfinite(scaleMin) || !std::isfinite(scaleMax) || scaleMin <= 0.0 || scaleMax <= 0.0 ||
+        scaleMax < scaleMin) {
+        throw InvalidArgumentException("FindScaledNCCModel: invalid scale range");
+    }
+    if (!std::isfinite(minScore) || minScore < 0.0) {
+        throw InvalidArgumentException("FindScaledNCCModel: minScore must be >= 0");
+    }
+    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0) {
+        throw InvalidArgumentException("FindScaledNCCModel: maxOverlap must be >= 0");
+    }
+    if (numMatches < 0) {
+        throw InvalidArgumentException("FindScaledNCCModel: numMatches must be >= 0");
+    }
+
+    ValidateLevels(numLevels, "FindScaledNCCModel");
+    ValidateScale(scaleMin, scaleMax, 1.0, "FindScaledNCCModel");
 
     // Build search parameters
     SearchParams params;
@@ -337,11 +417,7 @@ void FindScaledNCCModel(
     params.numLevels = numLevels;
 
     // Parse subpixel mode
-    if (subPixel == "none") {
-        params.subpixelMethod = SubpixelMethod::None;
-    } else {
-        params.subpixelMethod = SubpixelMethod::Parabolic;
-    }
+    params.subpixelMethod = ParseSubPixel(subPixel);
 
     // Find matches
     const auto* impl = model.Impl();
@@ -376,7 +452,7 @@ void GetNCCModelParams(
     std::string& metric)
 {
     if (!model.IsValid()) {
-        throw Exception("GetNCCModelParams: Invalid model");
+        throw InvalidArgumentException("GetNCCModelParams: invalid model");
     }
 
     const auto* impl = model.Impl();
@@ -404,7 +480,7 @@ void GetNCCModelOrigin(
     double& col)
 {
     if (!model.IsValid()) {
-        throw Exception("GetNCCModelOrigin: Invalid model");
+        throw InvalidArgumentException("GetNCCModelOrigin: invalid model");
     }
 
     const auto* impl = model.Impl();
@@ -418,7 +494,10 @@ void SetNCCModelOrigin(
     double col)
 {
     if (!model.IsValid()) {
-        throw Exception("SetNCCModelOrigin: Invalid model");
+        throw InvalidArgumentException("SetNCCModelOrigin: invalid model");
+    }
+    if (!std::isfinite(row) || !std::isfinite(col)) {
+        throw InvalidArgumentException("SetNCCModelOrigin: invalid origin");
     }
 
     auto* impl = model.Impl();
@@ -432,7 +511,7 @@ void GetNCCModelSize(
     int32_t& height)
 {
     if (!model.IsValid()) {
-        throw Exception("GetNCCModelSize: Invalid model");
+        throw InvalidArgumentException("GetNCCModelSize: invalid model");
     }
 
     const auto* impl = model.Impl();
@@ -449,19 +528,26 @@ void WriteNCCModel(
     const std::string& filename)
 {
     if (!model.IsValid()) {
-        throw Exception("WriteNCCModel: Invalid model");
+        throw InvalidArgumentException("WriteNCCModel: invalid model");
+    }
+    if (filename.empty()) {
+        throw InvalidArgumentException("WriteNCCModel: filename is empty");
     }
 
     // TODO: Implement model serialization
-    throw Exception("WriteNCCModel: Not implemented yet");
+    throw UnsupportedException("WriteNCCModel: Not implemented yet");
 }
 
 void ReadNCCModel(
     const std::string& filename,
     NCCModel& model)
 {
+    (void)model;
+    if (filename.empty()) {
+        throw InvalidArgumentException("ReadNCCModel: filename is empty");
+    }
     // TODO: Implement model deserialization
-    throw Exception("ReadNCCModel: Not implemented yet");
+    throw UnsupportedException("ReadNCCModel: Not implemented yet");
 }
 
 void ClearNCCModel(
@@ -489,7 +575,7 @@ void DetermineNCCModelParams(
     double& angleStep)
 {
     if (!templateImage.IsValid()) {
-        throw Exception("DetermineNCCModelParams: Invalid template image");
+        throw InvalidArgumentException("DetermineNCCModelParams: invalid template image");
     }
 
     // Get template dimensions

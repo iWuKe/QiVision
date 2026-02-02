@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Caliper.h
  * @brief Caliper measurement functions (Halcon compatible API)
@@ -61,7 +63,7 @@ namespace Qi::Vision::Measure {
  * }
  * @endcode
  */
-std::vector<EdgeResult> MeasurePos(const QImage& image,
+QIVISION_API std::vector<EdgeResult> MeasurePos(const QImage& image,
                                     const MeasureRectangle2& handle,
                                     double sigma,
                                     double threshold,
@@ -71,7 +73,7 @@ std::vector<EdgeResult> MeasurePos(const QImage& image,
 /**
  * @brief Measure edge positions along arc (Halcon compatible)
  */
-std::vector<EdgeResult> MeasurePos(const QImage& image,
+QIVISION_API std::vector<EdgeResult> MeasurePos(const QImage& image,
                                     const MeasureArc& handle,
                                     double sigma,
                                     double threshold,
@@ -81,7 +83,7 @@ std::vector<EdgeResult> MeasurePos(const QImage& image,
 /**
  * @brief Measure edge positions along concentric circles (radial)
  */
-std::vector<EdgeResult> MeasurePos(const QImage& image,
+QIVISION_API std::vector<EdgeResult> MeasurePos(const QImage& image,
                                     const MeasureConcentricCircles& handle,
                                     double sigma,
                                     double threshold,
@@ -118,7 +120,7 @@ std::vector<EdgeResult> MeasurePos(const QImage& image,
  * }
  * @endcode
  */
-std::vector<PairResult> MeasurePairs(const QImage& image,
+QIVISION_API std::vector<PairResult> MeasurePairs(const QImage& image,
                                       const MeasureRectangle2& handle,
                                       double sigma,
                                       double threshold,
@@ -128,7 +130,7 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
 /**
  * @brief Measure edge pairs along arc (Halcon compatible)
  */
-std::vector<PairResult> MeasurePairs(const QImage& image,
+QIVISION_API std::vector<PairResult> MeasurePairs(const QImage& image,
                                       const MeasureArc& handle,
                                       double sigma,
                                       double threshold,
@@ -138,7 +140,7 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
 /**
  * @brief Measure edge pairs along concentric circles
  */
-std::vector<PairResult> MeasurePairs(const QImage& image,
+QIVISION_API std::vector<PairResult> MeasurePairs(const QImage& image,
                                       const MeasureConcentricCircles& handle,
                                       double sigma,
                                       double threshold,
@@ -169,7 +171,7 @@ std::vector<PairResult> MeasurePairs(const QImage& image,
  * @note Scores in [0, 1], higher is better
  * @note Low-score edges can be filtered by fuzzyThresh
  */
-std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
+QIVISION_API std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
                                          const MeasureRectangle2& handle,
                                          double sigma,
                                          double threshold,
@@ -178,7 +180,7 @@ std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
                                          double fuzzyThresh = 0.5,
                                          MeasureStats* stats = nullptr);
 
-std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
+QIVISION_API std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
                                          const MeasureArc& handle,
                                          double sigma,
                                          double threshold,
@@ -187,7 +189,7 @@ std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
                                          double fuzzyThresh = 0.5,
                                          MeasureStats* stats = nullptr);
 
-std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
+QIVISION_API std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
                                          const MeasureConcentricCircles& handle,
                                          double sigma,
                                          double threshold,
@@ -209,7 +211,7 @@ std::vector<EdgeResult> FuzzyMeasurePos(const QImage& image,
  * @param stats Optional output statistics
  * @return Vector of pair results with scores
  */
-std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
+QIVISION_API std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
                                            const MeasureRectangle2& handle,
                                            double sigma,
                                            double threshold,
@@ -218,7 +220,7 @@ std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
                                            double fuzzyThresh = 0.5,
                                            MeasureStats* stats = nullptr);
 
-std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
+QIVISION_API std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
                                            const MeasureArc& handle,
                                            double sigma,
                                            double threshold,
@@ -227,7 +229,7 @@ std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
                                            double fuzzyThresh = 0.5,
                                            MeasureStats* stats = nullptr);
 
-std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
+QIVISION_API std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
                                            const MeasureConcentricCircles& handle,
                                            double sigma,
                                            double threshold,
@@ -248,21 +250,21 @@ std::vector<PairResult> FuzzyMeasurePairs(const QImage& image,
  * @param interp Interpolation method: "nearest", "bilinear", "bicubic"
  * @return Profile data (gray values along profile)
  */
-std::vector<double> ExtractMeasureProfile(const QImage& image,
+QIVISION_API std::vector<double> ExtractMeasureProfile(const QImage& image,
                                            const MeasureRectangle2& handle,
                                            const std::string& interp = "bilinear");
 
 /**
  * @brief Extract measurement profile from image using arc handle
  */
-std::vector<double> ExtractMeasureProfile(const QImage& image,
+QIVISION_API std::vector<double> ExtractMeasureProfile(const QImage& image,
                                            const MeasureArc& handle,
                                            const std::string& interp = "bilinear");
 
 /**
  * @brief Extract measurement profile from image using concentric handle
  */
-std::vector<double> ExtractMeasureProfile(const QImage& image,
+QIVISION_API std::vector<double> ExtractMeasureProfile(const QImage& image,
                                            const MeasureConcentricCircles& handle,
                                            const std::string& interp = "bilinear");
 
@@ -277,17 +279,17 @@ std::vector<double> ExtractMeasureProfile(const QImage& image,
  * @param profilePos Position along profile [0, ProfileLength]
  * @return Image coordinates (x=column, y=row)
  */
-Point2d ProfileToImage(const MeasureRectangle2& handle, double profilePos);
+QIVISION_API Point2d ProfileToImage(const MeasureRectangle2& handle, double profilePos);
 
 /**
  * @brief Convert profile position to image coordinates for arc handle
  */
-Point2d ProfileToImage(const MeasureArc& handle, double profilePos);
+QIVISION_API Point2d ProfileToImage(const MeasureArc& handle, double profilePos);
 
 /**
  * @brief Convert profile position to image coordinates for concentric handle
  */
-Point2d ProfileToImage(const MeasureConcentricCircles& handle, double profilePos);
+QIVISION_API Point2d ProfileToImage(const MeasureConcentricCircles& handle, double profilePos);
 
 // =============================================================================
 // Utility Functions
@@ -296,21 +298,21 @@ Point2d ProfileToImage(const MeasureConcentricCircles& handle, double profilePos
 /**
  * @brief Compute expected number of samples for handle
  */
-int32_t GetNumSamples(const MeasureRectangle2& handle);
-int32_t GetNumSamples(const MeasureArc& handle);
-int32_t GetNumSamples(const MeasureConcentricCircles& handle);
+QIVISION_API int32_t GetNumSamples(const MeasureRectangle2& handle);
+QIVISION_API int32_t GetNumSamples(const MeasureArc& handle);
+QIVISION_API int32_t GetNumSamples(const MeasureConcentricCircles& handle);
 
 /**
  * @brief Filter edges by selection mode
  */
-std::vector<EdgeResult> SelectEdges(const std::vector<EdgeResult>& edges,
+QIVISION_API std::vector<EdgeResult> SelectEdges(const std::vector<EdgeResult>& edges,
                                      EdgeSelectMode mode,
                                      int32_t maxCount = MAX_EDGES);
 
 /**
  * @brief Filter pairs by selection mode
  */
-std::vector<PairResult> SelectPairs(const std::vector<PairResult>& pairs,
+QIVISION_API std::vector<PairResult> SelectPairs(const std::vector<PairResult>& pairs,
                                      PairSelectMode mode,
                                      int32_t maxCount = MAX_EDGES);
 
@@ -318,12 +320,12 @@ std::vector<PairResult> SelectPairs(const std::vector<PairResult>& pairs,
  * @brief Sort edges by various criteria
  */
 enum class EdgeSortBy { Position, Amplitude, Score };
-void SortEdges(std::vector<EdgeResult>& edges, EdgeSortBy criterion, bool ascending = true);
+QIVISION_API void SortEdges(std::vector<EdgeResult>& edges, EdgeSortBy criterion, bool ascending = true);
 
 /**
  * @brief Sort pairs by various criteria
  */
 enum class PairSortBy { Position, Width, Score, Symmetry };
-void SortPairs(std::vector<PairResult>& pairs, PairSortBy criterion, bool ascending = true);
+QIVISION_API void SortPairs(std::vector<PairResult>& pairs, PairSortBy criterion, bool ascending = true);
 
 } // namespace Qi::Vision::Measure

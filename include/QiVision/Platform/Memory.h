@@ -6,6 +6,7 @@
  */
 
 #include <QiVision/Core/Constants.h>
+#include <QiVision/Core/Export.h>
 
 #include <cstddef>
 #include <memory>
@@ -18,13 +19,13 @@ namespace Qi::Vision::Platform {
  * @param alignment Alignment in bytes (default: 64 for AVX512)
  * @return Pointer to aligned memory, or nullptr on failure
  */
-void* AlignedAlloc(size_t size, size_t alignment = MEMORY_ALIGNMENT);
+QIVISION_API void* AlignedAlloc(size_t size, size_t alignment = MEMORY_ALIGNMENT);
 
 /**
  * @brief Free aligned memory
  * @param ptr Pointer previously returned by AlignedAlloc
  */
-void AlignedFree(void* ptr);
+QIVISION_API void AlignedFree(void* ptr);
 
 /**
  * @brief Check if pointer is aligned
@@ -46,7 +47,7 @@ inline size_t AlignedSize(size_t size, size_t alignment = MEMORY_ALIGNMENT) {
 /**
  * @brief Custom deleter for aligned memory
  */
-struct AlignedDeleter {
+struct QIVISION_API AlignedDeleter {
     void operator()(void* ptr) const {
         AlignedFree(ptr);
     }

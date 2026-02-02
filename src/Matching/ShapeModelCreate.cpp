@@ -17,6 +17,7 @@
 #include <QiVision/Internal/Pyramid.h>
 #include <QiVision/Internal/Canny.h>
 #include <QiVision/Internal/ContourProcess.h>
+#include <QiVision/Core/Exception.h>
 
 #include <algorithm>
 #include <chrono>
@@ -792,6 +793,9 @@ static void BuildSearchAngleCacheForLevels(const std::vector<LevelModel>& levels
 // =============================================================================
 
 bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const Point2d& origin) {
+    if (!origin.IsValid()) {
+        throw InvalidArgumentException("CreateShapeModel: invalid origin");
+    }
     // Validate and fix contrast parameters (HALCON-style hard checks)
     if (!params_.ValidateAndFixContrast()) {
         if (timingParams_.debugCreateModel) {
@@ -1111,6 +1115,9 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
 // =============================================================================
 
 bool ShapeModelImpl::CreateModel(const QImage& image, const QRegion& region, const Point2d& origin) {
+    if (!origin.IsValid()) {
+        throw InvalidArgumentException("CreateShapeModel: invalid origin");
+    }
     // Handle empty region as full image
     if (region.Empty()) {
         return CreateModel(image, Rect2i{}, origin);

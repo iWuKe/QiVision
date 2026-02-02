@@ -6,13 +6,62 @@
 #include <QiVision/Transform/AffineTransform.h>
 #include <QiVision/Internal/AffineTransform.h>
 #include <QiVision/Internal/Interpolate.h>
+#include <QiVision/Core/Exception.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace Qi::Vision::Transform {
 
 namespace {
+
+bool RequireImage(const QImage& src, QImage& dst, const char* funcName) {
+    (void)funcName;
+    if (src.Empty()) {
+        dst = QImage();
+        return false;
+    }
+    if (!src.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    return true;
+}
+
+void RequireFinite(double value, const char* name, const char* funcName) {
+    if (!std::isfinite(value)) {
+        throw InvalidArgumentException(std::string(funcName) + ": " + name + " is invalid");
+    }
+}
+
+void RequireNonNegativeSize(int32_t value, const char* name, const char* funcName) {
+    if (value < 0) {
+        throw InvalidArgumentException(std::string(funcName) + ": " + name + " must be >= 0");
+    }
+}
+
+void RequirePositive(double value, const char* name, const char* funcName) {
+    RequireFinite(value, name, funcName);
+    if (value <= 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": " + name + " must be > 0");
+    }
+}
+
+void RequireMatrixFinite(const QMatrix& matrix, const char* funcName) {
+    double elements[6];
+    matrix.GetElements(elements);
+    for (double v : elements) {
+        if (!std::isfinite(v)) {
+            throw InvalidArgumentException(std::string(funcName) + ": invalid matrix");
+        }
+    }
+}
+
+void RequirePointValid(const Point2d& point, const char* funcName) {
+    if (!point.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid point");
+    }
+}
 
 // Convert string to interpolation method
 Internal::InterpolationMethod ToInternalInterp(const std::string& interp) {
@@ -25,8 +74,10 @@ Internal::InterpolationMethod ToInternalInterp(const std::string& interp) {
     } else if (lower == "bicubic") {
         return Internal::InterpolationMethod::Bicubic;
     }
-    // Default to bilinear
-    return Internal::InterpolationMethod::Bilinear;
+    if (lower.empty() || lower == "bilinear") {
+        return Internal::InterpolationMethod::Bilinear;
+    }
+    throw InvalidArgumentException("Unknown interpolation: " + interp);
 }
 
 // Convert string to border mode
@@ -42,8 +93,10 @@ Internal::BorderMode ToInternalBorderMode(const std::string& mode) {
     } else if (lower == "wrap") {
         return Internal::BorderMode::Wrap;
     }
-    // Default to constant
-    return Internal::BorderMode::Constant;
+    if (lower.empty() || lower == "constant") {
+        return Internal::BorderMode::Constant;
+    }
+    throw InvalidArgumentException("Unknown border mode: " + mode);
 }
 
 } // anonymous namespace
@@ -60,6 +113,11 @@ void AffineTransImage(
     const std::string& borderMode,
     double borderValue)
 {
+    if (!RequireImage(src, dst, "AffineTransImage")) {
+        return;
+    }
+    RequireMatrixFinite(matrix, "AffineTransImage");
+    RequireFinite(borderValue, "borderValue", "AffineTransImage");
     dst = Internal::WarpAffine(
         src,
         matrix,
@@ -80,6 +138,13 @@ void AffineTransImage(
     const std::string& borderMode,
     double borderValue)
 {
+    if (!RequireImage(src, dst, "AffineTransImage")) {
+        return;
+    }
+    RequireMatrixFinite(matrix, "AffineTransImage");
+    RequireNonNegativeSize(dstWidth, "dstWidth", "AffineTransImage");
+    RequireNonNegativeSize(dstHeight, "dstHeight", "AffineTransImage");
+    RequireFinite(borderValue, "borderValue", "AffineTransImage");
     dst = Internal::WarpAffine(
         src,
         matrix,
@@ -96,6 +161,10 @@ void RotateImage(
     double angle,
     const std::string& interpolation)
 {
+    if (!RequireImage(src, dst, "RotateImage")) {
+        return;
+    }
+    RequireFinite(angle, "angle", "RotateImage");
     dst = Internal::RotateImage(
         src,
         angle,
@@ -114,6 +183,12 @@ void RotateImage(
     double centerCol,
     const std::string& interpolation)
 {
+    if (!RequireImage(src, dst, "RotateImage")) {
+        return;
+    }
+    RequireFinite(angle, "angle", "RotateImage");
+    RequireFinite(centerRow, "centerRow", "RotateImage");
+    RequireFinite(centerCol, "centerCol", "RotateImage");
     dst = Internal::RotateImage(
         src,
         angle,
@@ -133,6 +208,11 @@ void ScaleImage(
     double scaleY,
     const std::string& interpolation)
 {
+    if (!RequireImage(src, dst, "ScaleImage")) {
+        return;
+    }
+    RequirePositive(scaleX, "scaleX", "ScaleImage");
+    RequirePositive(scaleY, "scaleY", "ScaleImage");
     dst = Internal::ScaleImageFactor(
         src,
         scaleX,
@@ -148,6 +228,11 @@ void ZoomImageSize(
     int32_t dstHeight,
     const std::string& interpolation)
 {
+    if (!RequireImage(src, dst, "ZoomImageSize")) {
+        return;
+    }
+    RequireNonNegativeSize(dstWidth, "dstWidth", "ZoomImageSize");
+    RequireNonNegativeSize(dstHeight, "dstHeight", "ZoomImageSize");
     dst = Internal::ScaleImage(
         src,
         dstWidth,
@@ -165,35 +250,59 @@ QMatrix HomMat2dIdentity() {
 }
 
 QMatrix HomMat2dRotate(double phi, double cy, double cx) {
+    RequireFinite(phi, "phi", "HomMat2dRotate");
+    RequireFinite(cy, "cy", "HomMat2dRotate");
+    RequireFinite(cx, "cx", "HomMat2dRotate");
     return QMatrix::Rotation(phi, cx, cy);
 }
 
 QMatrix HomMat2dScale(double sy, double sx, double cy, double cx) {
+    RequireFinite(sy, "sy", "HomMat2dScale");
+    RequireFinite(sx, "sx", "HomMat2dScale");
+    RequireFinite(cy, "cy", "HomMat2dScale");
+    RequireFinite(cx, "cx", "HomMat2dScale");
     return QMatrix::Scaling(sx, sy, Point2d{cx, cy});
 }
 
 QMatrix HomMat2dTranslate(const QMatrix& homMat2d, double ty, double tx) {
+    RequireMatrixFinite(homMat2d, "HomMat2dTranslate");
+    RequireFinite(ty, "ty", "HomMat2dTranslate");
+    RequireFinite(tx, "tx", "HomMat2dTranslate");
     return QMatrix::Translation(tx, ty) * homMat2d;
 }
 
 QMatrix HomMat2dTranslateOnly(double ty, double tx) {
+    RequireFinite(ty, "ty", "HomMat2dTranslateOnly");
+    RequireFinite(tx, "tx", "HomMat2dTranslateOnly");
     return QMatrix::Translation(tx, ty);
 }
 
 QMatrix HomMat2dCompose(const QMatrix& homMat2d1, const QMatrix& homMat2d2) {
+    RequireMatrixFinite(homMat2d1, "HomMat2dCompose");
+    RequireMatrixFinite(homMat2d2, "HomMat2dCompose");
     return homMat2d1 * homMat2d2;
 }
 
 QMatrix HomMat2dInvert(const QMatrix& homMat2d) {
+    RequireMatrixFinite(homMat2d, "HomMat2dInvert");
     return homMat2d.Inverse();
 }
 
 QMatrix HomMat2dRotateLocal(const QMatrix& homMat2d, double phi, double cy, double cx) {
+    RequireMatrixFinite(homMat2d, "HomMat2dRotateLocal");
+    RequireFinite(phi, "phi", "HomMat2dRotateLocal");
+    RequireFinite(cy, "cy", "HomMat2dRotateLocal");
+    RequireFinite(cx, "cx", "HomMat2dRotateLocal");
     QMatrix rotation = QMatrix::Rotation(phi, cx, cy);
     return rotation * homMat2d;
 }
 
 QMatrix HomMat2dScaleLocal(const QMatrix& homMat2d, double sy, double sx, double cy, double cx) {
+    RequireMatrixFinite(homMat2d, "HomMat2dScaleLocal");
+    RequireFinite(sy, "sy", "HomMat2dScaleLocal");
+    RequireFinite(sx, "sx", "HomMat2dScaleLocal");
+    RequireFinite(cy, "cy", "HomMat2dScaleLocal");
+    RequireFinite(cx, "cx", "HomMat2dScaleLocal");
     QMatrix scaling = QMatrix::Scaling(sx, sy, Point2d{cx, cy});
     return scaling * homMat2d;
 }
@@ -203,6 +312,8 @@ QMatrix HomMat2dScaleLocal(const QMatrix& homMat2d, double sy, double sx, double
 // =============================================================================
 
 Point2d AffineTransPoint2d(const QMatrix& homMat2d, const Point2d& point) {
+    RequireMatrixFinite(homMat2d, "AffineTransPoint2d");
+    RequirePointValid(point, "AffineTransPoint2d");
     return homMat2d.Transform(point);
 }
 
@@ -211,6 +322,9 @@ void AffineTransPoint2d(
     double py, double px,
     double& qy, double& qx)
 {
+    RequireMatrixFinite(homMat2d, "AffineTransPoint2d");
+    RequireFinite(py, "py", "AffineTransPoint2d");
+    RequireFinite(px, "px", "AffineTransPoint2d");
     Point2d result = homMat2d.Transform(px, py);
     qx = result.x;
     qy = result.y;
@@ -222,7 +336,11 @@ std::vector<Point2d> AffineTransPoint2d(
 {
     std::vector<Point2d> result;
     result.reserve(points.size());
+    RequireMatrixFinite(homMat2d, "AffineTransPoint2d");
     for (const auto& p : points) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("AffineTransPoint2d: invalid point");
+        }
         result.push_back(homMat2d.Transform(p));
     }
     return result;
@@ -237,7 +355,10 @@ void AffineTransPoint2d(
     qy.resize(n);
     qx.resize(n);
 
+    RequireMatrixFinite(homMat2d, "AffineTransPoint2d");
     for (size_t i = 0; i < n; ++i) {
+        RequireFinite(py[i], "py", "AffineTransPoint2d");
+        RequireFinite(px[i], "px", "AffineTransPoint2d");
         Point2d result = homMat2d.Transform(px[i], py[i]);
         qx[i] = result.x;
         qy[i] = result.y;
@@ -253,6 +374,16 @@ bool VectorToHomMat2d(
     const std::vector<Point2d>& dstPoints,
     QMatrix& homMat2d)
 {
+    for (const auto& p : srcPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("VectorToHomMat2d: invalid source point");
+        }
+    }
+    for (const auto& p : dstPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("VectorToHomMat2d: invalid destination point");
+        }
+    }
     auto result = Internal::EstimateAffine(srcPoints, dstPoints);
     if (result) {
         homMat2d = *result;
@@ -266,6 +397,16 @@ bool VectorToRigid(
     const std::vector<Point2d>& dstPoints,
     QMatrix& homMat2d)
 {
+    for (const auto& p : srcPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("VectorToRigid: invalid source point");
+        }
+    }
+    for (const auto& p : dstPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("VectorToRigid: invalid destination point");
+        }
+    }
     auto result = Internal::EstimateRigid(srcPoints, dstPoints);
     if (result) {
         homMat2d = *result;
@@ -279,6 +420,16 @@ bool VectorToSimilarity(
     const std::vector<Point2d>& dstPoints,
     QMatrix& homMat2d)
 {
+    for (const auto& p : srcPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("VectorToSimilarity: invalid source point");
+        }
+    }
+    for (const auto& p : dstPoints) {
+        if (!p.IsValid()) {
+            throw InvalidArgumentException("VectorToSimilarity: invalid destination point");
+        }
+    }
     auto result = Internal::EstimateSimilarity(srcPoints, dstPoints);
     if (result) {
         homMat2d = *result;
@@ -298,6 +449,7 @@ bool HomMat2dToAffinePar(
     double& sy, double& sx,
     double& theta)
 {
+    RequireMatrixFinite(homMat2d, "HomMat2dToAffinePar");
     double shear = 0.0;
     bool success = Internal::DecomposeAffine(homMat2d, tx, ty, phi, sx, sy, shear);
     // Convert shear to angle
@@ -306,14 +458,19 @@ bool HomMat2dToAffinePar(
 }
 
 bool HomMat2dIsRigid(const QMatrix& homMat2d, double tolerance) {
+    RequireMatrixFinite(homMat2d, "HomMat2dIsRigid");
+    RequireFinite(tolerance, "tolerance", "HomMat2dIsRigid");
     return Internal::IsRigidTransform(homMat2d, tolerance);
 }
 
 bool HomMat2dIsSimilarity(const QMatrix& homMat2d, double tolerance) {
+    RequireMatrixFinite(homMat2d, "HomMat2dIsSimilarity");
+    RequireFinite(tolerance, "tolerance", "HomMat2dIsSimilarity");
     return Internal::IsSimilarityTransform(homMat2d, tolerance);
 }
 
 double HomMat2dDeterminant(const QMatrix& homMat2d) {
+    RequireMatrixFinite(homMat2d, "HomMat2dDeterminant");
     return homMat2d.Determinant();
 }
 

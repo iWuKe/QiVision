@@ -1033,7 +1033,6 @@ double ComputeRelativeResidual(const MatX& A, const VecX& x, const VecX& b) {
 }
 
 MatX ComputeNullSpace(const MatX& A, double tolerance) {
-    int m = A.Rows();
     int n = A.Cols();
 
     SVDResult svd = SVD_Decompose(A);
@@ -1089,8 +1088,6 @@ MatX ComputeNullSpace(const MatX& A, double tolerance) {
         }
 
         // Additional null space dimension from missing columns
-        int nullFromMissing = n - numVCols;
-
         MatX nullSpace(n, nullity);
         int outCol = 0;
 

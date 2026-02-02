@@ -11,6 +11,10 @@
  * @version 0.1.0
  */
 
+// Configuration and export macros
+#include <QiVision/QiVisionConfig.h>
+#include <QiVision/Core/Export.h>
+
 // Core types and utilities
 #include <QiVision/Core/Types.h>
 #include <QiVision/Core/Constants.h>
@@ -55,16 +59,16 @@ namespace Qi::Vision {
  * @return Version string in format "major.minor.patch"
  */
 inline const char* GetVersion() {
-    return "0.1.0";
+    return QIVISION_VERSION_STRING;
 }
 
 /**
  * @brief Get library version as integers
  */
 inline void GetVersion(int& major, int& minor, int& patch) {
-    major = 0;
-    minor = 1;
-    patch = 0;
+    major = QIVISION_VERSION_MAJOR;
+    minor = QIVISION_VERSION_MINOR;
+    patch = QIVISION_VERSION_PATCH;
 }
 
 } // namespace Qi::Vision

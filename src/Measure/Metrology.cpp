@@ -5,6 +5,7 @@
 
 #include <QiVision/Measure/Metrology.h>
 #include <QiVision/Measure/Caliper.h>
+#include <QiVision/Core/Exception.h>
 #include <QiVision/Internal/Fitting.h>
 #include <QiVision/Internal/Profiler.h>
 #include <QiVision/Internal/Edge1D.h>
@@ -19,6 +20,34 @@ namespace {
     constexpr double PI = 3.14159265358979323846;
     constexpr double TWO_PI = 2.0 * PI;
 
+    void ValidateMetrologyParams(const MetrologyMeasureParams& params, const char* funcName) {
+        if (!std::isfinite(params.measureLength1) || !std::isfinite(params.measureLength2) ||
+            params.measureLength1 <= 0.0 || params.measureLength2 <= 0.0) {
+            throw InvalidArgumentException(std::string(funcName) + ": measure lengths must be > 0");
+        }
+        if (!std::isfinite(params.measureSigma) || params.measureSigma <= 0.0) {
+            throw InvalidArgumentException(std::string(funcName) + ": measureSigma must be > 0");
+        }
+        if (!std::isfinite(params.measureThreshold) || params.measureThreshold < 0.0) {
+            throw InvalidArgumentException(std::string(funcName) + ": measureThreshold must be >= 0");
+        }
+        if (params.numMeasures <= 0) {
+            throw InvalidArgumentException(std::string(funcName) + ": numMeasures must be > 0");
+        }
+        if (params.numInstances <= 0) {
+            throw InvalidArgumentException(std::string(funcName) + ": numInstances must be > 0");
+        }
+        if (!std::isfinite(params.minScore) || params.minScore < 0.0 || params.minScore > 1.0) {
+            throw InvalidArgumentException(std::string(funcName) + ": minScore must be in [0,1]");
+        }
+        if (!std::isfinite(params.distanceThreshold) || params.distanceThreshold <= 0.0) {
+            throw InvalidArgumentException(std::string(funcName) + ": distanceThreshold must be > 0");
+        }
+        if (params.maxIterations < -1) {
+            throw InvalidArgumentException(std::string(funcName) + ": maxIterations must be >= -1");
+        }
+    }
+
     // Helper: Merge params with measureLength and transition/select strings
     MetrologyMeasureParams MergeParams(
         double measureLength1, double measureLength2,
@@ -30,24 +59,18 @@ namespace {
         result.measureLength2 = measureLength2;
 
         // Parse transition string (override if specified)
-        if (transition == "positive" || transition == "Positive") {
-            result.measureTransition = EdgeTransition::Positive;
-        } else if (transition == "negative" || transition == "Negative") {
-            result.measureTransition = EdgeTransition::Negative;
-        } else {
-            result.measureTransition = EdgeTransition::All;
-        }
+        result.measureTransition = ParseTransition(transition);
 
         // Parse select string (override if specified)
-        if (select == "first" || select == "First") {
-            result.measureSelect = EdgeSelectMode::First;
-        } else if (select == "last" || select == "Last") {
-            result.measureSelect = EdgeSelectMode::Last;
-        } else if (select == "best" || select == "Best" || select == "strongest" || select == "Strongest") {
-            result.measureSelect = EdgeSelectMode::Strongest;
-        } else {
-            result.measureSelect = EdgeSelectMode::All;
+        std::string lowerSelect = select;
+        std::transform(lowerSelect.begin(), lowerSelect.end(), lowerSelect.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lowerSelect == "best") {
+            lowerSelect = "strongest";
         }
+        result.measureSelect = ParseEdgeSelect(lowerSelect);
+
+        ValidateMetrologyParams(result, "MetrologyModel");
 
         return result;
     }
@@ -477,6 +500,19 @@ int32_t MetrologyModel::AddLineMeasure(double row1, double col1,
                                          const std::string& transition,
                                          const std::string& select,
                                          const MetrologyMeasureParams& params) {
+    if (!std::isfinite(row1) || !std::isfinite(col1) ||
+        !std::isfinite(row2) || !std::isfinite(col2)) {
+        throw InvalidArgumentException("AddLineMeasure: invalid points");
+    }
+    if (std::abs(row1 - row2) < 1e-12 && std::abs(col1 - col2) < 1e-12) {
+        throw InvalidArgumentException("AddLineMeasure: points must be distinct");
+    }
+    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
+        throw InvalidArgumentException("AddLineMeasure: measure lengths must be > 0");
+    }
+    if (params.numMeasures <= 0) {
+        throw InvalidArgumentException("AddLineMeasure: numMeasures must be > 0");
+    }
     auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
     auto obj = std::make_unique<MetrologyObjectLine>(row1, col1, row2, col2,
                                                       measureLength1, measureLength2,
@@ -494,6 +530,18 @@ int32_t MetrologyModel::AddCircleMeasure(double row, double column, double radiu
                                           const std::string& transition,
                                           const std::string& select,
                                           const MetrologyMeasureParams& params) {
+    if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(radius)) {
+        throw InvalidArgumentException("AddCircleMeasure: invalid parameters");
+    }
+    if (radius <= 0.0) {
+        throw InvalidArgumentException("AddCircleMeasure: radius must be > 0");
+    }
+    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
+        throw InvalidArgumentException("AddCircleMeasure: measure lengths must be > 0");
+    }
+    if (params.numMeasures <= 0) {
+        throw InvalidArgumentException("AddCircleMeasure: numMeasures must be > 0");
+    }
     auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
     auto obj = std::make_unique<MetrologyObjectCircle>(row, column, radius,
                                                         measureLength1, measureLength2,
@@ -512,6 +560,22 @@ int32_t MetrologyModel::AddArcMeasure(double row, double column, double radius,
                                         const std::string& transition,
                                         const std::string& select,
                                         const MetrologyMeasureParams& params) {
+    if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(radius) ||
+        !std::isfinite(angleStart) || !std::isfinite(angleEnd)) {
+        throw InvalidArgumentException("AddArcMeasure: invalid parameters");
+    }
+    if (radius <= 0.0) {
+        throw InvalidArgumentException("AddArcMeasure: radius must be > 0");
+    }
+    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
+        throw InvalidArgumentException("AddArcMeasure: measure lengths must be > 0");
+    }
+    if (params.numMeasures <= 0) {
+        throw InvalidArgumentException("AddArcMeasure: numMeasures must be > 0");
+    }
+    if (std::abs(angleEnd - angleStart) < 1e-9) {
+        throw InvalidArgumentException("AddArcMeasure: angle range must be non-zero");
+    }
     auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
     auto obj = std::make_unique<MetrologyObjectCircle>(row, column, radius,
                                                         angleStart, angleEnd,
@@ -531,6 +595,19 @@ int32_t MetrologyModel::AddEllipseMeasure(double row, double column, double phi,
                                            const std::string& transition,
                                            const std::string& select,
                                            const MetrologyMeasureParams& params) {
+    if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(phi) ||
+        !std::isfinite(ra) || !std::isfinite(rb)) {
+        throw InvalidArgumentException("AddEllipseMeasure: invalid parameters");
+    }
+    if (ra <= 0.0 || rb <= 0.0) {
+        throw InvalidArgumentException("AddEllipseMeasure: radii must be > 0");
+    }
+    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
+        throw InvalidArgumentException("AddEllipseMeasure: measure lengths must be > 0");
+    }
+    if (params.numMeasures <= 0) {
+        throw InvalidArgumentException("AddEllipseMeasure: numMeasures must be > 0");
+    }
     auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
     auto obj = std::make_unique<MetrologyObjectEllipse>(row, column, phi, ra, rb,
                                                          measureLength1, measureLength2,
@@ -549,6 +626,19 @@ int32_t MetrologyModel::AddRectangle2Measure(double row, double column, double p
                                                const std::string& transition,
                                                const std::string& select,
                                                const MetrologyMeasureParams& params) {
+    if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(phi) ||
+        !std::isfinite(length1) || !std::isfinite(length2)) {
+        throw InvalidArgumentException("AddRectangle2Measure: invalid parameters");
+    }
+    if (length1 <= 0.0 || length2 <= 0.0) {
+        throw InvalidArgumentException("AddRectangle2Measure: lengths must be > 0");
+    }
+    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
+        throw InvalidArgumentException("AddRectangle2Measure: measure lengths must be > 0");
+    }
+    if (params.numMeasures <= 0) {
+        throw InvalidArgumentException("AddRectangle2Measure: numMeasures must be > 0");
+    }
     auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
     // For rectangle, numMeasures in params is total, but constructor expects per-side
     int32_t numMeasuresPerSide = std::max(1, merged.numMeasures / 4);
@@ -564,9 +654,10 @@ int32_t MetrologyModel::AddRectangle2Measure(double row, double column, double p
 }
 
 void MetrologyModel::ClearObject(int32_t index) {
-    if (index >= 0 && index < static_cast<int32_t>(impl_->objects.size())) {
-        impl_->objects[index].reset();
+    if (index < 0 || index >= static_cast<int32_t>(impl_->objects.size())) {
+        throw InvalidArgumentException("ClearObject: index out of range");
     }
+    impl_->objects[index].reset();
 }
 
 void MetrologyModel::ClearAll() {
@@ -579,21 +670,34 @@ int32_t MetrologyModel::NumObjects() const {
 }
 
 const MetrologyObject* MetrologyModel::GetObject(int32_t index) const {
-    if (index >= 0 && index < static_cast<int32_t>(impl_->objects.size())) {
-        return impl_->objects[index].get();
+    if (index < 0 || index >= static_cast<int32_t>(impl_->objects.size())) {
+        throw InvalidArgumentException("GetObject: index out of range");
     }
-    return nullptr;
+    auto* obj = impl_->objects[index].get();
+    if (!obj) {
+        throw InvalidArgumentException("GetObject: object cleared");
+    }
+    return obj;
 }
 
 bool MetrologyModel::Apply(const QImage& image) {
-    if (image.Empty()) return false;
+    if (image.Empty()) {
+        impl_->ClearResults();
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("Apply: invalid image");
+    }
 
     impl_->ClearResults();
 
-    // Convert to grayscale if needed (for Hough detection)
+    // Convert to grayscale UInt8 for consistent measurement
     QImage grayImage = image;
     if (image.Channels() > 1) {
         grayImage = image.ToGray();
+    }
+    if (grayImage.Type() != PixelType::UInt8) {
+        grayImage = grayImage.ConvertTo(PixelType::UInt8);
     }
 
     for (auto& objPtr : impl_->objects) {
@@ -625,7 +729,7 @@ bool MetrologyModel::Apply(const QImage& image) {
             profParams.interp = Internal::InterpolationMethod::Bilinear;
             profParams.method = Internal::ProfileMethod::Average;
 
-            auto profile = Internal::ExtractRectProfile(image, profParams);
+            auto profile = Internal::ExtractRectProfile(grayImage, profParams);
             if (profile.data.size() < 3) continue;
 
             // Determine threshold for edge detection
@@ -1031,6 +1135,10 @@ bool MetrologyModel::Apply(const QImage& image) {
 }
 
 MetrologyLineResult MetrologyModel::GetLineResult(int32_t index, int32_t instanceIndex) const {
+    if (instanceIndex < 0) {
+        throw InvalidArgumentException("GetLineResult: instanceIndex must be >= 0");
+    }
+    (void)GetObject(index);
     auto it = impl_->lineResults.find(index);
     if (it != impl_->lineResults.end() && instanceIndex < static_cast<int32_t>(it->second.size())) {
         return it->second[instanceIndex];
@@ -1039,6 +1147,10 @@ MetrologyLineResult MetrologyModel::GetLineResult(int32_t index, int32_t instanc
 }
 
 MetrologyCircleResult MetrologyModel::GetCircleResult(int32_t index, int32_t instanceIndex) const {
+    if (instanceIndex < 0) {
+        throw InvalidArgumentException("GetCircleResult: instanceIndex must be >= 0");
+    }
+    (void)GetObject(index);
     auto it = impl_->circleResults.find(index);
     if (it != impl_->circleResults.end() && instanceIndex < static_cast<int32_t>(it->second.size())) {
         return it->second[instanceIndex];
@@ -1047,6 +1159,10 @@ MetrologyCircleResult MetrologyModel::GetCircleResult(int32_t index, int32_t ins
 }
 
 MetrologyEllipseResult MetrologyModel::GetEllipseResult(int32_t index, int32_t instanceIndex) const {
+    if (instanceIndex < 0) {
+        throw InvalidArgumentException("GetEllipseResult: instanceIndex must be >= 0");
+    }
+    (void)GetObject(index);
     auto it = impl_->ellipseResults.find(index);
     if (it != impl_->ellipseResults.end() && instanceIndex < static_cast<int32_t>(it->second.size())) {
         return it->second[instanceIndex];
@@ -1055,6 +1171,10 @@ MetrologyEllipseResult MetrologyModel::GetEllipseResult(int32_t index, int32_t i
 }
 
 MetrologyRectangle2Result MetrologyModel::GetRectangle2Result(int32_t index, int32_t instanceIndex) const {
+    if (instanceIndex < 0) {
+        throw InvalidArgumentException("GetRectangle2Result: instanceIndex must be >= 0");
+    }
+    (void)GetObject(index);
     auto it = impl_->rectangleResults.find(index);
     if (it != impl_->rectangleResults.end() && instanceIndex < static_cast<int32_t>(it->second.size())) {
         return it->second[instanceIndex];
@@ -1064,7 +1184,6 @@ MetrologyRectangle2Result MetrologyModel::GetRectangle2Result(int32_t index, int
 
 QContour MetrologyModel::GetResultContour(int32_t index, int32_t instanceIndex) const {
     auto* obj = GetObject(index);
-    if (!obj) return QContour();
 
     switch (obj->Type()) {
         case MetrologyObjectType::Line: {
@@ -1145,6 +1264,7 @@ QContour MetrologyModel::GetResultContour(int32_t index, int32_t instanceIndex) 
 }
 
 std::vector<Point2d> MetrologyModel::GetMeasuredPoints(int32_t index) const {
+    (void)GetObject(index);
     auto it = impl_->measuredPoints.find(index);
     if (it != impl_->measuredPoints.end()) {
         return it->second;
@@ -1153,6 +1273,7 @@ std::vector<Point2d> MetrologyModel::GetMeasuredPoints(int32_t index) const {
 }
 
 std::vector<double> MetrologyModel::GetPointWeights(int32_t index) const {
+    (void)GetObject(index);
     auto it = impl_->pointWeights.find(index);
     if (it != impl_->pointWeights.end()) {
         return it->second;
@@ -1161,6 +1282,9 @@ std::vector<double> MetrologyModel::GetPointWeights(int32_t index) const {
 }
 
 void MetrologyModel::Align(double row, double column, double phi) {
+    if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(phi)) {
+        throw InvalidArgumentException("Align: invalid parameters");
+    }
     double deltaRow = row - impl_->alignRow;
     double deltaCol = column - impl_->alignCol;
     double deltaPhi = phi - impl_->alignPhi;

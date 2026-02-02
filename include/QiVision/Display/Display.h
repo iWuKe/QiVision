@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Display.h
  * @brief Image display and drawing functions
@@ -38,18 +40,18 @@ namespace Measure {
  * @param title Window title (used as filename)
  * @return true if successful
  */
-bool DispImage(const QImage& image, const std::string& title = "image");
+QIVISION_API bool DispImage(const QImage& image, const std::string& title = "image");
 
 /**
  * @brief Set the output directory for displayed images
  * @param path Directory path
  */
-void SetDispOutputDir(const std::string& path);
+QIVISION_API void SetDispOutputDir(const std::string& path);
 
 /**
  * @brief Clean up temporary displayed images
  */
-void CleanDispImages();
+QIVISION_API void CleanDispImages();
 
 // =============================================================================
 // Drawing Primitives - Lines
@@ -65,13 +67,13 @@ void CleanDispImages();
  * @param color Drawing color
  * @param thickness Line thickness (default: 1)
  */
-void DispLine(QImage& image, double x1, double y1, double x2, double y2,
+QIVISION_API void DispLine(QImage& image, double x1, double y1, double x2, double y2,
               const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 /**
  * @brief Draw a line from Line2d
  */
-void DispLine(QImage& image, const Line2d& line, double length,
+QIVISION_API void DispLine(QImage& image, const Line2d& line, double length,
               const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 // =============================================================================
@@ -87,13 +89,13 @@ void DispLine(QImage& image, const Line2d& line, double length,
  * @param color Drawing color
  * @param thickness Line thickness (default: 1)
  */
-void DispCircle(QImage& image, double cx, double cy, double radius,
+QIVISION_API void DispCircle(QImage& image, double cx, double cy, double radius,
                 const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 /**
  * @brief Draw a circle from Circle2d
  */
-void DispCircle(QImage& image, const Circle2d& circle,
+QIVISION_API void DispCircle(QImage& image, const Circle2d& circle,
                 const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 /**
@@ -107,14 +109,14 @@ void DispCircle(QImage& image, const Circle2d& circle,
  * @param color Drawing color
  * @param thickness Line thickness
  */
-void DispEllipse(QImage& image, double cx, double cy, double angle,
+QIVISION_API void DispEllipse(QImage& image, double cx, double cy, double angle,
                  double radiusX, double radiusY,
                  const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 /**
  * @brief Draw an ellipse from Ellipse2d
  */
-void DispEllipse(QImage& image, const Ellipse2d& ellipse,
+QIVISION_API void DispEllipse(QImage& image, const Ellipse2d& ellipse,
                  const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 // =============================================================================
@@ -131,13 +133,13 @@ void DispEllipse(QImage& image, const Ellipse2d& ellipse,
  * @param color Drawing color
  * @param thickness Line thickness
  */
-void DispRectangle1(QImage& image, double x1, double y1, double x2, double y2,
+QIVISION_API void DispRectangle1(QImage& image, double x1, double y1, double x2, double y2,
                     const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 /**
  * @brief Draw an axis-aligned rectangle from Rect2i
  */
-void DispRectangle1(QImage& image, const Rect2i& rect,
+QIVISION_API void DispRectangle1(QImage& image, const Rect2i& rect,
                     const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 /**
@@ -151,7 +153,7 @@ void DispRectangle1(QImage& image, const Rect2i& rect,
  * @param color Drawing color
  * @param thickness Line thickness
  */
-void DispRectangle2(QImage& image, double cx, double cy, double angle,
+QIVISION_API void DispRectangle2(QImage& image, double cx, double cy, double angle,
                     double halfWidth, double halfHeight,
                     const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
@@ -169,7 +171,7 @@ void DispRectangle2(QImage& image, double cx, double cy, double angle,
  * @param color Drawing color
  * @param thickness Line thickness
  */
-void DispCross(QImage& image, double cx, double cy, int32_t size,
+QIVISION_API void DispCross(QImage& image, double cx, double cy, int32_t size,
                double angle = 0.0,
                const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
@@ -184,7 +186,7 @@ void DispCross(QImage& image, double cx, double cy, int32_t size,
  * @param color Drawing color
  * @param thickness Line thickness
  */
-void DispArrow(QImage& image, double x1, double y1, double x2, double y2,
+QIVISION_API void DispArrow(QImage& image, double x1, double y1, double x2, double y2,
                double headSize = 10.0,
                const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
@@ -200,7 +202,7 @@ void DispArrow(QImage& image, double x1, double y1, double x2, double y2,
  * @param color Drawing color
  * @param thickness Line thickness
  */
-void DispPolygon(QImage& image, const std::vector<double>& xs,
+QIVISION_API void DispPolygon(QImage& image, const std::vector<double>& xs,
                  const std::vector<double>& ys,
                  const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
@@ -211,13 +213,13 @@ void DispPolygon(QImage& image, const std::vector<double>& xs,
  * @param color Drawing color
  * @param thickness Line thickness
  */
-void DispContour(QImage& image, const QContour& contour,
+QIVISION_API void DispContour(QImage& image, const QContour& contour,
                  const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 /**
  * @brief Draw multiple contours
  */
-void DispContours(QImage& image, const QContourArray& contours,
+QIVISION_API void DispContours(QImage& image, const QContourArray& contours,
                   const Scalar& color = Scalar::Green(), int32_t thickness = 1);
 
 // =============================================================================
@@ -231,7 +233,7 @@ void DispContours(QImage& image, const QContourArray& contours,
  * @param y Point y coordinate
  * @param color Drawing color
  */
-void DispPoint(QImage& image, double x, double y,
+QIVISION_API void DispPoint(QImage& image, double x, double y,
                const Scalar& color = Scalar::Green());
 
 /**
@@ -241,7 +243,7 @@ void DispPoint(QImage& image, double x, double y,
  * @param ys Y coordinates
  * @param color Drawing color
  */
-void DispPoints(QImage& image, const std::vector<double>& xs,
+QIVISION_API void DispPoints(QImage& image, const std::vector<double>& xs,
                 const std::vector<double>& ys,
                 const Scalar& color = Scalar::Green());
 
@@ -258,7 +260,7 @@ void DispPoints(QImage& image, const std::vector<double>& xs,
  * @param color Text color
  * @param scale Font scale (default: 1)
  */
-void DispText(QImage& image, double x, double y, const std::string& text,
+QIVISION_API void DispText(QImage& image, double x, double y, const std::string& text,
               const Scalar& color = Scalar::Green(), int32_t scale = 1);
 
 // =============================================================================
@@ -275,7 +277,7 @@ void DispText(QImage& image, double x, double y, const std::string& text,
  * @param color Drawing color
  * @param markerSize Cross marker size
  */
-void DispMatchResult(QImage& image, double x, double y, double angle,
+QIVISION_API void DispMatchResult(QImage& image, double x, double y, double angle,
                      double score = 1.0,
                      const Scalar& color = Scalar::Green(),
                      int32_t markerSize = 20);
@@ -288,7 +290,7 @@ void DispMatchResult(QImage& image, double x, double y, double angle,
  * @param color Drawing color
  * @param markerSize Cross marker size
  */
-void DispEdgeResult(QImage& image, double x, double y,
+QIVISION_API void DispEdgeResult(QImage& image, double x, double y,
                     const Scalar& color = Scalar::Green(),
                     int32_t markerSize = 5);
 

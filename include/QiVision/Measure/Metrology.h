@@ -29,8 +29,12 @@
 #include <QiVision/Core/Types.h>
 #include <QiVision/Measure/MeasureHandle.h>
 #include <QiVision/Measure/MeasureTypes.h>
+#include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Export.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cctype>
 #include <memory>
 #include <string>
 #include <vector>
@@ -103,7 +107,7 @@ enum class MetrologyFitMethod {
 /**
  * @brief Parameters for metrology measurement
  */
-struct MetrologyMeasureParams {
+struct QIVISION_API MetrologyMeasureParams {
     int32_t numInstances = 1;           ///< Number of instances to find
     double measureLength1 = 20.0;       ///< Half-length of caliper along profile
     double measureLength2 = 5.0;        ///< Half-width of caliper perpendicular
@@ -137,16 +141,43 @@ struct MetrologyMeasureParams {
 
     /// Set threshold with string ("auto" for automatic mode)
     MetrologyMeasureParams& SetThreshold(const std::string& mode) {
-        if (mode == "auto" || mode == "Auto" || mode == "AUTO") {
-            thresholdMode = ThresholdMode::Auto;
+        std::string lower = mode;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lower.empty() || lower == "manual") {
+            thresholdMode = ThresholdMode::Manual;
+            return *this;
         }
-        return *this;
+        if (lower == "auto") {
+            thresholdMode = ThresholdMode::Auto;
+            return *this;
+        }
+        throw InvalidArgumentException("MetrologyMeasureParams::SetThreshold: unknown mode: " + mode);
     }
 
     /// @deprecated Use SetThreshold instead
     MetrologyMeasureParams& SetMeasureThreshold(double t) { return SetThreshold(t); }
 
+    /// Set transition from string ("positive", "negative", "all")
+    MetrologyMeasureParams& SetMeasureTransition(const std::string& transition) {
+        measureTransition = ParseTransition(transition);
+        return *this;
+    }
+
     MetrologyMeasureParams& SetMeasureTransition(EdgeTransition t) { measureTransition = t; return *this; }
+
+    /// Set select from string ("first", "last", "strongest", "all", "best")
+    MetrologyMeasureParams& SetMeasureSelect(const std::string& select) {
+        std::string lower = select;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lower == "best") {
+            lower = "strongest";
+        }
+        measureSelect = ParseEdgeSelect(lower);
+        return *this;
+    }
+
     MetrologyMeasureParams& SetMeasureSelect(EdgeSelectMode m) { measureSelect = m; return *this; }
     MetrologyMeasureParams& SetNumMeasures(int32_t n) { numMeasures = n; return *this; }
     MetrologyMeasureParams& SetMinScore(double s) { minScore = s; return *this; }
@@ -156,13 +187,22 @@ struct MetrologyMeasureParams {
 
     /// Set fitting method with string ("ransac", "huber", "tukey")
     MetrologyMeasureParams& SetFitMethod(const std::string& method) {
-        if (method == "ransac" || method == "RANSAC") {
+        std::string lower = method;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lower.empty() || lower == "ransac") {
             fitMethod = MetrologyFitMethod::RANSAC;
-        } else if (method == "huber" || method == "Huber") {
-            fitMethod = MetrologyFitMethod::Huber;
-        } else if (method == "tukey" || method == "Tukey") {
-            fitMethod = MetrologyFitMethod::Tukey;
+            return *this;
         }
+        if (lower == "huber") {
+            fitMethod = MetrologyFitMethod::Huber;
+            return *this;
+        }
+        if (lower == "tukey") {
+            fitMethod = MetrologyFitMethod::Tukey;
+            return *this;
+        }
+        throw InvalidArgumentException("MetrologyMeasureParams::SetFitMethod: unknown method: " + method);
         return *this;
     }
 
@@ -179,7 +219,7 @@ struct MetrologyMeasureParams {
 /**
  * @brief Result for a line measurement
  */
-struct MetrologyLineResult {
+struct QIVISION_API MetrologyLineResult {
     // Fitted line parameters (Hesse normal form: row*nr + col*nc = d)
     double row1 = 0.0;          ///< Start point row
     double col1 = 0.0;          ///< Start point column
@@ -202,7 +242,7 @@ struct MetrologyLineResult {
 /**
  * @brief Result for a circle measurement
  */
-struct MetrologyCircleResult {
+struct QIVISION_API MetrologyCircleResult {
     double row = 0.0;           ///< Center row
     double column = 0.0;        ///< Center column
     double radius = 0.0;        ///< Radius
@@ -223,7 +263,7 @@ struct MetrologyCircleResult {
 /**
  * @brief Result for an ellipse measurement
  */
-struct MetrologyEllipseResult {
+struct QIVISION_API MetrologyEllipseResult {
     double row = 0.0;           ///< Center row
     double column = 0.0;        ///< Center column
     double phi = 0.0;           ///< Orientation angle (radians)
@@ -241,7 +281,7 @@ struct MetrologyEllipseResult {
 /**
  * @brief Result for a rectangle measurement
  */
-struct MetrologyRectangle2Result {
+struct QIVISION_API MetrologyRectangle2Result {
     double row = 0.0;           ///< Center row
     double column = 0.0;        ///< Center column
     double phi = 0.0;           ///< Orientation angle (radians)
@@ -270,7 +310,7 @@ class MetrologyObject;
 /**
  * @brief Base class for metrology measurement objects
  */
-class MetrologyObject {
+class QIVISION_API MetrologyObject {
 public:
     virtual ~MetrologyObject() = default;
 
@@ -347,35 +387,34 @@ public:
 
     /// Set threshold mode ("manual" or "auto")
     void SetThresholdMode(const std::string& mode) {
-        if (mode == "auto" || mode == "Auto" || mode == "AUTO") {
-            params_.thresholdMode = ThresholdMode::Auto;
-        } else {
+        std::string lower = mode;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lower.empty() || lower == "manual") {
             params_.thresholdMode = ThresholdMode::Manual;
+            return;
         }
+        if (lower == "auto") {
+            params_.thresholdMode = ThresholdMode::Auto;
+            return;
+        }
+        throw InvalidArgumentException("SetThresholdMode: unknown mode: " + mode);
     }
 
     /// Set edge transition filter ("positive", "negative", "all")
     void SetMeasureTransition(const std::string& transition) {
-        if (transition == "positive" || transition == "Positive") {
-            params_.measureTransition = EdgeTransition::Positive;
-        } else if (transition == "negative" || transition == "Negative") {
-            params_.measureTransition = EdgeTransition::Negative;
-        } else {
-            params_.measureTransition = EdgeTransition::All;
-        }
+        params_.measureTransition = ParseTransition(transition);
     }
 
     /// Set edge selection mode ("first", "last", "best", "all")
     void SetMeasureSelect(const std::string& select) {
-        if (select == "first" || select == "First") {
-            params_.measureSelect = EdgeSelectMode::First;
-        } else if (select == "last" || select == "Last") {
-            params_.measureSelect = EdgeSelectMode::Last;
-        } else if (select == "best" || select == "Best" || select == "strongest" || select == "Strongest") {
-            params_.measureSelect = EdgeSelectMode::Strongest;
-        } else {
-            params_.measureSelect = EdgeSelectMode::All;
+        std::string lower = select;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lower == "best") {
+            lower = "strongest";
         }
+        params_.measureSelect = ParseEdgeSelect(lower);
     }
 
     /// Set minimum score threshold
@@ -383,13 +422,22 @@ public:
 
     /// Set fitting method ("ransac", "huber", "tukey")
     void SetFitMethod(const std::string& method) {
-        if (method == "ransac" || method == "RANSAC") {
+        std::string lower = method;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lower.empty() || lower == "ransac") {
             params_.fitMethod = MetrologyFitMethod::RANSAC;
-        } else if (method == "huber" || method == "Huber") {
-            params_.fitMethod = MetrologyFitMethod::Huber;
-        } else if (method == "tukey" || method == "Tukey") {
-            params_.fitMethod = MetrologyFitMethod::Tukey;
+            return;
         }
+        if (lower == "huber") {
+            params_.fitMethod = MetrologyFitMethod::Huber;
+            return;
+        }
+        if (lower == "tukey") {
+            params_.fitMethod = MetrologyFitMethod::Tukey;
+            return;
+        }
+        throw InvalidArgumentException("SetFitMethod: unknown method: " + method);
     }
 
     /// Set outlier distance threshold (pixels)
@@ -437,7 +485,7 @@ protected:
 /**
  * @brief Line measurement object
  */
-class MetrologyObjectLine : public MetrologyObject {
+class QIVISION_API MetrologyObjectLine : public MetrologyObject {
 public:
     /**
      * @brief Construct line measurement object
@@ -475,7 +523,7 @@ private:
 /**
  * @brief Circle measurement object
  */
-class MetrologyObjectCircle : public MetrologyObject {
+class QIVISION_API MetrologyObjectCircle : public MetrologyObject {
 public:
     /**
      * @brief Construct circle measurement object (full circle)
@@ -530,7 +578,7 @@ private:
 /**
  * @brief Ellipse measurement object
  */
-class MetrologyObjectEllipse : public MetrologyObject {
+class QIVISION_API MetrologyObjectEllipse : public MetrologyObject {
 public:
     /**
      * @brief Construct ellipse measurement object
@@ -569,7 +617,7 @@ private:
 /**
  * @brief Rectangle measurement object
  */
-class MetrologyObjectRectangle2 : public MetrologyObject {
+class QIVISION_API MetrologyObjectRectangle2 : public MetrologyObject {
 public:
     /**
      * @brief Construct rectangle measurement object
@@ -632,7 +680,7 @@ private:
  * auto circleResult = model.GetCircleResult(circleIdx);
  * @endcode
  */
-class MetrologyModel {
+class QIVISION_API MetrologyModel {
 public:
     MetrologyModel();
     ~MetrologyModel();

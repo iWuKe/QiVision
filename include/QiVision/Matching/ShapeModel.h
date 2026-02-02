@@ -22,6 +22,7 @@
 #include <QiVision/Core/QRegion.h>
 #include <QiVision/Core/QContourArray.h>
 #include <QiVision/Core/Types.h>
+#include <QiVision/Core/Export.h>
 
 #include <cstdint>
 #include <memory>
@@ -56,7 +57,7 @@ class ShapeModelImpl;
  *                "least_squares", 0, 0.9, rows, cols, angles, scores);
  * @endcode
  */
-class ShapeModel {
+class QIVISION_API ShapeModel {
 public:
     ShapeModel();
     ~ShapeModel();
@@ -102,7 +103,7 @@ private:
  * @note The center of the template is used as the model origin.
  *       Use SetShapeModelOrigin() to change it.
  */
-void CreateShapeModel(
+QIVISION_API void CreateShapeModel(
     const QImage& templateImage,
     ShapeModel& model,
     int32_t numLevels,
@@ -130,7 +131,7 @@ void CreateShapeModel(
  * @param contrast      Threshold for edge extraction
  * @param minContrast   Minimum contrast in search images
  */
-void CreateShapeModel(
+QIVISION_API void CreateShapeModel(
     const QImage& templateImage,
     const Rect2i& roi,
     ShapeModel& model,
@@ -174,7 +175,7 @@ void CreateShapeModel(
  * CreateShapeModel(image, roi, model2, ...);
  * @endcode
  */
-void CreateShapeModel(
+QIVISION_API void CreateShapeModel(
     const QImage& templateImage,
     const QRegion& region,
     ShapeModel& model,
@@ -207,7 +208,7 @@ void CreateShapeModel(
  * @param contrast      Threshold for edge extraction
  * @param minContrast   Minimum contrast in search images
  */
-void CreateScaledShapeModel(
+QIVISION_API void CreateScaledShapeModel(
     const QImage& templateImage,
     ShapeModel& model,
     int32_t numLevels,
@@ -243,7 +244,7 @@ void CreateScaledShapeModel(
  * @param contrast      Threshold for edge extraction
  * @param minContrast   Minimum contrast in search images
  */
-void CreateScaledShapeModel(
+QIVISION_API void CreateScaledShapeModel(
     const QImage& templateImage,
     const Rect2i& roi,
     ShapeModel& model,
@@ -280,7 +281,7 @@ void CreateScaledShapeModel(
  * @param contrast      Threshold for edge extraction
  * @param minContrast   Minimum contrast in search images
  */
-void CreateScaledShapeModel(
+QIVISION_API void CreateScaledShapeModel(
     const QImage& templateImage,
     const QRegion& region,
     ShapeModel& model,
@@ -321,7 +322,7 @@ void CreateScaledShapeModel(
  * @param angles        [out] Rotation angles of found instances [rad]
  * @param scores        [out] Match scores of found instances [0..1]
  */
-void FindShapeModel(
+QIVISION_API void FindShapeModel(
     const QImage& image,
     const ShapeModel& model,
     double angleStart,
@@ -361,7 +362,7 @@ void FindShapeModel(
  * @param scales        [out] Scale factors
  * @param scores        [out] Match scores [0..1]
  */
-void FindScaledShapeModel(
+QIVISION_API void FindScaledShapeModel(
     const QImage& image,
     const ShapeModel& model,
     double angleStart,
@@ -395,7 +396,7 @@ void FindScaledShapeModel(
  * @param contourRows   [out] Row coordinates of contour points
  * @param contourCols   [out] Column coordinates of contour points
  */
-void GetShapeModelContours(
+QIVISION_API void GetShapeModelContours(
     const ShapeModel& model,
     int32_t level,
     std::vector<double>& contourRows,
@@ -414,7 +415,7 @@ void GetShapeModelContours(
  * @param level         Pyramid level (1 = highest resolution)
  * @param contours      [out] QContourArray containing model contours
  */
-void GetShapeModelXLD(
+QIVISION_API void GetShapeModelXLD(
     const ShapeModel& model,
     int32_t level,
     QContourArray& contours
@@ -435,7 +436,7 @@ void GetShapeModelXLD(
  * @param scaleStep     [out] Scale step
  * @param metric        [out] Match metric string
  */
-void GetShapeModelParams(
+QIVISION_API void GetShapeModelParams(
     const ShapeModel& model,
     int32_t& numLevels,
     double& angleStart,
@@ -456,7 +457,7 @@ void GetShapeModelParams(
  * @param row           [out] Row coordinate of origin
  * @param col           [out] Column coordinate of origin
  */
-void GetShapeModelOrigin(
+QIVISION_API void GetShapeModelOrigin(
     const ShapeModel& model,
     double& row,
     double& col
@@ -471,7 +472,7 @@ void GetShapeModelOrigin(
  * @param row           Row coordinate of new origin
  * @param col           Column coordinate of new origin
  */
-void SetShapeModelOrigin(
+QIVISION_API void SetShapeModelOrigin(
     ShapeModel& model,
     double row,
     double col
@@ -489,7 +490,7 @@ void SetShapeModelOrigin(
  * @param model         Shape model handle
  * @param filename      Output file path
  */
-void WriteShapeModel(
+QIVISION_API void WriteShapeModel(
     const ShapeModel& model,
     const std::string& filename
 );
@@ -502,7 +503,7 @@ void WriteShapeModel(
  * @param filename      Input file path
  * @param model         [out] Loaded shape model handle
  */
-void ReadShapeModel(
+QIVISION_API void ReadShapeModel(
     const std::string& filename,
     ShapeModel& model
 );
@@ -514,7 +515,7 @@ void ReadShapeModel(
  *
  * @param model         Shape model handle to clear
  */
-void ClearShapeModel(
+QIVISION_API void ClearShapeModel(
     ShapeModel& model
 );
 
@@ -539,7 +540,7 @@ void ClearShapeModel(
  * @param contrast      [out] Recommended contrast threshold
  * @param minContrast   [out] Recommended min contrast
  */
-void DetermineShapeModelParams(
+QIVISION_API void DetermineShapeModelParams(
     const QImage& templateImage,
     const Rect2i& roi,
     int32_t& numLevels,
@@ -563,7 +564,7 @@ void DetermineShapeModelParams(
  * @param contrastImage [out] Contrast/edge image at this level
  * @param numPoints     [out] Number of model points
  */
-void InspectShapeModel(
+QIVISION_API void InspectShapeModel(
     const ShapeModel& model,
     int32_t level,
     QImage& contrastImage,
@@ -575,12 +576,12 @@ void InspectShapeModel(
  *
  * Prints auto-contrast statistics and stage point counts.
  */
-void SetShapeModelDebugCreate(ShapeModel& model, bool enable);
+QIVISION_API void SetShapeModelDebugCreate(ShapeModel& model, bool enable);
 
 /**
  * @brief Enable/disable model creation debug output for newly created models
  */
-void SetShapeModelDebugCreateGlobal(bool enable);
+QIVISION_API void SetShapeModelDebugCreateGlobal(bool enable);
 
 // =============================================================================
 // Helper: Convert degrees to radians

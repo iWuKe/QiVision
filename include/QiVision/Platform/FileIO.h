@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file FileIO.h
  * @brief Cross-platform file I/O utilities
@@ -29,56 +31,56 @@ namespace Qi::Vision::Platform {
 /**
  * @brief Check if file exists
  */
-bool FileExists(const std::string& path);
+QIVISION_API bool FileExists(const std::string& path);
 
 /**
  * @brief Check if directory exists
  */
-bool DirectoryExists(const std::string& path);
+QIVISION_API bool DirectoryExists(const std::string& path);
 
 /**
  * @brief Get file size in bytes
  * @return File size, or -1 if file doesn't exist
  */
-int64_t GetFileSize(const std::string& path);
+QIVISION_API int64_t GetFileSize(const std::string& path);
 
 /**
  * @brief Get file extension (including dot)
  * @return Extension like ".txt", or empty string if none
  */
-std::string GetExtension(const std::string& path);
+QIVISION_API std::string GetExtension(const std::string& path);
 
 /**
  * @brief Get filename from path (without directory)
  */
-std::string GetFileName(const std::string& path);
+QIVISION_API std::string GetFileName(const std::string& path);
 
 /**
  * @brief Get directory from path (without filename)
  */
-std::string GetDirectory(const std::string& path);
+QIVISION_API std::string GetDirectory(const std::string& path);
 
 /**
  * @brief Join path components
  */
-std::string JoinPath(const std::string& dir, const std::string& name);
+QIVISION_API std::string JoinPath(const std::string& dir, const std::string& name);
 
 /**
  * @brief Normalize path separators to platform-native
  */
-std::string NormalizePath(const std::string& path);
+QIVISION_API std::string NormalizePath(const std::string& path);
 
 /**
  * @brief Create directory (and parents if needed)
  * @return true if created or already exists
  */
-bool CreateDirectory(const std::string& path);
+QIVISION_API bool CreateDirectory(const std::string& path);
 
 /**
  * @brief Delete file
  * @return true if deleted or didn't exist
  */
-bool DeleteFile(const std::string& path);
+QIVISION_API bool DeleteFile(const std::string& path);
 
 // ============================================================================
 // Binary File I/O
@@ -90,7 +92,7 @@ bool DeleteFile(const std::string& path);
  * @param data Output vector (will be resized)
  * @return true on success
  */
-bool ReadBinaryFile(const std::string& path, std::vector<uint8_t>& data);
+QIVISION_API bool ReadBinaryFile(const std::string& path, std::vector<uint8_t>& data);
 
 /**
  * @brief Write byte vector to file
@@ -98,7 +100,7 @@ bool ReadBinaryFile(const std::string& path, std::vector<uint8_t>& data);
  * @param data Data to write
  * @return true on success
  */
-bool WriteBinaryFile(const std::string& path, const std::vector<uint8_t>& data);
+QIVISION_API bool WriteBinaryFile(const std::string& path, const std::vector<uint8_t>& data);
 
 /**
  * @brief Write raw bytes to file
@@ -107,7 +109,7 @@ bool WriteBinaryFile(const std::string& path, const std::vector<uint8_t>& data);
  * @param size Size in bytes
  * @return true on success
  */
-bool WriteBinaryFile(const std::string& path, const void* data, size_t size);
+QIVISION_API bool WriteBinaryFile(const std::string& path, const void* data, size_t size);
 
 // ============================================================================
 // Text File I/O (UTF-8)
@@ -119,7 +121,7 @@ bool WriteBinaryFile(const std::string& path, const void* data, size_t size);
  * @param content Output string
  * @return true on success
  */
-bool ReadTextFile(const std::string& path, std::string& content);
+QIVISION_API bool ReadTextFile(const std::string& path, std::string& content);
 
 /**
  * @brief Write string to text file (UTF-8)
@@ -127,7 +129,7 @@ bool ReadTextFile(const std::string& path, std::string& content);
  * @param content Content to write
  * @return true on success
  */
-bool WriteTextFile(const std::string& path, const std::string& content);
+QIVISION_API bool WriteTextFile(const std::string& path, const std::string& content);
 
 /**
  * @brief Read text file lines into vector
@@ -136,7 +138,7 @@ bool WriteTextFile(const std::string& path, const std::string& content);
  * @param trimLines If true, trim whitespace from each line
  * @return true on success
  */
-bool ReadTextLines(const std::string& path, std::vector<std::string>& lines,
+QIVISION_API bool ReadTextLines(const std::string& path, std::vector<std::string>& lines,
                    bool trimLines = true);
 
 /**
@@ -146,7 +148,7 @@ bool ReadTextLines(const std::string& path, std::vector<std::string>& lines,
  * @param lineEnding Line ending to use ("\n" or "\r\n")
  * @return true on success
  */
-bool WriteTextLines(const std::string& path, const std::vector<std::string>& lines,
+QIVISION_API bool WriteTextLines(const std::string& path, const std::vector<std::string>& lines,
                     const std::string& lineEnding = "\n");
 
 // ============================================================================
@@ -158,7 +160,7 @@ bool WriteTextLines(const std::string& path, const std::vector<std::string>& lin
  *
  * Provides convenient methods for writing primitive types and vectors.
  */
-class BinaryWriter {
+class QIVISION_API BinaryWriter {
 public:
     /**
      * @brief Construct writer for file
@@ -213,7 +215,7 @@ private:
  *
  * Provides convenient methods for reading primitive types and vectors.
  */
-class BinaryReader {
+class QIVISION_API BinaryReader {
 public:
     /**
      * @brief Construct reader for file
@@ -273,19 +275,19 @@ private:
 // ============================================================================
 
 template<typename T>
-void BinaryWriter::Write(T value) {
+QIVISION_API void BinaryWriter::Write(T value) {
     stream_.write(reinterpret_cast<const char*>(&value), sizeof(T));
 }
 
 template<typename T>
-void BinaryWriter::WriteArray(const T* data, size_t count) {
+QIVISION_API void BinaryWriter::WriteArray(const T* data, size_t count) {
     if (count > 0) {
         stream_.write(reinterpret_cast<const char*>(data), count * sizeof(T));
     }
 }
 
 template<typename T>
-void BinaryWriter::WriteVector(const std::vector<T>& vec) {
+QIVISION_API void BinaryWriter::WriteVector(const std::vector<T>& vec) {
     uint64_t size = vec.size();
     Write(size);
     if (!vec.empty()) {
@@ -301,14 +303,14 @@ T BinaryReader::Read() {
 }
 
 template<typename T>
-void BinaryReader::ReadArray(T* data, size_t count) {
+QIVISION_API void BinaryReader::ReadArray(T* data, size_t count) {
     if (count > 0) {
         stream_.read(reinterpret_cast<char*>(data), count * sizeof(T));
     }
 }
 
 template<typename T>
-std::vector<T> BinaryReader::ReadVector() {
+QIVISION_API std::vector<T> BinaryReader::ReadVector() {
     uint64_t size = Read<uint64_t>();
     std::vector<T> vec(static_cast<size_t>(size));
     if (size > 0) {

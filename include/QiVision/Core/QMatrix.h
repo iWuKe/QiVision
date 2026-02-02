@@ -15,6 +15,7 @@
  */
 
 #include <QiVision/Core/Types.h>
+#include <QiVision/Core/Export.h>
 #include <array>
 #include <initializer_list>
 
@@ -23,7 +24,7 @@ namespace Qi::Vision {
 /**
  * @brief 2D Affine transformation matrix (3x3, homogeneous)
  */
-class QMatrix {
+class QIVISION_API QMatrix {
 public:
     // =========================================================================
     // Constructors

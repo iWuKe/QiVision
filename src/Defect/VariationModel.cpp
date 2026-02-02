@@ -94,7 +94,7 @@ public:
 
     void ComputeStatistics() {
         if (trainCount_ == 0) {
-            throw Exception("No training images provided");
+            throw InsufficientDataException("No training images provided");
         }
 
         meanImage_ = QImage(width_, height_, PixelType::Float32);
@@ -139,6 +139,7 @@ public:
         double edgeSigma,
         int32_t edgeDilateRadius
     ) {
+        (void)edgeSigma;
         width_ = golden.Width();
         height_ = golden.Height();
 
@@ -234,11 +235,14 @@ public:
 
     QRegion CompareImpl(const QImage& testImage, double threshold) const {
         if (!isReady_) {
-            throw Exception("Model not ready. Call Prepare() or CreateFromSingleImage() first.");
+            throw InvalidArgumentException("Model not ready. Call Prepare() or CreateFromSingleImage() first.");
+        }
+        if (testImage.Empty()) {
+            return QRegion();
         }
 
         if (testImage.Width() != width_ || testImage.Height() != height_) {
-            throw Exception("Test image size doesn't match model size");
+            throw InvalidArgumentException("VariationModel::Compare: image size mismatch");
         }
 
         // Convert test image to float if needed
@@ -308,7 +312,11 @@ public:
 
     void GetDiffImageImpl(const QImage& testImage, QImage& diffImage) const {
         if (!isReady_) {
-            throw Exception("Model not ready");
+            throw InvalidArgumentException("Model not ready");
+        }
+        if (testImage.Empty()) {
+            diffImage = QImage();
+            return;
         }
 
         diffImage = QImage(width_, height_, PixelType::Float32);
@@ -363,6 +371,9 @@ public:
 VariationModel::VariationModel(int32_t width, int32_t height)
     : impl_(std::make_unique<Impl>())
 {
+    if (width < 0 || height < 0) {
+        throw InvalidArgumentException("VariationModel: width/height must be >= 0");
+    }
     if (width > 0 && height > 0) {
         impl_->InitAccumulators(width, height);
     }
@@ -374,12 +385,15 @@ VariationModel::VariationModel(VariationModel&& other) noexcept = default;
 VariationModel& VariationModel::operator=(VariationModel&& other) noexcept = default;
 
 void VariationModel::Train(const QImage& goodImage) {
+    if (goodImage.Empty()) {
+        throw InvalidArgumentException("VariationModel::Train: empty image");
+    }
     if (impl_->width_ == 0) {
         impl_->InitAccumulators(goodImage.Width(), goodImage.Height());
     }
 
     if (goodImage.Width() != impl_->width_ || goodImage.Height() != impl_->height_) {
-        throw Exception("Training image size doesn't match model size");
+        throw InvalidArgumentException("VariationModel::Train: image size mismatch");
     }
 
     impl_->AccumulateImage(goodImage);
@@ -396,11 +410,29 @@ void VariationModel::CreateFromSingleImage(
     double edgeSigma,
     int32_t edgeDilateRadius
 ) {
+    if (golden.Empty()) {
+        throw InvalidArgumentException("VariationModel::CreateFromSingleImage: empty image");
+    }
+    if (edgeTolerance < 0.0 || flatTolerance < 0.0) {
+        throw InvalidArgumentException("VariationModel::CreateFromSingleImage: tolerances must be >= 0");
+    }
+    if (edgeSigma <= 0.0) {
+        throw InvalidArgumentException("VariationModel::CreateFromSingleImage: edgeSigma must be > 0");
+    }
+    if (edgeDilateRadius < 0) {
+        throw InvalidArgumentException("VariationModel::CreateFromSingleImage: edgeDilateRadius must be >= 0");
+    }
     impl_->CreateFromSingleImageImpl(golden, edgeTolerance, flatTolerance,
                                       edgeSigma, edgeDilateRadius);
 }
 
 void VariationModel::CreateFromImages(const QImage& golden, const QImage& varImage) {
+    if (golden.Empty() || varImage.Empty()) {
+        throw InvalidArgumentException("VariationModel::CreateFromImages: empty image");
+    }
+    if (golden.Width() != varImage.Width() || golden.Height() != varImage.Height()) {
+        throw InvalidArgumentException("VariationModel::CreateFromImages: image size mismatch");
+    }
     impl_->width_ = golden.Width();
     impl_->height_ = golden.Height();
 
@@ -451,13 +483,19 @@ QImage VariationModel::GetVarImage() const {
 }
 
 void VariationModel::SetVarImage(const QImage& varImage) {
+    if (varImage.Empty()) {
+        throw InvalidArgumentException("VariationModel::SetVarImage: empty image");
+    }
     if (varImage.Width() != impl_->width_ || varImage.Height() != impl_->height_) {
-        throw Exception("Variance image size doesn't match model size");
+        throw InvalidArgumentException("VariationModel::SetVarImage: image size mismatch");
     }
     impl_->varImage_ = varImage.Clone();
 }
 
 void VariationModel::SetMinVariance(double minVar) {
+    if (minVar <= 0.0) {
+        throw InvalidArgumentException("VariationModel::SetMinVariance: minVar must be > 0");
+    }
     impl_->minVariance_ = minVar;
 }
 
@@ -479,12 +517,15 @@ int32_t VariationModel::TrainingCount() const {
 
 void VariationModel::Write(const std::string& filename) const {
     if (!impl_->isReady_) {
-        throw Exception("Model not ready for serialization");
+        throw InvalidArgumentException("VariationModel::Write: model not ready");
+    }
+    if (filename.empty()) {
+        throw InvalidArgumentException("VariationModel::Write: filename is empty");
     }
 
     std::ofstream file(filename, std::ios::binary);
     if (!file) {
-        throw Exception("Failed to open file for writing: " + filename);
+        throw IOException("Failed to open file for writing: " + filename);
     }
 
     // Magic number and version
@@ -513,22 +554,25 @@ void VariationModel::Write(const std::string& filename) const {
 }
 
 VariationModel VariationModel::Read(const std::string& filename) {
+    if (filename.empty()) {
+        throw InvalidArgumentException("VariationModel::Read: filename is empty");
+    }
     std::ifstream file(filename, std::ios::binary);
     if (!file) {
-        throw Exception("Failed to open file for reading: " + filename);
+        throw IOException("Failed to open file for reading: " + filename);
     }
 
     // Check magic number
     char magic[5] = {0};
     file.read(magic, 4);
     if (std::string(magic) != "QIVM") {
-        throw Exception("Invalid variation model file format");
+        throw InvalidArgumentException("Invalid variation model file format");
     }
 
     int32_t version;
     file.read(reinterpret_cast<char*>(&version), sizeof(version));
     if (version != 1) {
-        throw Exception("Unsupported variation model version");
+        throw VersionMismatchException("Unsupported variation model version");
     }
 
     VariationModel model;
@@ -584,6 +628,12 @@ QRegion CompareImages(
     const QImage& test,
     double tolerance
 ) {
+    if (!golden.IsValid() || !test.IsValid()) {
+        throw InvalidArgumentException("CompareImages: invalid image");
+    }
+    if (!std::isfinite(tolerance) || tolerance < 0.0) {
+        throw InvalidArgumentException("CompareImages: tolerance must be >= 0");
+    }
     VariationModel model;
     model.CreateFromSingleImage(golden, tolerance, tolerance, 1.5, 0);
     return model.Compare(test, 1.0);  // threshold=1 since tolerance is already in variance
@@ -595,6 +645,13 @@ QRegion CompareImagesEdgeAware(
     double edgeTolerance,
     double flatTolerance
 ) {
+    if (!golden.IsValid() || !test.IsValid()) {
+        throw InvalidArgumentException("CompareImagesEdgeAware: invalid image");
+    }
+    if (!std::isfinite(edgeTolerance) || edgeTolerance < 0.0 ||
+        !std::isfinite(flatTolerance) || flatTolerance < 0.0) {
+        throw InvalidArgumentException("CompareImagesEdgeAware: tolerance must be >= 0");
+    }
     VariationModel model;
     model.CreateFromSingleImage(golden, edgeTolerance, flatTolerance);
     return model.Compare(test, 1.0);
@@ -605,8 +662,20 @@ QRegion AbsDiffThreshold(
     const QImage& image2,
     double threshold
 ) {
+    if (image1.Empty() || image2.Empty()) {
+        return QRegion();
+    }
+    if (!image1.IsValid() || !image2.IsValid()) {
+        throw InvalidArgumentException("AbsDiffThreshold: invalid image");
+    }
+    if (threshold < 0.0) {
+        throw InvalidArgumentException("AbsDiffThreshold: threshold must be >= 0");
+    }
+    if (!std::isfinite(threshold)) {
+        throw InvalidArgumentException("AbsDiffThreshold: threshold must be finite");
+    }
     if (image1.Width() != image2.Width() || image1.Height() != image2.Height()) {
-        throw Exception("Image sizes don't match");
+        throw InvalidArgumentException("AbsDiffThreshold: image size mismatch");
     }
 
     int32_t width = image1.Width();
@@ -644,7 +713,7 @@ QRegion AbsDiffThreshold(
             }
         }
     } else {
-        throw Exception("AbsDiffThreshold only supports UInt8 images currently");
+        throw UnsupportedException("AbsDiffThreshold only supports UInt8 images currently");
     }
 
     return QRegion(std::move(runs));
@@ -655,8 +724,15 @@ void AbsDiffImage(
     const QImage& image2,
     QImage& diffImage
 ) {
+    if (image1.Empty() || image2.Empty()) {
+        diffImage = QImage();
+        return;
+    }
+    if (!image1.IsValid() || !image2.IsValid()) {
+        throw InvalidArgumentException("AbsDiffImage: invalid image");
+    }
     if (image1.Width() != image2.Width() || image1.Height() != image2.Height()) {
-        throw Exception("Image sizes don't match");
+        throw InvalidArgumentException("AbsDiffImage: image size mismatch");
     }
 
     int32_t width = image1.Width();
@@ -680,7 +756,7 @@ void AbsDiffImage(
             }
         }
     } else {
-        throw Exception("AbsDiffImage only supports UInt8 images currently");
+        throw UnsupportedException("AbsDiffImage only supports UInt8 images currently");
     }
 }
 

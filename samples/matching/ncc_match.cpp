@@ -251,9 +251,6 @@ int main() {
 
         // Draw matches (green cross + box)
         for (size_t i = 0; i < rows.size(); ++i) {
-            int32_t cx = static_cast<int32_t>(cols[i]);
-            int32_t cy = static_cast<int32_t>(rows[i]);
-
             // Draw cross at match center
             Draw::Cross(display, Point2d(cols[i], rows[i]), 20, angles[i], Scalar(0, 255, 0), 2);
 

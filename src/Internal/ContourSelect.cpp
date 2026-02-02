@@ -5,6 +5,7 @@
 
 #include <QiVision/Internal/ContourSelect.h>
 #include <QiVision/Internal/ContourAnalysis.h>
+#include <QiVision/Core/Exception.h>
 
 #include <algorithm>
 #include <cctype>
@@ -96,7 +97,10 @@ ContourFeature StringToContourFeature(const std::string& name) {
     if (it != features.end()) {
         return it->second;
     }
-    return ContourFeature::Length; // Default
+    if (lower.empty()) {
+        return ContourFeature::Length; // Default
+    }
+    throw InvalidArgumentException("Unknown contour feature: " + name);
 }
 
 // =============================================================================

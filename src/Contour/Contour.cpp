@@ -19,8 +19,27 @@
 
 #include <cmath>
 #include <algorithm>
+#include <string>
 
 namespace Qi::Vision::Contour {
+
+namespace {
+
+std::string ToLower(const std::string& value) {
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    return lower;
+}
+
+bool IsEmpty(const QContour& contour) {
+    return contour.Size() == 0;
+}
+
+bool IsEmpty(const QContourArray& contours) {
+    return contours.Size() == 0;
+}
+
+} // anonymous namespace
 
 // =============================================================================
 // Contour Processing
@@ -32,6 +51,12 @@ void SmoothContoursXld(
     int32_t numPoints)
 {
     smoothed.Clear();
+    if (IsEmpty(contours)) {
+        return;
+    }
+    if (numPoints <= 0) {
+        throw InvalidArgumentException("SmoothContoursXld: numPoints must be > 0");
+    }
     smoothed.Reserve(contours.Size());
 
     Internal::MovingAverageSmoothParams params;
@@ -49,6 +74,12 @@ void SmoothContoursGaussXld(
     double sigma)
 {
     smoothed.Clear();
+    if (IsEmpty(contours)) {
+        return;
+    }
+    if (sigma <= 0.0) {
+        throw InvalidArgumentException("SmoothContoursGaussXld: sigma must be > 0");
+    }
     smoothed.Reserve(contours.Size());
 
     Internal::GaussianSmoothParams params;
@@ -66,6 +97,12 @@ void SimplifyContoursXld(
     double epsilon)
 {
     simplified.Clear();
+    if (IsEmpty(contours)) {
+        return;
+    }
+    if (epsilon <= 0.0) {
+        throw InvalidArgumentException("SimplifyContoursXld: epsilon must be > 0");
+    }
     simplified.Reserve(contours.Size());
 
     Internal::DouglasPeuckerParams params;
@@ -83,6 +120,12 @@ void ResampleContoursXld(
     double distance)
 {
     resampled.Clear();
+    if (IsEmpty(contours)) {
+        return;
+    }
+    if (distance <= 0.0) {
+        throw InvalidArgumentException("ResampleContoursXld: distance must be > 0");
+    }
     resampled.Reserve(contours.Size());
 
     Internal::ResampleByDistanceParams params;
@@ -100,6 +143,12 @@ void ResampleContoursNumXld(
     int32_t numPoints)
 {
     resampled.Clear();
+    if (IsEmpty(contours)) {
+        return;
+    }
+    if (numPoints <= 0) {
+        throw InvalidArgumentException("ResampleContoursNumXld: numPoints must be > 0");
+    }
     resampled.Reserve(contours.Size());
 
     Internal::ResampleByCountParams params;
@@ -116,6 +165,9 @@ void CloseContoursXld(
     QContourArray& closed)
 {
     closed.Clear();
+    if (IsEmpty(contours)) {
+        return;
+    }
     closed.Reserve(contours.Size());
 
     for (size_t i = 0; i < contours.Size(); ++i) {
@@ -129,6 +181,9 @@ void ReverseContoursXld(
     QContourArray& reversed)
 {
     reversed.Clear();
+    if (IsEmpty(contours)) {
+        return;
+    }
     reversed.Reserve(contours.Size());
 
     for (size_t i = 0; i < contours.Size(); ++i) {
@@ -143,12 +198,18 @@ void ReverseContoursXld(
 
 double LengthXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourLength(contour);
 }
 
 std::vector<double> LengthXld(const QContourArray& contours)
 {
     std::vector<double> lengths;
+    if (IsEmpty(contours)) {
+        return lengths;
+    }
     lengths.reserve(contours.Size());
 
     for (size_t i = 0; i < contours.Size(); ++i) {
@@ -160,6 +221,11 @@ std::vector<double> LengthXld(const QContourArray& contours)
 
 double AreaCenterXld(const QContour& contour, double& row, double& column)
 {
+    if (IsEmpty(contour)) {
+        row = 0.0;
+        column = 0.0;
+        return 0.0;
+    }
     auto result = Internal::ContourAreaCenter(contour);
     row = result.centroid.y;
     column = result.centroid.x;
@@ -168,6 +234,9 @@ double AreaCenterXld(const QContour& contour, double& row, double& column)
 
 double PerimeterXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourPerimeter(contour);
 }
 
@@ -180,6 +249,10 @@ void SmallestRectangle1Xld(
     double& row1, double& col1,
     double& row2, double& col2)
 {
+    if (IsEmpty(contour)) {
+        row1 = col1 = row2 = col2 = 0.0;
+        return;
+    }
     Rect2d bbox = Internal::ContourBoundingBox(contour);
     row1 = bbox.y;
     col1 = bbox.x;
@@ -193,6 +266,10 @@ void SmallestRectangle2Xld(
     double& phi,
     double& length1, double& length2)
 {
+    if (IsEmpty(contour)) {
+        row = column = phi = length1 = length2 = 0.0;
+        return;
+    }
     auto result = Internal::ContourMinAreaRect(contour);
     if (result.has_value()) {
         row = result->center.y;
@@ -216,6 +293,10 @@ void SmallestCircleXld(
     double& row, double& column,
     double& radius)
 {
+    if (IsEmpty(contour)) {
+        row = column = radius = 0.0;
+        return;
+    }
     auto result = Internal::ContourMinEnclosingCircle(contour);
     if (result.has_value()) {
         row = result->center.y;
@@ -238,6 +319,12 @@ std::vector<double> CurvatureXld(
     const QContour& contour,
     int32_t windowSize)
 {
+    if (IsEmpty(contour)) {
+        return {};
+    }
+    if (windowSize <= 0) {
+        throw InvalidArgumentException("CurvatureXld: windowSize must be > 0");
+    }
     return Internal::ComputeContourCurvature(
         contour,
         Internal::CurvatureMethod::ThreePoint,
@@ -247,11 +334,17 @@ std::vector<double> CurvatureXld(
 
 double MeanCurvatureXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourMeanCurvature(contour);
 }
 
 double MaxCurvatureXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourMaxCurvature(contour);
 }
 
@@ -264,6 +357,10 @@ void MomentsXld(
     double& m00, double& m10, double& m01,
     double& m20, double& m11, double& m02)
 {
+    if (IsEmpty(contour)) {
+        m00 = m10 = m01 = m20 = m11 = m02 = 0.0;
+        return;
+    }
     auto moments = Internal::ContourMoments(contour);
     m00 = moments.m00;
     m10 = moments.m10;
@@ -278,6 +375,10 @@ void CentralMomentsXld(
     double& mu00, double& mu20,
     double& mu11, double& mu02)
 {
+    if (IsEmpty(contour)) {
+        mu00 = mu20 = mu11 = mu02 = 0.0;
+        return;
+    }
     auto moments = Internal::ContourCentralMoments(contour);
     mu00 = moments.mu00;
     mu20 = moments.mu20;
@@ -287,6 +388,9 @@ void CentralMomentsXld(
 
 double OrientationXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourOrientation(contour);
 }
 
@@ -296,26 +400,41 @@ double OrientationXld(const QContour& contour)
 
 double CircularityXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourCircularity(contour);
 }
 
 double ConvexityXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourConvexity(contour);
 }
 
 double SolidityXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourSolidity(contour);
 }
 
 double EccentricityXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourEccentricity(contour);
 }
 
 double CompactnessXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     return Internal::ContourCompactness(contour);
 }
 
@@ -435,11 +554,17 @@ bool FitCircleContourXld(
     }
 
     // Fit circle
+    std::string lowerAlg = ToLower(algorithm);
+    if (lowerAlg.empty()) {
+        lowerAlg = "algebraic";
+    }
     Internal::CircleFitResult result;
-    if (algorithm == "geometric") {
+    if (lowerAlg == "geometric") {
         result = Internal::FitCircleGeometric(points);
-    } else {
+    } else if (lowerAlg == "algebraic") {
         result = Internal::FitCircleAlgebraic(points);
+    } else {
+        throw InvalidArgumentException("FitCircleContourXld: unknown algorithm: " + algorithm);
     }
 
     if (!result.success) {
@@ -478,6 +603,10 @@ void SelectContoursXld(
     double minValue,
     double maxValue)
 {
+    if (IsEmpty(contours)) {
+        selected.Clear();
+        return;
+    }
     // Map feature string to enum
     Internal::ContourFeature featureEnum = Internal::StringToContourFeature(feature);
 
@@ -488,6 +617,10 @@ void SelectClosedXld(
     const QContourArray& contours,
     QContourArray& closed)
 {
+    if (IsEmpty(contours)) {
+        closed.Clear();
+        return;
+    }
     closed = Internal::SelectClosedContours(contours);
 }
 
@@ -495,6 +628,10 @@ void SelectOpenXld(
     const QContourArray& contours,
     QContourArray& open)
 {
+    if (IsEmpty(contours)) {
+        open.Clear();
+        return;
+    }
     open = Internal::SelectOpenContours(contours);
 }
 
@@ -504,6 +641,10 @@ void SortContoursXld(
     const std::string& feature,
     bool ascending)
 {
+    if (IsEmpty(contours)) {
+        sorted.Clear();
+        return;
+    }
     Internal::ContourFeature featureEnum = Internal::StringToContourFeature(feature);
     sorted = Internal::SortContoursByFeature(contours, featureEnum, ascending);
 }
@@ -515,6 +656,13 @@ void SelectTopContoursXld(
     int32_t count,
     bool largest)
 {
+    if (IsEmpty(contours)) {
+        selected.Clear();
+        return;
+    }
+    if (count <= 0) {
+        throw InvalidArgumentException("SelectTopContoursXld: count must be > 0");
+    }
     Internal::ContourFeature featureEnum = Internal::StringToContourFeature(feature);
     selected = Internal::SelectTopContoursByFeature(contours, featureEnum, static_cast<size_t>(count), largest);
 }
@@ -530,14 +678,25 @@ void SegmentContoursXld(
     double maxLineDev,
     double maxArcDev)
 {
+    if (IsEmpty(contour)) {
+        segments.Clear();
+        return;
+    }
+    if (maxLineDev <= 0.0 || maxArcDev <= 0.0) {
+        throw InvalidArgumentException("SegmentContoursXld: maxLineDev/maxArcDev must be > 0");
+    }
     Internal::SegmentParams params;
 
-    if (mode == "lines") {
+    std::string lowerMode = ToLower(mode);
+    if (lowerMode.empty() || lowerMode == "lines_and_arcs" ||
+        lowerMode == "lines+arcs" || lowerMode == "all") {
+        params.mode = Internal::SegmentMode::LinesAndArcs;
+    } else if (lowerMode == "lines") {
         params.mode = Internal::SegmentMode::LinesOnly;
-    } else if (mode == "circles") {
+    } else if (lowerMode == "circles" || lowerMode == "arcs") {
         params.mode = Internal::SegmentMode::ArcsOnly;
     } else {
-        params.mode = Internal::SegmentMode::LinesAndArcs;
+        throw InvalidArgumentException("SegmentContoursXld: unknown mode: " + mode);
     }
 
     params.maxLineError = maxLineDev;
@@ -553,6 +712,12 @@ void SplitContoursXld(
     double maxAngle)
 {
     split.Clear();
+    if (IsEmpty(contours)) {
+        return;
+    }
+    if (maxAngle <= 0.0) {
+        throw InvalidArgumentException("SplitContoursXld: maxAngle must be > 0");
+    }
 
     for (size_t i = 0; i < contours.Size(); ++i) {
         // Detect corner points
@@ -574,6 +739,12 @@ std::vector<int32_t> DetectCornersXld(
     const QContour& contour,
     double curvatureThreshold)
 {
+    if (IsEmpty(contour)) {
+        return {};
+    }
+    if (curvatureThreshold <= 0.0) {
+        throw InvalidArgumentException("DetectCornersXld: curvatureThreshold must be > 0");
+    }
     auto corners = Internal::DetectCorners(contour, curvatureThreshold);
 
     std::vector<int32_t> result;
@@ -593,9 +764,18 @@ void GenContourRegionXld(
     QContourArray& contours,
     const std::string& mode)
 {
+    if (region.Empty()) {
+        contours.Clear();
+        return;
+    }
+    std::string lowerMode = ToLower(mode);
     Internal::BoundaryMode bmode = Internal::BoundaryMode::Outer;
-    if (mode == "border_holes") {
+    if (lowerMode.empty() || lowerMode == "border" || lowerMode == "outer") {
+        bmode = Internal::BoundaryMode::Outer;
+    } else if (lowerMode == "border_holes" || lowerMode == "both") {
         bmode = Internal::BoundaryMode::Both;
+    } else {
+        throw InvalidArgumentException("GenContourRegionXld: unknown mode: " + mode);
     }
 
     contours = Internal::RegionToContours(region, bmode);
@@ -606,9 +786,18 @@ void GenRegionContourXld(
     QRegion& region,
     const std::string& mode)
 {
+    if (IsEmpty(contour)) {
+        region = QRegion();
+        return;
+    }
+    std::string lowerMode = ToLower(mode);
     Internal::ContourFillMode fmode = Internal::ContourFillMode::Filled;
-    if (mode == "margin") {
+    if (lowerMode.empty() || lowerMode == "filled") {
+        fmode = Internal::ContourFillMode::Filled;
+    } else if (lowerMode == "margin") {
         fmode = Internal::ContourFillMode::Margin;
+    } else {
+        throw InvalidArgumentException("GenRegionContourXld: unknown mode: " + mode);
     }
 
     region = Internal::ContourToRegion(contour, fmode);
@@ -619,9 +808,18 @@ void GenRegionContoursXld(
     QRegion& region,
     const std::string& mode)
 {
+    if (IsEmpty(contours)) {
+        region = QRegion();
+        return;
+    }
+    std::string lowerMode = ToLower(mode);
     Internal::ContourFillMode fmode = Internal::ContourFillMode::Filled;
-    if (mode == "margin") {
+    if (lowerMode.empty() || lowerMode == "filled") {
+        fmode = Internal::ContourFillMode::Filled;
+    } else if (lowerMode == "margin") {
         fmode = Internal::ContourFillMode::Margin;
+    } else {
+        throw InvalidArgumentException("GenRegionContoursXld: unknown mode: " + mode);
     }
 
     region = Internal::ContoursToRegion(contours, fmode);
@@ -634,6 +832,14 @@ void GenRegionContoursXld(
 QContour GenContourPolygonXld(const std::vector<Point2d>& points)
 {
     QContour contour;
+    if (points.empty()) {
+        return contour;
+    }
+    for (const auto& pt : points) {
+        if (!pt.IsValid()) {
+            throw InvalidArgumentException("GenContourPolygonXld: invalid point");
+        }
+    }
     contour.Reserve(points.size());
 
     for (const auto& pt : points) {
@@ -648,13 +854,19 @@ QContour GenContourPolygonXld(
     const std::vector<double>& cols)
 {
     if (rows.size() != cols.size()) {
-        throw Exception("Rows and columns must have same size");
+        throw InvalidArgumentException("GenContourPolygonXld: rows and columns must have same size");
     }
 
     QContour contour;
+    if (rows.empty()) {
+        return contour;
+    }
     contour.Reserve(rows.size());
 
     for (size_t i = 0; i < rows.size(); ++i) {
+        if (!std::isfinite(rows[i]) || !std::isfinite(cols[i])) {
+            throw InvalidArgumentException("GenContourPolygonXld: invalid point");
+        }
         contour.AddPoint(cols[i], rows[i]);
     }
 
@@ -669,9 +881,28 @@ QContour GenCircleContourXld(
     const std::string& resolution,
     double stepAngle)
 {
+    if (!std::isfinite(row) || !std::isfinite(column) ||
+        !std::isfinite(radius) || !std::isfinite(startAngle) ||
+        !std::isfinite(endAngle) || !std::isfinite(stepAngle)) {
+        throw InvalidArgumentException("GenCircleContourXld: invalid parameters");
+    }
+    if (radius <= 0.0 || stepAngle <= 0.0) {
+        throw InvalidArgumentException("GenCircleContourXld: radius and stepAngle must be > 0");
+    }
     QContour contour;
 
-    bool ccw = (resolution == "positive");
+    std::string lowerRes = ToLower(resolution);
+    if (lowerRes.empty()) {
+        lowerRes = "positive";
+    }
+    bool ccw = false;
+    if (lowerRes == "positive") {
+        ccw = true;
+    } else if (lowerRes == "negative") {
+        ccw = false;
+    } else {
+        throw InvalidArgumentException("GenCircleContourXld: unknown resolution: " + resolution);
+    }
 
     // Normalize angles
     double angleExtent = endAngle - startAngle;
@@ -712,6 +943,14 @@ QContour GenEllipseContourXld(
     double endAngle,
     double stepAngle)
 {
+    if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(phi) ||
+        !std::isfinite(ra) || !std::isfinite(rb) ||
+        !std::isfinite(startAngle) || !std::isfinite(endAngle) || !std::isfinite(stepAngle)) {
+        throw InvalidArgumentException("GenEllipseContourXld: invalid parameters");
+    }
+    if (ra <= 0.0 || rb <= 0.0 || stepAngle <= 0.0) {
+        throw InvalidArgumentException("GenEllipseContourXld: ra/rb/stepAngle must be > 0");
+    }
     QContour contour;
 
     // Normalize angles
@@ -756,6 +995,13 @@ QContour GenRectangle2ContourXld(
     double phi,
     double length1, double length2)
 {
+    if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(phi) ||
+        !std::isfinite(length1) || !std::isfinite(length2)) {
+        throw InvalidArgumentException("GenRectangle2ContourXld: invalid parameters");
+    }
+    if (length1 <= 0.0 || length2 <= 0.0) {
+        throw InvalidArgumentException("GenRectangle2ContourXld: length1/length2 must be > 0");
+    }
     QContour contour;
     contour.Reserve(4);
 
@@ -783,6 +1029,13 @@ QContour GenRectangle1ContourXld(
     double row1, double col1,
     double row2, double col2)
 {
+    if (!std::isfinite(row1) || !std::isfinite(col1) ||
+        !std::isfinite(row2) || !std::isfinite(col2)) {
+        throw InvalidArgumentException("GenRectangle1ContourXld: invalid parameters");
+    }
+    if (row2 <= row1 || col2 <= col1) {
+        throw InvalidArgumentException("GenRectangle1ContourXld: invalid rectangle bounds");
+    }
     QContour contour;
     contour.Reserve(4);
 
@@ -800,6 +1053,13 @@ QContour GenLineContourXld(
     double row1, double col1,
     double row2, double col2)
 {
+    if (!std::isfinite(row1) || !std::isfinite(col1) ||
+        !std::isfinite(row2) || !std::isfinite(col2)) {
+        throw InvalidArgumentException("GenLineContourXld: invalid parameters");
+    }
+    if (row1 == row2 && col1 == col2) {
+        throw InvalidArgumentException("GenLineContourXld: line endpoints must differ");
+    }
     QContour contour;
     contour.Reserve(2);
 
@@ -817,12 +1077,18 @@ QContour GenLineContourXld(
 
 int32_t CountPointsXld(const QContour& contour)
 {
+    if (IsEmpty(contour)) {
+        return 0;
+    }
     return static_cast<int32_t>(contour.Size());
 }
 
 std::vector<int32_t> CountPointsXld(const QContourArray& contours)
 {
     std::vector<int32_t> counts;
+    if (IsEmpty(contours)) {
+        return counts;
+    }
     counts.reserve(contours.Size());
 
     for (size_t i = 0; i < contours.Size(); ++i) {
@@ -837,6 +1103,11 @@ void GetContourXld(
     std::vector<double>& rows,
     std::vector<double>& cols)
 {
+    if (IsEmpty(contour)) {
+        rows.clear();
+        cols.clear();
+        return;
+    }
     size_t n = contour.Size();
     rows.resize(n);
     cols.resize(n);
@@ -852,6 +1123,9 @@ bool TestPointXld(
     const QContour& contour,
     double row, double column)
 {
+    if (IsEmpty(contour)) {
+        return false;
+    }
     return Internal::IsPointInsideContour(contour, {column, row});
 }
 
@@ -859,6 +1133,9 @@ double DistancePointXld(
     const QContour& contour,
     double row, double column)
 {
+    if (IsEmpty(contour)) {
+        return 0.0;
+    }
     // Extract contour points
     std::vector<Point2d> points = contour.GetPoints();
     auto result = Internal::DistancePointToContour({column, row}, points, contour.IsClosed());
@@ -871,6 +1148,9 @@ void UnionContoursXld(
     QContourArray& result)
 {
     result.Clear();
+    if (IsEmpty(contours1) && IsEmpty(contours2)) {
+        return;
+    }
     result.Reserve(contours1.Size() + contours2.Size());
 
     for (size_t i = 0; i < contours1.Size(); ++i) {
@@ -890,9 +1170,10 @@ void SelectObjXld(
     selected.Reserve(indices.size());
 
     for (int32_t idx : indices) {
-        if (idx >= 0 && static_cast<size_t>(idx) < contours.Size()) {
-            selected.Add(contours[static_cast<size_t>(idx)]);
+        if (idx < 0 || static_cast<size_t>(idx) >= contours.Size()) {
+            throw InvalidArgumentException("SelectObjXld: index out of range");
         }
+        selected.Add(contours[static_cast<size_t>(idx)]);
     }
 }
 
@@ -900,8 +1181,11 @@ QContour SelectObjXld(
     const QContourArray& contours,
     int32_t index)
 {
+    if (IsEmpty(contours)) {
+        return QContour();
+    }
     if (index < 0 || static_cast<size_t>(index) >= contours.Size()) {
-        throw Exception("Index out of range");
+        throw InvalidArgumentException("SelectObjXld: index out of range");
     }
     return contours[static_cast<size_t>(index)];
 }

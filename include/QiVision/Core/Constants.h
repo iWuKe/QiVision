@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QiVision/Core/Export.h>
+
 /**
  * @file Constants.h
  * @brief Mathematical and precision constants for QiVision

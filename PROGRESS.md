@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-02 (Segment GMM)
+> 最后更新: 2026-02-02 (Barcode 模块集成)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -195,7 +195,7 @@ Tests    █████████████████░░░ 87%
 | **Hough/Hough.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 霍夫变换 (直线/圆检测, 公开 API) |
 | **Contour/Contour.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | XLD轮廓操作 (公开 API，封装 Internal) |
 | **OCR/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 字符识别/验证 |
-| **Barcode/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 一维码/二维码 |
+| **Barcode/Barcode.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 条形码/二维码 (ZXing-cpp 封装) |
 | **Defect/VariationModel.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 变差模型缺陷检测 (Halcon 风格) |
 | **Texture/Texture.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 纹理分析 (LBP/GLCM/Gabor) |
 | **Calib/CameraModel.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 相机模型（内参+畸变） |
@@ -255,6 +255,35 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-02 (Barcode 模块集成)
+
+- **Barcode/Barcode.h 模块** (新增，ZXing-cpp 封装)
+  - 新增 `include/QiVision/Barcode/Barcode.h`: 条形码/二维码读取 API
+  - 新增 `src/Barcode/Barcode.cpp`: ZXing-cpp 2.2.1 封装实现
+  - **支持的格式**:
+    - 1D: Code128, Code39, Code93, Codabar, EAN-8, EAN-13, ITF, UPC-A, UPC-E
+    - 2D: QR Code, Data Matrix, PDF417, Aztec
+  - **主要 API**:
+    - `ReadBarcodes()`: 读取所有条码
+    - `ReadBarcode()`: 读取单个条码
+    - `ReadQRCodes()`: 便捷函数，仅读取 QR 码
+    - `ReadDataMatrix()`: 便捷函数，仅读取 Data Matrix
+    - `ReadLinearCodes()`: 便捷函数，仅读取 1D 码
+  - **BarcodeParams 参数**:
+    - `formats`: 指定搜索的格式类型
+    - `binarizer`: 二值化方法 (LocalAverage/GlobalHistogram/FixedThreshold)
+    - `tryHarder/tryRotate/tryInvert/tryDownscale`: 鲁棒性选项
+    - 预设: `Default()`, `QR()`, `DataMatrix()`, `Linear()`, `Robust()`
+  - **BarcodeResult 结果**:
+    - `text`: 解码内容
+    - `format/formatName`: 格式类型
+    - `position/corners/angle`: 位置信息
+    - `symbolVersion/ecLevel`: 2D 码版本和纠错级别
+  - **CMake 集成**:
+    - `QIVISION_BUILD_BARCODE` 选项控制是否编译
+    - 使用 FetchContent 自动下载 ZXing-cpp 2.2.1
+  - 新增 `samples/barcode/barcode_read.cpp`: 示例程序
 
 ### 2026-02-02 (Segment GMM)
 

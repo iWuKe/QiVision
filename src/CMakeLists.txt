@@ -115,6 +115,8 @@ set(QIVISION_SOURCES
     Defect/VariationModel.cpp
     # Texture (Feature Layer)
     Texture/Texture.cpp
+    # Barcode (Feature Layer - requires ZXing-cpp)
+    $<$<BOOL:${QIVISION_BUILD_BARCODE}>:Barcode/Barcode.cpp>
 )
 
 set(QIVISION_HEADERS
@@ -236,6 +238,8 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Defect/VariationModel.h
     # Texture (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Texture/Texture.h
+    # Barcode (Feature Layer)
+    $<$<BOOL:${QIVISION_BUILD_BARCODE}>:${CMAKE_SOURCE_DIR}/include/QiVision/Barcode/Barcode.h>
 )
 
 # Create library
@@ -273,6 +277,12 @@ if(QIVISION_ENABLE_OPENMP)
     if(OpenMP_CXX_FOUND)
         target_link_libraries(QiVision PUBLIC OpenMP::OpenMP_CXX)
     endif()
+endif()
+
+# ZXing-cpp for Barcode support
+if(QIVISION_BUILD_BARCODE)
+    target_link_libraries(QiVision PRIVATE ZXing::ZXing)
+    target_compile_definitions(QiVision PRIVATE QIVISION_HAS_BARCODE)
 endif()
 
 # =============================================================================

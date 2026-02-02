@@ -18,3 +18,6 @@
  *   QIVISION_USE_SHARED   - using as shared library
  *   QIVISION_STATIC       - static library (default)
  */
+
+/* Optional modules */
+#cmakedefine01 QIVISION_BUILD_BARCODE

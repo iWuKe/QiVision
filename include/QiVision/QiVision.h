@@ -52,6 +52,11 @@
 #include <QiVision/Defect/VariationModel.h>
 #include <QiVision/Texture/Texture.h>
 
+// Optional modules (check config)
+#if QIVISION_BUILD_BARCODE
+#include <QiVision/Barcode/Barcode.h>
+#endif
+
 namespace Qi::Vision {
 
 /**

@@ -30,6 +30,7 @@ if(WIN32 OR UNIX)
 endif()
 option(QIVISION_BUILD_GUI "Build GUI module" ${QIVISION_BUILD_GUI_DEFAULT})
 option(QIVISION_BUILD_DISPLAY "Build Display module" ${QIVISION_BUILD_DISPLAY_DEFAULT})
+option(QIVISION_BUILD_BARCODE "Build Barcode module (requires ZXing-cpp)" ON)
 
 # =============================================================================
 # Generated Configuration Header
@@ -83,6 +84,26 @@ if(ANDROID)
         message(STATUS "Android: disabling OpenMP by default")
         set(QIVISION_ENABLE_OPENMP OFF CACHE BOOL "Enable OpenMP for parallelization" FORCE)
     endif()
+endif()
+
+# =============================================================================
+# ZXing-cpp for Barcode Support
+# =============================================================================
+if(QIVISION_BUILD_BARCODE)
+    include(FetchContent)
+    FetchContent_Declare(
+        zxing-cpp
+        GIT_REPOSITORY https://github.com/zxing-cpp/zxing-cpp.git
+        GIT_TAG        v2.2.1
+    )
+    set(BUILD_WRITERS OFF CACHE BOOL "" FORCE)
+    set(BUILD_READERS ON CACHE BOOL "" FORCE)
+    set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(BUILD_BLACKBOX_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_PYTHON_MODULE OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(zxing-cpp)
+    message(STATUS "ZXing-cpp: enabled for barcode support")
 endif()
 
 # =============================================================================
@@ -141,6 +162,7 @@ message(STATUS "QiVision ${PROJECT_VERSION}")
 message(STATUS "  Build type:    ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "  SIMD:          ${QIVISION_ENABLE_SIMD}")
+message(STATUS "  Barcode:       ${QIVISION_BUILD_BARCODE}")
 message(STATUS "  Samples:       ${QIVISION_BUILD_SAMPLES}")
 message(STATUS "  Tests:         ${QIVISION_BUILD_TESTS}")
 message(STATUS "")

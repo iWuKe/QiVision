@@ -29,8 +29,13 @@ add_sample(blob_analysis blob/blob_analysis.cpp)
 # Calib/Transform - Polar transform
 add_sample(calib_polar_transform calib/polar_transform_test.cpp)
 
+# Barcode - Barcode reading (requires ZXing-cpp)
+if(QIVISION_BUILD_BARCODE)
+    add_sample(barcode_read barcode/barcode_read.cpp)
+endif()
+
 # Build all samples
-add_custom_target(samples DEPENDS
+set(SAMPLE_TARGETS
     matching_shape_match
     matching_test_create_model
     matching_test_scaled_match
@@ -41,3 +46,7 @@ add_custom_target(samples DEPENDS
     blob_analysis
     calib_polar_transform
 )
+if(QIVISION_BUILD_BARCODE)
+    list(APPEND SAMPLE_TARGETS barcode_read)
+endif()
+add_custom_target(samples DEPENDS ${SAMPLE_TARGETS})

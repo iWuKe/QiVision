@@ -742,13 +742,18 @@ void FillUp(const QRegion& region, QRegion& filled) {
                 if (runStart < 0) runStart = x;
             } else {
                 if (runStart >= 0) {
-                    runs.push_back({y - 1 + bbox.y, runStart - 1 + bbox.x, x - 2 + bbox.x});
+                    // colEnd is exclusive: last pixel is x-1, so colEnd = x-1+1 = x (in local coords)
+                    // Convert to original coords: x - 1 + bbox.x
+                    runs.push_back({y - 1 + bbox.y, runStart - 1 + bbox.x, x - 1 + bbox.x});
                     runStart = -1;
                 }
             }
         }
         if (runStart >= 0) {
-            runs.push_back({y - 1 + bbox.y, runStart - 1 + bbox.x, padW - 3 + bbox.x});
+            // Last valid x in padded image is padW-2 (before right padding)
+            // colEnd (exclusive) = padW - 2 + 1 = padW - 1 (in local coords)
+            // Convert to original: padW - 1 - 1 + bbox.x = padW - 2 + bbox.x
+            runs.push_back({y - 1 + bbox.y, runStart - 1 + bbox.x, padW - 2 + bbox.x});
         }
     }
 

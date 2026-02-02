@@ -151,8 +151,10 @@ int main(int argc, char* argv[]) {
             double outerRow, outerCol, outerRadius;
             Blob::SmallestCircle(blob, outerRow, outerCol, outerRadius);
 
-            // Draw outer circle in red
-            Draw::Circle(display, {outerCol, outerRow}, outerRadius, Scalar(255, 0, 0), 2);
+            // Draw outer circle in red (skip if radius invalid)
+            if (outerRadius > 0) {
+                Draw::Circle(display, {outerCol, outerRow}, outerRadius, Scalar(255, 0, 0), 2);
+            }
 
             // Check for holes (ring-shaped blob)
             std::vector<QRegion> holes;
@@ -164,8 +166,10 @@ int main(int argc, char* argv[]) {
                     double holeRow, holeCol, holeRadius;
                     Blob::SmallestCircle(hole, holeRow, holeCol, holeRadius);
 
-                    // Draw inner circle in blue
-                    Draw::Circle(display, {holeCol, holeRow}, holeRadius, Scalar(0, 100, 255), 2);
+                    // Draw inner circle in blue (skip if radius invalid)
+                    if (holeRadius > 0) {
+                        Draw::Circle(display, {holeCol, holeRow}, holeRadius, Scalar(0, 100, 255), 2);
+                    }
 
                     // Draw hole center in magenta
                     Draw::Cross(display, {holeCol, holeRow}, 8, 0, Scalar(255, 0, 255), 1);

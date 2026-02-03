@@ -8,6 +8,7 @@
 
 #include <QiVision/OCR/OCR.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/IO/ImageIO.h>
 #include <QiVision/Filter/Filter.h>
 #include <QiVision/Color/ColorConvert.h>
@@ -27,6 +28,24 @@
 #include <numeric>
 
 namespace Qi::Vision::OCR {
+
+namespace {
+
+// Use unified validation with OCR-specific channel check (gray, RGB, RGBA)
+inline bool RequireOCRImage(const QImage& image, const char* funcName) {
+    return Validate::RequireImageChannels(image, funcName, true, true, true);
+}
+
+inline void ValidateOCRParams(const OCRParams& params, const char* funcName) {
+    Validate::RequirePositive(params.maxSideLen, "maxSideLen", funcName);
+    Validate::RequireRange(params.boxScoreThresh, 0.0, 1.0, "boxScoreThresh", funcName);
+    Validate::RequireRange(params.boxThresh, 0.0, 1.0, "boxThresh", funcName);
+    Validate::RequirePositive(params.unClipRatio, "unClipRatio", funcName);
+    Validate::RequireThreadCount(params.numThread, funcName);
+    Validate::RequireGpuIndex(params.gpuIndex, funcName);
+}
+
+} // namespace
 
 // =============================================================================
 // TextBlock Implementation
@@ -470,6 +489,11 @@ public:
     OCRResult Recognize(const QImage&, const OCRParams&) {
         return OCRResult();
     }
+
+    std::string RecognizeLineImpl(const QImage&, double& confidence) {
+        confidence = 0.0;
+        return "";
+    }
 };
 
 #endif  // QIVISION_HAS_ONNXRUNTIME
@@ -487,6 +511,12 @@ bool OCRModel::Init(const std::string& modelDir,
                     const std::string& clsModel,
                     const std::string& recModel,
                     const std::string& keysFile) {
+    if (modelDir.empty()) {
+        throw InvalidArgumentException("OCRModel::Init: modelDir is empty");
+    }
+    if (detModel.empty() || recModel.empty() || keysFile.empty()) {
+        throw InvalidArgumentException("OCRModel::Init: model filenames must not be empty");
+    }
     return impl_->Init(modelDir, detModel, clsModel, recModel, keysFile);
 }
 
@@ -499,6 +529,9 @@ bool OCRModel::IsValid() const {
 }
 
 void OCRModel::SetNumThread(int numThread) {
+    if (numThread <= 0) {
+        throw InvalidArgumentException("OCRModel::SetNumThread: numThread must be >= 1");
+    }
 #ifdef QIVISION_HAS_ONNXRUNTIME
     impl_->numThread = numThread;
     impl_->sessionOptions.SetIntraOpNumThreads(numThread);
@@ -508,6 +541,9 @@ void OCRModel::SetNumThread(int numThread) {
 }
 
 void OCRModel::SetGpuIndex(int gpuIndex) {
+    if (gpuIndex < -1) {
+        throw InvalidArgumentException("OCRModel::SetGpuIndex: gpuIndex must be >= -1");
+    }
 #ifdef QIVISION_HAS_ONNXRUNTIME
     impl_->gpuIndex = gpuIndex;
     impl_->useGpu = (gpuIndex >= 0);
@@ -518,23 +554,34 @@ void OCRModel::SetGpuIndex(int gpuIndex) {
 
 OCRResult OCRModel::Recognize(const QImage& image, const OCRParams& params) const {
     if (!IsValid()) {
-        throw Exception("OCRModel::Recognize: Model not initialized");
+        throw InvalidArgumentException("OCRModel::Recognize: Model not initialized");
+    }
+    ValidateOCRParams(params, "OCRModel::Recognize");
+    if (!RequireOCRImage(image, "OCRModel::Recognize")) {
+        return OCRResult();
     }
     return impl_->Recognize(image, params);
 }
 
 OCRResult OCRModel::Recognize(const std::string& imagePath, const OCRParams& params) const {
     if (!IsValid()) {
-        throw Exception("OCRModel::Recognize: Model not initialized");
+        throw InvalidArgumentException("OCRModel::Recognize: Model not initialized");
     }
+    ValidateOCRParams(params, "OCRModel::Recognize");
 
     QImage image;
     IO::ReadImage(imagePath, image);
+    if (!RequireOCRImage(image, "OCRModel::Recognize")) {
+        return OCRResult();
+    }
     return impl_->Recognize(image, params);
 }
 
 std::string OCRModel::RecognizeLine(const QImage& image, double& confidence) const {
     if (!IsValid()) {
+        throw InvalidArgumentException("OCRModel::RecognizeLine: Model not initialized");
+    }
+    if (!RequireOCRImage(image, "OCRModel::RecognizeLine")) {
         confidence = 0.0;
         return "";
     }
@@ -551,6 +598,9 @@ namespace {
 }
 
 bool InitOCR(const std::string& modelDir, int gpuIndex) {
+    if (modelDir.empty()) {
+        throw InvalidArgumentException("InitOCR: modelDir is empty");
+    }
     std::lock_guard<std::mutex> lock(g_ocrMutex);
     g_ocrModel = std::make_unique<OCRModel>();
     if (gpuIndex >= 0) {
@@ -581,7 +631,7 @@ bool IsOCRReady() {
 OCRResult RecognizeText(const QImage& image, const OCRParams& params) {
     std::lock_guard<std::mutex> lock(g_ocrMutex);
     if (!g_ocrModel || !g_ocrModel->IsValid()) {
-        throw Exception("RecognizeText: OCR not initialized. Call InitOCR() first.");
+        throw InvalidArgumentException("RecognizeText: OCR not initialized. Call InitOCR() first.");
     }
     return g_ocrModel->Recognize(image, params);
 }
@@ -589,7 +639,7 @@ OCRResult RecognizeText(const QImage& image, const OCRParams& params) {
 OCRResult RecognizeText(const std::string& imagePath, const OCRParams& params) {
     std::lock_guard<std::mutex> lock(g_ocrMutex);
     if (!g_ocrModel || !g_ocrModel->IsValid()) {
-        throw Exception("RecognizeText: OCR not initialized. Call InitOCR() first.");
+        throw InvalidArgumentException("RecognizeText: OCR not initialized. Call InitOCR() first.");
     }
     return g_ocrModel->Recognize(imagePath, params);
 }
@@ -615,8 +665,7 @@ std::string ReadText(const std::string& imagePath) {
 std::string RecognizeLine(const QImage& image, double& confidence) {
     std::lock_guard<std::mutex> lock(g_ocrMutex);
     if (!g_ocrModel || !g_ocrModel->IsValid()) {
-        confidence = 0.0;
-        return "";
+        throw InvalidArgumentException("RecognizeLine: OCR not initialized. Call InitOCR() first.");
     }
     return g_ocrModel->RecognizeLine(image, confidence);
 }

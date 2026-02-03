@@ -9,6 +9,7 @@
 #include <QiVision/Internal/SubPixel.h>
 #include <QiVision/Internal/Interpolate.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 
 #include <algorithm>
 #include <cctype>
@@ -20,14 +21,9 @@ namespace Qi::Vision::Measure {
 namespace {
     constexpr double PI = 3.14159265358979323846;
 
-    bool RequireValidImage(const QImage& image, const char* funcName) {
-        if (image.Empty()) {
-            return false;
-        }
-        if (!image.IsValid()) {
-            throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-        }
-        return true;
+    // Use unified validation
+    inline bool RequireValidImage(const QImage& image, const char* funcName) {
+        return Validate::RequireImage(image, funcName);
     }
 
     // Convert ProfileInterpolation to Internal InterpolationMethod

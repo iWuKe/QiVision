@@ -7,6 +7,7 @@
 #include <QiVision/Internal/AffineTransform.h>
 #include <QiVision/Internal/Interpolate.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 
 #include <algorithm>
 #include <cctype>
@@ -16,8 +17,8 @@ namespace Qi::Vision::Transform {
 
 namespace {
 
-bool RequireImage(const QImage& src, QImage& dst, const char* funcName) {
-    (void)funcName;
+// Transform-specific: sets dst to empty on empty src
+inline bool RequireImage(const QImage& src, QImage& dst, const char* funcName) {
     if (src.Empty()) {
         dst = QImage();
         return false;
@@ -25,26 +26,25 @@ bool RequireImage(const QImage& src, QImage& dst, const char* funcName) {
     if (!src.IsValid()) {
         throw InvalidArgumentException(std::string(funcName) + ": invalid image");
     }
+    if (src.Type() != PixelType::UInt8) {
+        throw UnsupportedException(std::string(funcName) + ": only UInt8 images are supported");
+    }
     return true;
 }
 
-void RequireFinite(double value, const char* name, const char* funcName) {
+inline void RequireFinite(double value, const char* name, const char* funcName) {
     if (!std::isfinite(value)) {
         throw InvalidArgumentException(std::string(funcName) + ": " + name + " is invalid");
     }
 }
 
-void RequireNonNegativeSize(int32_t value, const char* name, const char* funcName) {
-    if (value < 0) {
-        throw InvalidArgumentException(std::string(funcName) + ": " + name + " must be >= 0");
-    }
+inline void RequireNonNegativeSize(int32_t value, const char* name, const char* funcName) {
+    Validate::RequireNonNegative(value, name, funcName);
 }
 
-void RequirePositive(double value, const char* name, const char* funcName) {
+inline void RequirePositive(double value, const char* name, const char* funcName) {
     RequireFinite(value, name, funcName);
-    if (value <= 0.0) {
-        throw InvalidArgumentException(std::string(funcName) + ": " + name + " must be > 0");
-    }
+    Validate::RequirePositive(value, name, funcName);
 }
 
 void RequireMatrixFinite(const QMatrix& matrix, const char* funcName) {

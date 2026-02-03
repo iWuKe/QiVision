@@ -17,6 +17,7 @@
 #include "NCCModelImpl.h"
 
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -54,35 +55,26 @@ SubpixelMethod ParseSubPixel(const std::string& subPixel) {
     throw InvalidArgumentException("Unknown subpixel mode: " + subPixel);
 }
 
-void ValidateLevels(int32_t numLevels, const char* funcName) {
-    if (numLevels < 0) {
-        throw InvalidArgumentException(std::string(funcName) + ": numLevels must be >= 0");
-    }
+inline void ValidateLevels(int32_t numLevels, const char* funcName) {
+    Validate::RequireNonNegative(numLevels, "numLevels", funcName);
 }
 
-void ValidateAngleStep(double angleStep, const char* funcName) {
-    if (angleStep < 0.0) {
-        throw InvalidArgumentException(std::string(funcName) + ": angleStep must be >= 0");
-    }
+inline void ValidateAngleStep(double angleStep, const char* funcName) {
+    Validate::RequireNonNegative(angleStep, "angleStep", funcName);
 }
 
-void ValidateScale(double scaleMin, double scaleMax, double scaleStep, const char* funcName) {
-    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0) {
-        throw InvalidArgumentException(std::string(funcName) + ": scale params must be > 0");
-    }
+inline void ValidateScale(double scaleMin, double scaleMax, double scaleStep, const char* funcName) {
+    Validate::RequirePositive(scaleMin, "scaleMin", funcName);
+    Validate::RequirePositive(scaleMax, "scaleMax", funcName);
+    Validate::RequirePositive(scaleStep, "scaleStep", funcName);
     if (scaleMax < scaleMin) {
         throw InvalidArgumentException(std::string(funcName) + ": scaleMax must be >= scaleMin");
     }
 }
 
-bool RequireValidImage(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    return true;
+// Use unified validation
+inline bool RequireValidImage(const QImage& image, const char* funcName) {
+    return Validate::RequireImage(image, funcName);
 }
 
 } // anonymous namespace

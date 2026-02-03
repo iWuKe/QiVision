@@ -8,6 +8,7 @@
 #include <QiVision/Filter/Filter.h>
 #include <QiVision/Core/Exception.h>
 #include <QiVision/Core/Constants.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/Internal/Convolution.h>
 #include <QiVision/Internal/Gradient.h>
 #include <QiVision/Internal/Gaussian.h>
@@ -72,28 +73,13 @@ inline uint8_t ClampU8(double val) {
     return static_cast<uint8_t>(Clamp(val, 0.0, 255.0));
 }
 
-bool RequireGrayU8(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException(std::string(funcName) +
-                                   " requires single-channel UInt8 image");
-    }
-    return true;
+// Use unified validation
+inline bool RequireGrayU8(const QImage& image, const char* funcName) {
+    return Validate::RequireGrayImage(image, funcName);
 }
 
-bool RequireValidImage(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    return true;
+inline bool RequireValidImage(const QImage& image, const char* funcName) {
+    return Validate::RequireImage(image, funcName);
 }
 
 } // anonymous namespace

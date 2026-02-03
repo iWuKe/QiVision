@@ -5,6 +5,7 @@
 
 #include <QiVision/Barcode/Barcode.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 
 // ZXing-cpp headers
 #include <ReadBarcode.h>
@@ -22,6 +23,19 @@ namespace Qi::Vision::Barcode {
 // =============================================================================
 
 namespace {
+
+// Use unified validation (gray, RGB, RGBA)
+inline bool RequireBarcodeImage(const QImage& image, const char* funcName) {
+    return Validate::RequireImageChannels(image, funcName, true, true, true);
+}
+
+inline void ValidateParams(const BarcodeParams& params, const char* funcName) {
+    if (params.formats == BarcodeFormat::None) {
+        throw InvalidArgumentException(std::string(funcName) + ": formats is None");
+    }
+    Validate::RequireNonNegative(params.maxNumberOfSymbols, "maxNumberOfSymbols", funcName);
+    Validate::RequireMin(params.minLineCount, 1, "minLineCount", funcName);
+}
 
 ZXing::BarcodeFormats ToZXingFormats(BarcodeFormat format) {
     ZXing::BarcodeFormats zf;
@@ -144,9 +158,10 @@ BarcodeResult ConvertResult(const ZXing::Result& zr) {
 std::vector<BarcodeResult> ReadBarcodes(const QImage& image, const BarcodeParams& params) {
     std::vector<BarcodeResult> results;
 
-    if (image.Empty()) {
+    if (!RequireBarcodeImage(image, "ReadBarcodes")) {
         return results;
     }
+    ValidateParams(params, "ReadBarcodes");
 
     // Get image data
     int32_t width = image.Width();
@@ -163,8 +178,6 @@ std::vector<BarcodeResult> ReadBarcodes(const QImage& image, const BarcodeParams
         imgFormat = ZXing::ImageFormat::RGB;
     } else if (channels == 4) {
         imgFormat = ZXing::ImageFormat::RGBX;
-    } else {
-        throw UnsupportedException("ReadBarcodes: unsupported channel count");
     }
 
     ZXing::ImageView imageView(data, width, height, imgFormat, static_cast<int>(stride));

@@ -256,6 +256,25 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-02-03 (SDK 统一验证工具)
+
+- **Core/Validate.h** (新增，SDK 统一验证工具)
+  - 新增 `include/QiVision/Core/Validate.h`: 统一验证工具头文件
+  - **主要功能**:
+    - `RequireImage()`: 图像有效性验证（空图返回 false，无效图抛异常）
+    - `RequireImageChannels()`: 带通道数检查的图像验证
+    - `RequireGrayImage()/RequireRgbImage()`: 特定通道图像验证
+    - `RequireRange()/RequirePositive()/RequireNonNegative()`: 数值范围验证
+    - `RequireThreadCount()/RequireGpuIndex()`: 线程/GPU 参数验证
+  - **设计原则**:
+    - 空图像返回 false（调用方处理），无效图像抛异常
+    - 统一错误消息格式：`"funcName: paramName must be..."`
+    - 提供便利宏 `QIVISION_REQUIRE_IMAGE` 等
+  - **已迁移模块**:
+    - OCR, Barcode, Measure (Caliper, CaliperArray)
+    - Filter, Color, Matching (ShapeModel, NCCModel)
+    - Transform (Affine, Homography, Polar)
+
 ### 2026-02-02 (OCR 模块集成)
 
 - **OCR/OCR.h 模块** (新增，ONNXRuntime + PaddleOCR v4)

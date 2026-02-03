@@ -109,3 +109,25 @@ Goal: expose a single, modern C++ API surface (OpenCV-like), remove Halcon-style
   - Functions with output vectors must clear them before filling.
 - Consistent coordinate semantics:
   - `row = y`, `col = x`, and angles are in radians (CCW positive).
+
+## Module-Specific Exceptions (Allowed)
+These are intentional deviations from "empty input returns empty output" when a module
+cannot meaningfully proceed without real data or initialization.
+
+### OCR
+- Not initialized / model missing: throw `InvalidArgumentException`.
+- Empty image: return empty `OCRResult`.
+- Unsupported type/channels: throw `UnsupportedException`.
+
+### Barcode
+- Empty image: return empty result vector.
+- Invalid params (formats None, negative limits): throw `InvalidArgumentException`.
+- Unsupported type/channels: throw `UnsupportedException`.
+
+### Measure / Matching
+- Empty image or insufficient data for fitting: throw `InvalidArgumentException`
+  or `InsufficientDataException` (when applicable).
+
+### Display / Draw
+- Empty image: treat as no-op (return without modifying).
+- Invalid parameters: throw `InvalidArgumentException`.

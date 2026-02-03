@@ -5,6 +5,7 @@
 
 #include <QiVision/Color/ColorConvert.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 
 #include <algorithm>
 #include <array>
@@ -70,55 +71,25 @@ inline uint8_t ClampU8(double val) {
     return (t3 > LAB_EPSILON) ? t3 : (116.0 * t - 16.0) / LAB_KAPPA;
 }
 
-bool RequireImage(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    return true;
+// Use unified validation
+inline bool RequireImage(const QImage& image, const char* funcName) {
+    return Validate::RequireImage(image, funcName);
 }
 
-bool RequireImages(const QImage& image1, const QImage& image2, const char* funcName) {
-    if (!RequireImage(image1, funcName)) {
-        return false;
-    }
-    if (!RequireImage(image2, funcName)) {
-        return false;
-    }
-    return true;
+inline bool RequireImages(const QImage& image1, const QImage& image2, const char* funcName) {
+    return RequireImage(image1, funcName) && RequireImage(image2, funcName);
 }
 
-bool RequireImages(const QImage& image1, const QImage& image2, const QImage& image3,
-                   const char* funcName) {
-    if (!RequireImage(image1, funcName)) {
-        return false;
-    }
-    if (!RequireImage(image2, funcName)) {
-        return false;
-    }
-    if (!RequireImage(image3, funcName)) {
-        return false;
-    }
-    return true;
+inline bool RequireImages(const QImage& image1, const QImage& image2, const QImage& image3,
+                          const char* funcName) {
+    return RequireImage(image1, funcName) && RequireImage(image2, funcName) &&
+           RequireImage(image3, funcName);
 }
 
-bool RequireImages(const QImage& image1, const QImage& image2, const QImage& image3,
-                   const QImage& image4, const char* funcName) {
-    if (!RequireImage(image1, funcName)) {
-        return false;
-    }
-    if (!RequireImage(image2, funcName)) {
-        return false;
-    }
-    if (!RequireImage(image3, funcName)) {
-        return false;
-    }
-    if (!RequireImage(image4, funcName)) {
-        return false;
-    }
-    return true;
+inline bool RequireImages(const QImage& image1, const QImage& image2, const QImage& image3,
+                          const QImage& image4, const char* funcName) {
+    return RequireImage(image1, funcName) && RequireImage(image2, funcName) &&
+           RequireImage(image3, funcName) && RequireImage(image4, funcName);
 }
 
 // Note: RGB_TO_XYZ, XYZ_TO_RGB, D65_X/Y/Z, LAB_16_116 are reserved for

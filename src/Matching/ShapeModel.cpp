@@ -8,6 +8,7 @@
 
 #include "ShapeModelImpl.h"
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/Core/QContourArray.h>
 #include <QiVision/Platform/FileIO.h>
 
@@ -75,14 +76,9 @@ SubpixelMethod ParseSubpixel(const std::string& str) {
     throw InvalidArgumentException("Unknown subpixel mode: " + str);
 }
 
-bool RequireValidImage(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    return true;
+// Use unified validation
+inline bool RequireValidImage(const QImage& image, const char* funcName) {
+    return Validate::RequireImage(image, funcName);
 }
 
 std::string MetricToString(MetricMode mode) {
@@ -144,16 +140,12 @@ double EstimateAutoMinContrastFromPyramid(const AnglePyramid& pyramid) {
     return minContrast;
 }
 
-void ValidateLevels(int32_t numLevels, const char* funcName) {
-    if (numLevels < 0) {
-        throw InvalidArgumentException(std::string(funcName) + ": numLevels must be >= 0");
-    }
+inline void ValidateLevels(int32_t numLevels, const char* funcName) {
+    Validate::RequireNonNegative(numLevels, "numLevels", funcName);
 }
 
-void ValidateAngleStep(double angleStep, const char* funcName) {
-    if (angleStep < 0.0) {
-        throw InvalidArgumentException(std::string(funcName) + ": angleStep must be >= 0");
-    }
+inline void ValidateAngleStep(double angleStep, const char* funcName) {
+    Validate::RequireNonNegative(angleStep, "angleStep", funcName);
 }
 
 void ValidateRoi(const QImage& image, const Rect2i& roi, const char* funcName) {

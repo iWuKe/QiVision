@@ -5364,15 +5364,37 @@ Parameters for OCR.
 
 ```cpp
 struct OCRParams {
-    int maxSideLen = 960;          // Max image size (longer side)
-    float boxThresh = 0.5f;        // Detection threshold [0,1]
-    float unclipRatio = 1.6f;      // Box expansion ratio
-    bool useDilation = true;       // Dilate detection map
+    // Detection parameters
+    int padding = 50;              // Image padding for detection
+    int maxSideLen = 1024;         // Max image side length (resize if larger)
+    double boxScoreThresh = 0.5;   // Box score threshold
+    double boxThresh = 0.3;        // Box threshold
+    double unClipRatio = 1.6;      // Unclip ratio for text box expansion
+
+    // Recognition parameters
+    bool doAngleClassify = true;   // Enable angle classification
+    bool mostAngle = true;         // Use majority angle
+
+    // Performance
+    int numThread = 4;             // Number of threads
+    int gpuIndex = -1;             // GPU index (-1 for CPU)
+
+    // Debug
+    bool debug = false;            // Print detection statistics
 
     static OCRParams Default();    // Default parameters
     static OCRParams Fast();       // Fast mode (lower accuracy)
     static OCRParams Accurate();   // Accurate mode (slower)
 };
+```
+
+**Debug output** (when `debug = true`):
+```
+[OCR] Detection stats:
+  Regions: 16 total
+  Filtered: area=0, contour=0, score=0, rect=0, size=0
+  BoxScore: min=0.72, max=0.85, avg=0.79 (thresh=0.5)
+  Output: 16 boxes
 ```
 
 ---

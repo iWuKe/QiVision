@@ -53,7 +53,8 @@ namespace {
     MetrologyMeasureParams MergeParams(
         double measureLength1, double measureLength2,
         const std::string& transition, const std::string& select,
-        const MetrologyMeasureParams& params)
+        const MetrologyMeasureParams& params,
+        const char* funcName)
     {
         MetrologyMeasureParams result = params;
         result.measureLength1 = measureLength1;
@@ -71,7 +72,7 @@ namespace {
         }
         result.measureSelect = ParseEdgeSelect(lowerSelect);
 
-        ValidateMetrologyParams(result, "MetrologyModel");
+        ValidateMetrologyParams(result, funcName);
 
         return result;
     }
@@ -501,20 +502,16 @@ int32_t MetrologyModel::AddLineMeasure(double row1, double col1,
                                          const std::string& transition,
                                          const std::string& select,
                                          const MetrologyMeasureParams& params) {
+    constexpr const char* funcName = "AddLineMeasure";
     if (!std::isfinite(row1) || !std::isfinite(col1) ||
         !std::isfinite(row2) || !std::isfinite(col2)) {
-        throw InvalidArgumentException("AddLineMeasure: invalid points");
+        throw InvalidArgumentException(std::string(funcName) + ": invalid points");
     }
     if (std::abs(row1 - row2) < 1e-12 && std::abs(col1 - col2) < 1e-12) {
-        throw InvalidArgumentException("AddLineMeasure: points must be distinct");
+        throw InvalidArgumentException(std::string(funcName) + ": points must be distinct");
     }
-    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
-        throw InvalidArgumentException("AddLineMeasure: measure lengths must be > 0");
-    }
-    if (params.numMeasures <= 0) {
-        throw InvalidArgumentException("AddLineMeasure: numMeasures must be > 0");
-    }
-    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
+    // measureLength and numMeasures validated in MergeParams
+    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params, funcName);
     auto obj = std::make_unique<MetrologyObjectLine>(row1, col1, row2, col2,
                                                       measureLength1, measureLength2,
                                                       merged.numMeasures);
@@ -531,19 +528,15 @@ int32_t MetrologyModel::AddCircleMeasure(double row, double column, double radiu
                                           const std::string& transition,
                                           const std::string& select,
                                           const MetrologyMeasureParams& params) {
+    constexpr const char* funcName = "AddCircleMeasure";
     if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(radius)) {
-        throw InvalidArgumentException("AddCircleMeasure: invalid parameters");
+        throw InvalidArgumentException(std::string(funcName) + ": invalid parameters");
     }
     if (radius <= 0.0) {
-        throw InvalidArgumentException("AddCircleMeasure: radius must be > 0");
+        throw InvalidArgumentException(std::string(funcName) + ": radius must be > 0");
     }
-    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
-        throw InvalidArgumentException("AddCircleMeasure: measure lengths must be > 0");
-    }
-    if (params.numMeasures <= 0) {
-        throw InvalidArgumentException("AddCircleMeasure: numMeasures must be > 0");
-    }
-    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
+    // measureLength and numMeasures validated in MergeParams
+    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params, funcName);
     auto obj = std::make_unique<MetrologyObjectCircle>(row, column, radius,
                                                         measureLength1, measureLength2,
                                                         merged.numMeasures);
@@ -561,23 +554,19 @@ int32_t MetrologyModel::AddArcMeasure(double row, double column, double radius,
                                         const std::string& transition,
                                         const std::string& select,
                                         const MetrologyMeasureParams& params) {
+    constexpr const char* funcName = "AddArcMeasure";
     if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(radius) ||
         !std::isfinite(angleStart) || !std::isfinite(angleEnd)) {
-        throw InvalidArgumentException("AddArcMeasure: invalid parameters");
+        throw InvalidArgumentException(std::string(funcName) + ": invalid parameters");
     }
     if (radius <= 0.0) {
-        throw InvalidArgumentException("AddArcMeasure: radius must be > 0");
-    }
-    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
-        throw InvalidArgumentException("AddArcMeasure: measure lengths must be > 0");
-    }
-    if (params.numMeasures <= 0) {
-        throw InvalidArgumentException("AddArcMeasure: numMeasures must be > 0");
+        throw InvalidArgumentException(std::string(funcName) + ": radius must be > 0");
     }
     if (std::abs(angleEnd - angleStart) < 1e-9) {
-        throw InvalidArgumentException("AddArcMeasure: angle range must be non-zero");
+        throw InvalidArgumentException(std::string(funcName) + ": angle range must be non-zero");
     }
-    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
+    // measureLength and numMeasures validated in MergeParams
+    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params, funcName);
     auto obj = std::make_unique<MetrologyObjectCircle>(row, column, radius,
                                                         angleStart, angleEnd,
                                                         measureLength1, measureLength2,
@@ -596,20 +585,16 @@ int32_t MetrologyModel::AddEllipseMeasure(double row, double column, double phi,
                                            const std::string& transition,
                                            const std::string& select,
                                            const MetrologyMeasureParams& params) {
+    constexpr const char* funcName = "AddEllipseMeasure";
     if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(phi) ||
         !std::isfinite(ra) || !std::isfinite(rb)) {
-        throw InvalidArgumentException("AddEllipseMeasure: invalid parameters");
+        throw InvalidArgumentException(std::string(funcName) + ": invalid parameters");
     }
     if (ra <= 0.0 || rb <= 0.0) {
-        throw InvalidArgumentException("AddEllipseMeasure: radii must be > 0");
+        throw InvalidArgumentException(std::string(funcName) + ": radii must be > 0");
     }
-    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
-        throw InvalidArgumentException("AddEllipseMeasure: measure lengths must be > 0");
-    }
-    if (params.numMeasures <= 0) {
-        throw InvalidArgumentException("AddEllipseMeasure: numMeasures must be > 0");
-    }
-    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
+    // measureLength and numMeasures validated in MergeParams
+    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params, funcName);
     auto obj = std::make_unique<MetrologyObjectEllipse>(row, column, phi, ra, rb,
                                                          measureLength1, measureLength2,
                                                          merged.numMeasures);
@@ -627,26 +612,27 @@ int32_t MetrologyModel::AddRectangle2Measure(double row, double column, double p
                                                const std::string& transition,
                                                const std::string& select,
                                                const MetrologyMeasureParams& params) {
+    constexpr const char* funcName = "AddRectangle2Measure";
     if (!std::isfinite(row) || !std::isfinite(column) || !std::isfinite(phi) ||
         !std::isfinite(length1) || !std::isfinite(length2)) {
-        throw InvalidArgumentException("AddRectangle2Measure: invalid parameters");
+        throw InvalidArgumentException(std::string(funcName) + ": invalid parameters");
     }
     if (length1 <= 0.0 || length2 <= 0.0) {
-        throw InvalidArgumentException("AddRectangle2Measure: lengths must be > 0");
+        throw InvalidArgumentException(std::string(funcName) + ": lengths must be > 0");
     }
-    if (measureLength1 <= 0.0 || measureLength2 <= 0.0) {
-        throw InvalidArgumentException("AddRectangle2Measure: measure lengths must be > 0");
-    }
-    if (params.numMeasures <= 0) {
-        throw InvalidArgumentException("AddRectangle2Measure: numMeasures must be > 0");
-    }
-    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params);
-    // For rectangle, numMeasures in params is total, but constructor expects per-side
-    int32_t numMeasuresPerSide = std::max(1, merged.numMeasures / 4);
+    // measureLength and numMeasures validated in MergeParams
+    auto merged = MergeParams(measureLength1, measureLength2, transition, select, params, funcName);
+    // For rectangle, distribute numMeasures across 4 sides fairly
+    // Base per-side count + distribute remainder to longer sides first
+    int32_t total = merged.numMeasures;
+    int32_t base = total / 4;
+    int32_t remainder = total % 4;
+    // Ensure at least 1 per side; distribute remainder: 2 to length1 sides, then length2
+    int32_t numMeasuresPerSide = std::max(1, base + (remainder >= 2 ? 1 : 0));
     auto obj = std::make_unique<MetrologyObjectRectangle2>(row, column, phi, length1, length2,
                                                             measureLength1, measureLength2,
                                                             numMeasuresPerSide);
-    // Copy merged params (this will override numMeasures with correct total)
+    // Copy merged params (actual total = numMeasuresPerSide * 4)
     obj->params_ = merged;
     int32_t idx = static_cast<int32_t>(impl_->objects.size());
     obj->index_ = idx;

@@ -1115,6 +1115,7 @@ std::optional<Line2d> MeasureAndFitLine(const QImage& image,
                                          const std::string& transition,
                                          const std::string& select,
                                          std::vector<Point2d>* measuredPoints) {
+    Validate::RequireImageNonEmpty(image, "MeasureAndFitLine");
     if (!p1.IsValid() || !p2.IsValid()) {
         throw InvalidArgumentException("MeasureAndFitLine: invalid points");
     }
@@ -1152,6 +1153,7 @@ std::optional<Circle2d> MeasureAndFitCircle(const QImage& image,
                                              const std::string& transition,
                                              const std::string& select,
                                              std::vector<Point2d>* measuredPoints) {
+    Validate::RequireImageNonEmpty(image, "MeasureAndFitCircle");
     if (!approxCenter.IsValid() || !std::isfinite(approxRadius) || approxRadius <= 0.0) {
         throw InvalidArgumentException("MeasureAndFitCircle: invalid circle");
     }
@@ -1190,6 +1192,7 @@ bool MeasureWidthsAlongLine(const QImage& image,
                              double& meanWidth,
                              double& stdWidth,
                              std::vector<double>* widths) {
+    Validate::RequireImageNonEmpty(image, "MeasureWidthsAlongLine");
     if (!p1.IsValid() || !p2.IsValid()) {
         throw InvalidArgumentException("MeasureWidthsAlongLine: invalid points");
     }
@@ -1222,6 +1225,7 @@ bool MeasureWidthsAlongArc(const QImage& image,
                             double& meanWidth,
                             double& stdWidth,
                             std::vector<double>* widths) {
+    Validate::RequireImageNonEmpty(image, "MeasureWidthsAlongArc");
     if (!arc.IsValid() || arc.radius <= 0.0 || std::abs(arc.sweepAngle) <= 0.0) {
         throw InvalidArgumentException("MeasureWidthsAlongArc: invalid arc");
     }

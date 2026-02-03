@@ -196,22 +196,127 @@ double NCCModelImpl::ComputeNCCScoreSubpixel(
     double angle,
     int32_t level) const
 {
-    // TODO: Implement bilinear interpolation for subpixel positions
-    // For now, just round to nearest integer
-    int32_t ix = static_cast<int32_t>(std::round(x));
-    int32_t iy = static_cast<int32_t>(std::round(y));
+    if (level < 0 || level >= static_cast<int32_t>(levels_.size())) {
+        return -1.0;
+    }
+
+    // Find the closest angle index
     int32_t angleIdx = GetAngleIndex(angle, level);
+    const auto& templates = GetRotatedTemplates(level);
+    if (angleIdx < 0 || angleIdx >= static_cast<int32_t>(templates.size())) {
+        return -1.0;
+    }
 
-    // This requires integral image which we don't have here
-    // Return -1 to indicate not implemented
-    (void)imageData;
-    (void)imageWidth;
-    (void)imageHeight;
-    (void)ix;
-    (void)iy;
-    (void)angleIdx;
+    const auto& rotatedTemplate = templates[angleIdx];
+    if (!rotatedTemplate.IsValid()) {
+        return -1.0;
+    }
 
-    return -1.0;
+    int32_t tWidth = rotatedTemplate.width;
+    int32_t tHeight = rotatedTemplate.height;
+    int32_t n = rotatedTemplate.numPixels;
+
+    if (n <= 1) {
+        return -1.0;
+    }
+
+    // Template statistics (precomputed)
+    double templateStddev = rotatedTemplate.stddev;
+    if (templateStddev < 1e-6) {
+        return 0.0;
+    }
+
+    const float* templateData = rotatedTemplate.data.data();
+    const uint8_t* mask = rotatedTemplate.mask.empty() ? nullptr : rotatedTemplate.mask.data();
+
+    // Compute image statistics using bilinear interpolation
+    double imageSum = 0.0;
+    double imageSumSq = 0.0;
+    int32_t validCount = 0;
+
+    // First pass: compute image mean and variance at subpixel position
+    for (int32_t ty = 0; ty < tHeight; ++ty) {
+        for (int32_t tx = 0; tx < tWidth; ++tx) {
+            // Skip masked pixels
+            if (mask && mask[ty * tWidth + tx] == 0) {
+                continue;
+            }
+
+            // Subpixel image coordinates
+            double imgX = x + tx;
+            double imgY = y + ty;
+
+            // Bounds check (need 1 pixel margin for bilinear)
+            if (imgX < 0.0 || imgY < 0.0 ||
+                imgX >= imageWidth - 1.0 || imgY >= imageHeight - 1.0) {
+                return -1.0;  // Out of bounds
+            }
+
+            // Bilinear interpolation
+            double iVal = Qi::Vision::Internal::InterpolateBilinear(
+                imageData, imageWidth, imageHeight, imgX, imgY,
+                Qi::Vision::Internal::BorderMode::Constant, 0.0);
+
+            imageSum += iVal;
+            imageSumSq += iVal * iVal;
+            validCount++;
+        }
+    }
+
+    if (validCount <= 1) {
+        return -1.0;
+    }
+
+    double imageMean = imageSum / validCount;
+    double imageVar = imageSumSq / validCount - imageMean * imageMean;
+
+    // Handle low variance (flat region)
+    if (imageVar < 1e-6) {
+        return 0.0;
+    }
+
+    double imageStddev = std::sqrt(imageVar);
+
+    // Second pass: compute cross-correlation
+    double crossCorr = 0.0;
+
+    for (int32_t ty = 0; ty < tHeight; ++ty) {
+        for (int32_t tx = 0; tx < tWidth; ++tx) {
+            if (mask && mask[ty * tWidth + tx] == 0) {
+                continue;
+            }
+
+            double imgX = x + tx;
+            double imgY = y + ty;
+
+            // Template value (already zero-mean)
+            float tVal = templateData[ty * tWidth + tx];
+
+            // Interpolated image value (centered)
+            double iVal = Qi::Vision::Internal::InterpolateBilinear(
+                imageData, imageWidth, imageHeight, imgX, imgY,
+                Qi::Vision::Internal::BorderMode::Constant, 0.0);
+            iVal -= imageMean;
+
+            crossCorr += tVal * iVal;
+        }
+    }
+
+    // Compute NCC
+    double denominator = validCount * templateStddev * imageStddev;
+    if (denominator < 1e-10) {
+        return 0.0;
+    }
+
+    double ncc = crossCorr / denominator;
+
+    // Handle ignore_global_polarity mode
+    if (metric_ == MetricMode::IgnoreGlobalPolarity) {
+        ncc = std::abs(ncc);
+    }
+
+    // Clamp to [-1, 1]
+    return std::clamp(ncc, -1.0, 1.0);
 }
 
 void NCCModelImpl::RefinePosition(
@@ -368,6 +473,30 @@ void NCCModelImpl::RefinePosition(
                 double angleStep = (angleList.size() > 1) ?
                     (angleList[1] - angleList[0]) : 0.0;
                 match.angle += subAngle * angleStep;
+            }
+        }
+    }
+
+    // Recompute score at refined subpixel position
+    // Convert refined origin position back to template top-left for score computation
+    double finalOriginOffsetX = 0.0;
+    double finalOriginOffsetY = 0.0;
+    int32_t finalAngleIdx = GetAngleIndex(match.angle, level);
+    const auto& finalTemplates = GetRotatedTemplates(level);
+    if (finalAngleIdx >= 0 && finalAngleIdx < static_cast<int32_t>(finalTemplates.size())) {
+        const auto& finalTemplate = finalTemplates[finalAngleIdx];
+        if (finalTemplate.IsValid()) {
+            computeOriginOffset(finalAngleIdx, finalTemplate, finalOriginOffsetX, finalOriginOffsetY);
+
+            double templateX = match.x - finalOriginOffsetX;
+            double templateY = match.y - finalOriginOffsetY;
+
+            double refinedScore = ComputeNCCScoreSubpixel(
+                imageData, imageWidth, imageHeight,
+                templateX, templateY, match.angle, level);
+
+            if (refinedScore >= 0.0) {
+                match.score = refinedScore;
             }
         }
     }

@@ -223,3 +223,101 @@ cannot meaningfully proceed without real data or initialization.
 1. **OCR**: 考虑添加 `Robust()` 预设（类似 Barcode）
 2. **Barcode**: 考虑添加可选预处理（对比度拉伸）
 3. **两者**: 考虑统一 `IsAvailable()` / `GetVersion()` 接口风格
+
+---
+
+## 错误文案规范
+
+### 文案格式模板
+
+```
+FunctionName: paramName must be condition[, got value]
+FunctionName: description of error
+```
+
+### 标准文案模板
+
+| 错误类型 | 模板 | 示例 |
+|---------|------|------|
+| 图像为空 | `FuncName: image is empty` | `CreateShapeModel: image is empty` |
+| 图像无效 | `FuncName: image is invalid` | `GaussianBlur: image is invalid` |
+| 类型不匹配 | `FuncName: expected X image, got Y` | `Threshold: expected UInt8 image, got Float32` |
+| 通道数错误 | `FuncName: expected N channel(s), got M` | `RgbToGray: expected 3 channel(s), got 1` |
+| 参数越界 | `FuncName: paramName must be op value[, got actual]` | `GaussianBlur: sigma must be > 0, got -1` |
+| 参数范围 | `FuncName: paramName must be in [min, max][, got value]` | `Threshold: thresh must be in [0, 255], got 300` |
+| 尺寸不匹配 | `FuncName: size mismatch` | `Add: size mismatch` |
+| 索引越界 | `FuncName: index out of range` | `SelectObj: index out of range` |
+| 未初始化 | `FuncName: resource not initialized. Call InitXxx() first.` | `RecognizeText: OCR not initialized. Call InitOCR() first.` |
+| 不支持操作 | `FuncName: unsupported operation/mode: value` | `Unknown border mode: invalid` |
+
+### 异常类型选择
+
+| 场景 | 异常类型 |
+|------|---------|
+| 参数值非法（空/null/越界/NaN） | `InvalidArgumentException` |
+| 类型/格式不支持 | `UnsupportedException` |
+| 数据不足（拟合点太少） | `InvalidArgumentException` |
+| 文件操作失败 | `IOException` |
+| 运行时错误（内存/算法失败） | `RuntimeException` |
+
+### 使用 Validate.h 的优势
+
+```cpp
+// 推荐：使用 Validate 函数（自动生成规范文案）
+Validate::RequirePositive(sigma, "sigma", __func__);
+// 输出: "GaussianBlur: sigma must be > 0, got -1"
+
+// 不推荐：手写检查
+if (sigma <= 0) {
+    throw InvalidArgumentException("sigma should be positive");  // 缺少函数名
+}
+```
+
+---
+
+## 核心类型行为规范
+
+### QImage
+
+| 方法 | 空图像 | 无效图像 | 备注 |
+|------|-------|---------|------|
+| `Empty()` | `true` | `false` | 已分配但无效仍返回 false |
+| `IsValid()` | `false` | `false` | 两者都不可用 |
+| `Width()/Height()` | 0 | 原值 | 空图尺寸为 0 |
+| `Clone()` | 返回空图 | 返回无效副本 | 深拷贝行为 |
+
+### QRegion
+
+| 方法 | 空区域 | 备注 |
+|------|-------|------|
+| `Empty()` | `true` | 无 runs |
+| `IsValid()` | `true` | 空区域是有效的 |
+| `Area()` | 0 | |
+| `BoundingBox()` | 空 Rect | |
+
+### QContour
+
+| 方法 | 空轮廓 | 备注 |
+|------|-------|------|
+| `Empty()` | `true` | 无点 |
+| `IsValid()` | `true` | 空轮廓是有效的 |
+| `Size()` | 0 | |
+| `Length()` | 0.0 | |
+| `BoundingBox()` | 空 Rect | |
+
+### 一致性规则
+
+1. **Empty vs IsValid 区别**：
+   - `Empty()`: 没有数据内容
+   - `IsValid()`: 数据结构完整可用
+   - 空对象可以是有效的（QRegion/QContour）
+   - 但无效对象一定是"有问题的"
+
+2. **空对象操作**：
+   - 几何运算（交/并/差）：返回空结果
+   - 变换（仿射/透视）：返回空结果
+   - 属性查询（面积/长度）：返回 0
+
+3. **链式调用安全**：
+   - 所有方法对空对象都不崩溃
+   - 返回合理的默认值或空结果

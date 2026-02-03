@@ -72,9 +72,16 @@ inline void ValidateScale(double scaleMin, double scaleMax, double scaleStep, co
     }
 }
 
-// NCC matching accepts any valid image
+// NCC search accepts any valid image (empty = no results)
 inline bool RequireValidImage(const QImage& image, const char* funcName) {
     return Validate::RequireImageValid(image, funcName);
+}
+
+// NCC model creation requires non-empty UInt8 grayscale image
+inline void RequireTemplateImage(const QImage& image, const char* funcName) {
+    Validate::RequireImageNonEmpty(image, funcName);
+    Validate::RequireImageType(image, PixelType::UInt8, funcName);
+    Validate::RequireChannelCountExact(image, 1, funcName);
 }
 
 } // anonymous namespace
@@ -132,9 +139,7 @@ void CreateNCCModel(
     double angleStep,
     const std::string& metric)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateNCCModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateNCCModel");
     ValidateLevels(numLevels, "CreateNCCModel");
     ValidateAngleStep(angleStep, "CreateNCCModel");
 
@@ -164,9 +169,7 @@ void CreateNCCModel(
     double angleStep,
     const std::string& metric)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateNCCModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateNCCModel");
     ValidateLevels(numLevels, "CreateNCCModel");
     ValidateAngleStep(angleStep, "CreateNCCModel");
     if (roi.width <= 0 || roi.height <= 0) {
@@ -204,10 +207,7 @@ void CreateNCCModel(
     double angleStep,
     const std::string& metric)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateNCCModel: invalid template image");
-    }
-
+    RequireTemplateImage(templateImage, "CreateNCCModel");
     if (region.Empty()) {
         throw InvalidArgumentException("CreateNCCModel: empty region");
     }
@@ -242,9 +242,7 @@ void CreateScaledNCCModel(
     double scaleStep,
     const std::string& metric)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateScaledNCCModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateScaledNCCModel");
     ValidateLevels(numLevels, "CreateScaledNCCModel");
     ValidateAngleStep(angleStep, "CreateScaledNCCModel");
     ValidateScale(scaleMin, scaleMax, scaleStep, "CreateScaledNCCModel");
@@ -566,9 +564,7 @@ void DetermineNCCModelParams(
     int32_t& numLevels,
     double& angleStep)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("DetermineNCCModelParams: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "DetermineNCCModelParams");
 
     // Get template dimensions
     int32_t width = templateImage.Width();

@@ -76,9 +76,17 @@ SubpixelMethod ParseSubpixel(const std::string& str) {
     throw InvalidArgumentException("Unknown subpixel mode: " + str);
 }
 
-// Matching accepts any valid image (type check done internally)
+// Shape search accepts any valid image (empty = no results)
 inline bool RequireValidImage(const QImage& image, const char* funcName) {
     return Validate::RequireImageValid(image, funcName);
+}
+
+// Shape model creation requires non-empty grayscale image (UInt8 or Float32)
+inline void RequireTemplateImage(const QImage& image, const char* funcName) {
+    Validate::RequireImageNonEmpty(image, funcName);
+    static const PixelType allowed[] = { PixelType::UInt8, PixelType::Float32 };
+    Validate::RequireImageTypeOneOf(image, allowed, 2, funcName);
+    Validate::RequireChannelCountExact(image, 1, funcName);
 }
 
 std::string MetricToString(MetricMode mode) {
@@ -297,9 +305,7 @@ void CreateShapeModel(
     const std::string& contrast,
     double minContrast)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateShapeModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateShapeModel");
     ValidateLevels(numLevels, "CreateShapeModel");
     ValidateAngleStep(angleStep, "CreateShapeModel");
     CreateShapeModel(templateImage, Rect2i{}, model, numLevels,
@@ -320,9 +326,7 @@ void CreateShapeModel(
     const std::string& contrast,
     double minContrast)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateShapeModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateShapeModel");
     ValidateLevels(numLevels, "CreateShapeModel");
     ValidateAngleStep(angleStep, "CreateShapeModel");
     if (roi.width > 0 || roi.height > 0) {
@@ -366,9 +370,7 @@ void CreateShapeModel(
     const std::string& contrast,
     double minContrast)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateShapeModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateShapeModel");
     if (region.Empty()) {
         throw InvalidArgumentException("CreateShapeModel: empty region");
     }
@@ -420,9 +422,7 @@ void CreateScaledShapeModel(
     const std::string& contrast,
     double minContrast)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateScaledShapeModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateScaledShapeModel");
     ValidateLevels(numLevels, "CreateScaledShapeModel");
     ValidateAngleStep(angleStep, "CreateScaledShapeModel");
     if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0 || scaleMax < scaleMin) {
@@ -450,9 +450,7 @@ void CreateScaledShapeModel(
     const std::string& contrast,
     double minContrast)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateScaledShapeModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateScaledShapeModel");
     ValidateLevels(numLevels, "CreateScaledShapeModel");
     ValidateAngleStep(angleStep, "CreateScaledShapeModel");
     if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0 || scaleMax < scaleMin) {
@@ -503,9 +501,7 @@ void CreateScaledShapeModel(
     const std::string& contrast,
     double minContrast)
 {
-    if (!templateImage.IsValid()) {
-        throw InvalidArgumentException("CreateScaledShapeModel: invalid template image");
-    }
+    RequireTemplateImage(templateImage, "CreateScaledShapeModel");
     if (region.Empty()) {
         throw InvalidArgumentException("CreateScaledShapeModel: empty region");
     }

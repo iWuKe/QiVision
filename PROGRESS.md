@@ -256,6 +256,21 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-02-03 (OCR DB 后处理 + 透视矫正)
+
+- **OCR.cpp** (检测精度改进)
+  - **DB 后处理改进**:
+    - 使用轮廓分析代替简单连通域
+    - 计算最小外接矩形 (`ContourMinAreaRect`)
+    - 实现 `UnclipPolygon()` 按 unClipRatio 扩展多边形
+    - 实现 `ComputeBoxScore()` 计算区域内概率均值
+    - 按 boxScoreThresh 过滤低置信度框
+  - **透视变换矫正**:
+    - 使用 `Homography::From4Points()` 从四边形角点计算变换
+    - 使用 `WarpPerspective()` 矫正倾斜文本
+    - 自动检测旋转角度，小角度用简单裁剪（性能优化）
+  - 返回准确的旋转四边形角点，不再是轴对齐 bbox
+
 ### 2026-02-03 (ColorConvert Luv 支持)
 
 - **ColorConvert.cpp** (补齐 CIE Luv 颜色空间)

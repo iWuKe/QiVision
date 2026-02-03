@@ -17,6 +17,11 @@
 #include <QiVision/Morphology/Morphology.h>
 #include <QiVision/Platform/Timer.h>
 #include <QiVision/Platform/FileIO.h>
+#include <QiVision/Internal/ContourConvert.h>
+#include <QiVision/Internal/ContourAnalysis.h>
+#include <QiVision/Internal/Geometry2d.h>
+#include <QiVision/Internal/Homography.h>
+#include <QiVision/Internal/AffineTransform.h>
 
 #ifdef QIVISION_HAS_ONNXRUNTIME
 #include <onnxruntime_cxx_api.h>
@@ -246,7 +251,93 @@ public:
         return input;
     }
 
-    // Run text detection
+    // Compute box score: mean probability within the contour region
+    double ComputeBoxScore(const float* probData, int probWidth, int probHeight,
+                           const QContour& contour) {
+        if (contour.Empty()) return 0.0;
+
+        auto bbox = contour.BoundingBox();
+        int x1 = std::max(0, static_cast<int>(bbox.x));
+        int y1 = std::max(0, static_cast<int>(bbox.y));
+        int x2 = std::min(probWidth - 1, static_cast<int>(bbox.x + bbox.width));
+        int y2 = std::min(probHeight - 1, static_cast<int>(bbox.y + bbox.height));
+
+        double sum = 0.0;
+        int count = 0;
+
+        // Sample probability values inside contour bounding box
+        for (int y = y1; y <= y2; ++y) {
+            for (int x = x1; x <= x2; ++x) {
+                sum += probData[y * probWidth + x];
+                count++;
+            }
+        }
+
+        return count > 0 ? sum / count : 0.0;
+    }
+
+    // Unclip polygon: expand by ratio based on perimeter/area
+    std::vector<Point2d> UnclipPolygon(const std::vector<Point2d>& polygon, double unclipRatio) {
+        if (polygon.size() < 3) return polygon;
+
+        // Compute perimeter and area
+        double perimeter = 0.0;
+        double area = 0.0;
+        size_t n = polygon.size();
+
+        for (size_t i = 0; i < n; ++i) {
+            size_t j = (i + 1) % n;
+            double dx = polygon[j].x - polygon[i].x;
+            double dy = polygon[j].y - polygon[i].y;
+            perimeter += std::sqrt(dx * dx + dy * dy);
+            area += polygon[i].x * polygon[j].y - polygon[j].x * polygon[i].y;
+        }
+        area = std::abs(area) * 0.5;
+
+        if (perimeter < 1e-6 || area < 1e-6) return polygon;
+
+        // Expand distance
+        double distance = area * unclipRatio / perimeter;
+
+        // Expand each vertex outward
+        std::vector<Point2d> expanded;
+        expanded.reserve(n);
+
+        for (size_t i = 0; i < n; ++i) {
+            size_t prev = (i + n - 1) % n;
+            size_t next = (i + 1) % n;
+
+            // Compute edge normals
+            double dx1 = polygon[i].x - polygon[prev].x;
+            double dy1 = polygon[i].y - polygon[prev].y;
+            double len1 = std::sqrt(dx1 * dx1 + dy1 * dy1);
+            if (len1 < 1e-6) { expanded.push_back(polygon[i]); continue; }
+            double nx1 = -dy1 / len1, ny1 = dx1 / len1;
+
+            double dx2 = polygon[next].x - polygon[i].x;
+            double dy2 = polygon[next].y - polygon[i].y;
+            double len2 = std::sqrt(dx2 * dx2 + dy2 * dy2);
+            if (len2 < 1e-6) { expanded.push_back(polygon[i]); continue; }
+            double nx2 = -dy2 / len2, ny2 = dx2 / len2;
+
+            // Average normal direction
+            double nx = (nx1 + nx2) * 0.5;
+            double ny = (ny1 + ny2) * 0.5;
+            double nlen = std::sqrt(nx * nx + ny * ny);
+            if (nlen < 1e-6) { expanded.push_back(polygon[i]); continue; }
+            nx /= nlen;
+            ny /= nlen;
+
+            expanded.push_back(Point2d(
+                polygon[i].x + nx * distance,
+                polygon[i].y + ny * distance
+            ));
+        }
+
+        return expanded;
+    }
+
+    // Run text detection with improved DB post-processing
     std::vector<std::vector<Point2d>> DetectTextBoxes(const QImage& image, const OCRParams& params) {
         std::vector<std::vector<Point2d>> boxes;
 
@@ -288,11 +379,10 @@ public:
         int outHeight = static_cast<int>(outputShape[2]);
         int outWidth = static_cast<int>(outputShape[3]);
 
-        // Threshold and find contours with DB-style post-processing
         float scaleX = static_cast<float>(image.Width()) / outWidth;
         float scaleY = static_cast<float>(image.Height()) / outHeight;
 
-        // Create probability map
+        // Create binary mask from probability map
         QImage probMap(outWidth, outHeight, PixelType::UInt8, ChannelType::Gray);
         for (int y = 0; y < outHeight; ++y) {
             uint8_t* row = static_cast<uint8_t*>(probMap.RowPtr(y));
@@ -302,38 +392,54 @@ public:
             }
         }
 
-        // Dilate to expand regions (DB unclip approximation)
-        QImage dilated;
-        Morphology::GrayDilationRectangle(probMap, dilated, 5, 5);
-
         // Find connected regions
-        QRegion binaryRegion = Segment::ThresholdToRegion(dilated, 128.0, 255.0);
+        QRegion binaryRegion = Segment::ThresholdToRegion(probMap, 128.0, 255.0);
 
         std::vector<QRegion> regions;
         Blob::Connection(binaryRegion, regions);
 
-        // Filter and convert to boxes
-        int minArea = 100;  // Minimum area threshold
+        // Minimum area threshold
+        constexpr int minArea = 50;
+        constexpr double minShortEdge = 3.0;
+
         for (const auto& region : regions) {
             if (region.Area() < minArea) continue;
 
-            // Get bounding box and convert to corners
-            auto rect = region.BoundingBox();
+            // Convert region to contour for better shape analysis
+            QContour contour = Internal::RegionToContour(region);
+            if (contour.Size() < 4) continue;
 
-            // Add padding and scale back to original image coordinates
-            int padX = 2, padY = 2;
-            int x1 = std::max(0, static_cast<int>((rect.x - padX) * scaleX));
-            int y1 = std::max(0, static_cast<int>((rect.y - padY) * scaleY));
-            int x2 = std::min(image.Width(), static_cast<int>((rect.x + rect.width + padX) * scaleX));
-            int y2 = std::min(image.Height(), static_cast<int>((rect.y + rect.height + padY) * scaleY));
+            // Compute box score (mean probability in region)
+            double boxScore = ComputeBoxScore(outputData, outWidth, outHeight, contour);
+            if (boxScore < params.boxScoreThresh) continue;
 
-            std::vector<Point2d> corners;
-            corners.push_back(Point2d(x1, y1));
-            corners.push_back(Point2d(x2, y1));
-            corners.push_back(Point2d(x2, y2));
-            corners.push_back(Point2d(x1, y2));
+            // Get minimum area rectangle
+            auto minRectOpt = Internal::ContourMinAreaRect(contour);
+            if (!minRectOpt) continue;
 
-            boxes.push_back(corners);
+            RotatedRect2d minRect = *minRectOpt;
+
+            // Filter small boxes
+            double shortEdge = std::min(minRect.width, minRect.height);
+            if (shortEdge < minShortEdge) continue;
+
+            // Get corners and apply unclip
+            auto corners = Internal::RotatedRectCorners(minRect);
+            std::vector<Point2d> polygon(corners.begin(), corners.end());
+            polygon = UnclipPolygon(polygon, params.unClipRatio);
+
+            // Scale corners back to original image coordinates
+            std::vector<Point2d> scaledCorners;
+            scaledCorners.reserve(4);
+            for (const auto& pt : polygon) {
+                double x = std::clamp(pt.x * scaleX, 0.0, static_cast<double>(image.Width() - 1));
+                double y = std::clamp(pt.y * scaleY, 0.0, static_cast<double>(image.Height() - 1));
+                scaledCorners.push_back(Point2d(x, y));
+            }
+
+            if (scaledCorners.size() >= 4) {
+                boxes.push_back(std::move(scaledCorners));
+            }
         }
 
         return boxes;
@@ -437,30 +543,79 @@ public:
         auto boxes = DetectTextBoxes(rgbImage, params);
         result.detectTime = timer.ElapsedMs();
 
-        // Step 2: Recognize text in each box
+        // Step 2: Recognize text in each box with perspective correction
         timer.Start();
         for (const auto& corners : boxes) {
+            if (corners.size() < 4) continue;
+
             TextBlock tb;
             tb.corners = corners;
 
-            // Crop region (simplified - proper implementation would do perspective transform)
-            auto rect = tb.BoundingRect();
-            if (rect.width <= 0 || rect.height <= 0) continue;
+            // Compute target width and height from corner distances
+            // corners: [top-left, top-right, bottom-right, bottom-left]
+            double topWidth = std::sqrt(
+                std::pow(corners[1].x - corners[0].x, 2) +
+                std::pow(corners[1].y - corners[0].y, 2));
+            double bottomWidth = std::sqrt(
+                std::pow(corners[2].x - corners[3].x, 2) +
+                std::pow(corners[2].y - corners[3].y, 2));
+            double leftHeight = std::sqrt(
+                std::pow(corners[3].x - corners[0].x, 2) +
+                std::pow(corners[3].y - corners[0].y, 2));
+            double rightHeight = std::sqrt(
+                std::pow(corners[2].x - corners[1].x, 2) +
+                std::pow(corners[2].y - corners[1].y, 2));
 
-            // Ensure within image bounds
-            rect.x = std::max(0, rect.x);
-            rect.y = std::max(0, rect.y);
-            rect.width = std::min(rect.width, rgbImage.Width() - rect.x);
-            rect.height = std::min(rect.height, rgbImage.Height() - rect.y);
+            int dstWidth = static_cast<int>(std::max(topWidth, bottomWidth));
+            int dstHeight = static_cast<int>(std::max(leftHeight, rightHeight));
 
-            if (rect.width <= 0 || rect.height <= 0) continue;
+            if (dstWidth < 8 || dstHeight < 8) continue;
 
-            // Extract crop using SubImage + Clone
-            QImage crop = rgbImage.SubImage(rect.x, rect.y, rect.width, rect.height).Clone();
+            // Check if box is significantly rotated (use perspective transform)
+            // Otherwise use simple crop (faster)
+            double angle = std::atan2(corners[1].y - corners[0].y, corners[1].x - corners[0].x);
+            bool needPerspective = std::abs(angle) > 0.05;  // ~3 degrees
+
+            QImage crop;
+
+            if (needPerspective) {
+                // Use perspective transform for rotated text
+                std::array<Point2d, 4> srcPts = {corners[0], corners[1], corners[2], corners[3]};
+                std::array<Point2d, 4> dstPts = {
+                    Point2d(0, 0),
+                    Point2d(dstWidth - 1, 0),
+                    Point2d(dstWidth - 1, dstHeight - 1),
+                    Point2d(0, dstHeight - 1)
+                };
+
+                auto H = Internal::Homography::From4Points(srcPts, dstPts);
+                if (H) {
+                    crop = Internal::WarpPerspective(rgbImage, *H, dstWidth, dstHeight,
+                                                      Internal::InterpolationMethod::Bilinear,
+                                                      Internal::BorderMode::Constant, 0.0);
+                }
+            }
+
+            // Fallback to simple crop if perspective transform failed or not needed
+            if (crop.Empty()) {
+                auto rect = tb.BoundingRect();
+                if (rect.width <= 0 || rect.height <= 0) continue;
+
+                rect.x = std::max(0, rect.x);
+                rect.y = std::max(0, rect.y);
+                rect.width = std::min(rect.width, rgbImage.Width() - rect.x);
+                rect.height = std::min(rect.height, rgbImage.Height() - rect.y);
+
+                if (rect.width <= 0 || rect.height <= 0) continue;
+
+                crop = rgbImage.SubImage(rect.x, rect.y, rect.width, rect.height).Clone();
+            }
+
+            if (crop.Empty()) continue;
 
             // Recognize
             tb.text = RecognizeText(crop, tb.confidence);
-            tb.boxScore = 1.0;  // Simplified
+            tb.boxScore = 1.0;
 
             if (!tb.text.empty()) {
                 result.textBlocks.push_back(std::move(tb));

@@ -339,6 +339,260 @@ void DetermineShapeModelParams(
 
 ---
 
+### NCCModel
+
+Gray-value based template matching using Normalized Cross-Correlation (NCC).
+
+**When to use NCC vs ShapeModel:**
+- NCC: Textured objects, gray-value patterns, low-contrast features
+- ShapeModel: High-contrast edges, geometric shapes, occlusion handling
+
+```cpp
+class NCCModel {
+public:
+    NCCModel();
+    bool IsValid() const;
+};
+```
+
+**Methods**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| IsValid() | bool | True if model contains valid data |
+
+---
+
+### CreateNCCModel
+
+Creates an NCC model for rotation-only matching.
+
+```cpp
+void CreateNCCModel(
+    const QImage& templateImage,
+    NCCModel& model,
+    int32_t numLevels,
+    double angleStart,
+    double angleExtent,
+    double angleStep,
+    const std::string& metric
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| templateImage | const QImage& | Template image (grayscale) |
+| model | NCCModel& | [out] Output model handle |
+| numLevels | int32_t | Pyramid levels (0=auto) |
+| angleStart | double | Start angle [rad] |
+| angleExtent | double | Angle range [rad] (0=full rotation) |
+| angleStep | double | Angle step [rad] (0=auto, ~1 degree) |
+| metric | const std::string& | Match metric: "use_polarity", "ignore_global_polarity" |
+
+---
+
+### CreateNCCModel (with ROI)
+
+Creates an NCC model using a rectangular or region-based ROI.
+
+```cpp
+void CreateNCCModel(
+    const QImage& templateImage,
+    const Rect2i& roi,
+    NCCModel& model,
+    int32_t numLevels,
+    double angleStart,
+    double angleExtent,
+    double angleStep,
+    const std::string& metric
+);
+
+void CreateNCCModel(
+    const QImage& templateImage,
+    const QRegion& region,
+    NCCModel& model,
+    int32_t numLevels,
+    double angleStart,
+    double angleExtent,
+    double angleStep,
+    const std::string& metric
+);
+```
+
+---
+
+### CreateScaledNCCModel
+
+Creates an NCC model with scale search support (isotropic).
+
+```cpp
+void CreateScaledNCCModel(
+    const QImage& templateImage,
+    NCCModel& model,
+    int32_t numLevels,
+    double angleStart,
+    double angleExtent,
+    double angleStep,
+    double scaleMin,
+    double scaleMax,
+    double scaleStep,
+    const std::string& metric
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| scaleMin | double | Minimum scale factor |
+| scaleMax | double | Maximum scale factor |
+| scaleStep | double | Scale step (0=auto) |
+
+---
+
+### FindNCCModel
+
+Find instances of an NCC model in an image.
+
+```cpp
+void FindNCCModel(
+    const QImage& image,
+    const NCCModel& model,
+    double angleStart,
+    double angleExtent,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    int32_t numLevels,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scores
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Search image (grayscale) |
+| model | const NCCModel& | NCC model handle |
+| angleStart | double | Search angle start [rad] |
+| angleExtent | double | Search angle extent [rad] |
+| minScore | double | Minimum score threshold [0..1] |
+| numMatches | int32_t | Maximum matches (0=all) |
+| maxOverlap | double | Maximum overlap [0..1] |
+| subPixel | const std::string& | Subpixel mode: "none", "true", "interpolation" |
+| numLevels | int32_t | Pyramid levels (0=use model levels) |
+| rows | std::vector<double>& | [out] Row coordinates |
+| cols | std::vector<double>& | [out] Column coordinates |
+| angles | std::vector<double>& | [out] Rotation angles [rad] |
+| scores | std::vector<double>& | [out] Match scores [0..1] |
+
+---
+
+### FindScaledNCCModel
+
+Find instances of a scaled NCC model.
+
+```cpp
+void FindScaledNCCModel(
+    const QImage& image,
+    const NCCModel& model,
+    double angleStart,
+    double angleExtent,
+    double scaleMin,
+    double scaleMax,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    int32_t numLevels,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scales,
+    std::vector<double>& scores
+);
+```
+
+---
+
+### GetNCCModelParams
+
+Get the parameters of an NCC model.
+
+```cpp
+void GetNCCModelParams(
+    const NCCModel& model,
+    int32_t& numLevels,
+    double& angleStart,
+    double& angleExtent,
+    double& angleStep,
+    std::string& metric
+);
+```
+
+---
+
+### GetNCCModelOrigin / SetNCCModelOrigin
+
+Get or set the origin (reference point) of an NCC model.
+
+```cpp
+void GetNCCModelOrigin(const NCCModel& model, double& row, double& col);
+void SetNCCModelOrigin(NCCModel& model, double row, double col);
+```
+
+---
+
+### GetNCCModelSize
+
+Get the size of an NCC model template.
+
+```cpp
+void GetNCCModelSize(const NCCModel& model, int32_t& width, int32_t& height);
+```
+
+---
+
+### WriteNCCModel / ReadNCCModel
+
+Serialize/deserialize an NCC model to/from file.
+
+```cpp
+void WriteNCCModel(const NCCModel& model, const std::string& filename);
+void ReadNCCModel(const std::string& filename, NCCModel& model);
+```
+
+**File format**: Binary, magic `0x434E4951` ("QINC"), version 1.
+
+---
+
+### ClearNCCModel
+
+Releases model resources.
+
+```cpp
+void ClearNCCModel(NCCModel& model);
+```
+
+---
+
+### DetermineNCCModelParams
+
+Automatically determines recommended parameters for NCC model.
+
+```cpp
+void DetermineNCCModelParams(
+    const QImage& templateImage,
+    const Rect2i& roi,
+    int32_t& numLevels,
+    double& angleStep
+);
+```
+
+---
+
 ## 2. Measure
 
 **Namespace**: `Qi::Vision::Measure`
@@ -5505,6 +5759,7 @@ OCR::ReleaseOCR();
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.17.0 | 2026-02-03 | Add NCCModel full API documentation (Create, Find, I/O, params) |
 | 0.16.0 | 2026-02-03 | Add OCR module (ONNXRuntime + PaddleOCR v4) |
 | 0.15.0 | 2026-02-02 | Add Barcode module (ZXing-cpp integration) |
 | 0.14.0 | 2026-01-30 | Add Defect and Texture modules |

@@ -543,6 +543,12 @@ namespace {
 constexpr uint32_t NCC_MODEL_MAGIC = 0x434E4951;  // "QINC" - QiVision NCC
 constexpr uint32_t NCC_MODEL_VERSION = 1;
 
+// Security limits for deserialization (prevent malicious files)
+constexpr int32_t MAX_PYRAMID_LEVELS = 10;
+constexpr int32_t MAX_TEMPLATE_SIZE = 10000;          // Max width/height
+constexpr uint64_t MAX_ARRAY_SIZE = 100 * 1024 * 1024; // 100MB per array
+constexpr uint64_t MAX_ROTATED_TEMPLATES = 10000;      // Max templates per level
+
 // Serialization helpers for NCCLevelModel
 void WriteNCCLevelModel(Platform::BinaryWriter& writer, const Internal::NCCLevelModel& level) {
     writer.Write<int32_t>(level.width);
@@ -560,14 +566,40 @@ void WriteNCCLevelModel(Platform::BinaryWriter& writer, const Internal::NCCLevel
 void ReadNCCLevelModel(Platform::BinaryReader& reader, Internal::NCCLevelModel& level) {
     level.width = reader.Read<int32_t>();
     level.height = reader.Read<int32_t>();
+    if (level.width < 0 || level.width > MAX_TEMPLATE_SIZE ||
+        level.height < 0 || level.height > MAX_TEMPLATE_SIZE) {
+        throw IOException("ReadNCCModel: invalid level dimensions");
+    }
     level.scale = reader.Read<double>();
     level.mean = reader.Read<double>();
     level.stddev = reader.Read<double>();
     level.sumSq = reader.Read<double>();
     level.numPixels = reader.Read<int32_t>();
-    level.data = reader.ReadVector<float>();
-    level.mask = reader.ReadVector<uint8_t>();
-    level.zeroMean = reader.ReadVector<float>();
+    if (level.numPixels < 0 || static_cast<uint64_t>(level.numPixels) > MAX_ARRAY_SIZE) {
+        throw IOException("ReadNCCModel: invalid numPixels");
+    }
+
+    // Read with size validation
+    uint64_t dataSize = reader.Read<uint64_t>();
+    if (dataSize > MAX_ARRAY_SIZE / sizeof(float)) {
+        throw IOException("ReadNCCModel: data array too large");
+    }
+    level.data.resize(static_cast<size_t>(dataSize));
+    reader.ReadArray(level.data.data(), level.data.size());
+
+    uint64_t maskSize = reader.Read<uint64_t>();
+    if (maskSize > MAX_ARRAY_SIZE) {
+        throw IOException("ReadNCCModel: mask array too large");
+    }
+    level.mask.resize(static_cast<size_t>(maskSize));
+    reader.ReadArray(level.mask.data(), level.mask.size());
+
+    uint64_t zeroMeanSize = reader.Read<uint64_t>();
+    if (zeroMeanSize > MAX_ARRAY_SIZE / sizeof(float)) {
+        throw IOException("ReadNCCModel: zeroMean array too large");
+    }
+    level.zeroMean.resize(static_cast<size_t>(zeroMeanSize));
+    reader.ReadArray(level.zeroMean.data(), level.zeroMean.size());
 }
 
 // Serialization helpers for RotatedTemplate
@@ -590,11 +622,31 @@ void ReadRotatedTemplate(Platform::BinaryReader& reader, Internal::RotatedTempla
     tmpl.stddev = reader.Read<double>();
     tmpl.width = reader.Read<int32_t>();
     tmpl.height = reader.Read<int32_t>();
+    if (tmpl.width < 0 || tmpl.width > MAX_TEMPLATE_SIZE ||
+        tmpl.height < 0 || tmpl.height > MAX_TEMPLATE_SIZE) {
+        throw IOException("ReadNCCModel: invalid rotated template dimensions");
+    }
     tmpl.offsetX = reader.Read<int32_t>();
     tmpl.offsetY = reader.Read<int32_t>();
     tmpl.numPixels = reader.Read<int32_t>();
-    tmpl.data = reader.ReadVector<float>();
-    tmpl.mask = reader.ReadVector<uint8_t>();
+    if (tmpl.numPixels < 0 || static_cast<uint64_t>(tmpl.numPixels) > MAX_ARRAY_SIZE) {
+        throw IOException("ReadNCCModel: invalid rotated template numPixels");
+    }
+
+    // Read with size validation
+    uint64_t dataSize = reader.Read<uint64_t>();
+    if (dataSize > MAX_ARRAY_SIZE / sizeof(float)) {
+        throw IOException("ReadNCCModel: rotated template data too large");
+    }
+    tmpl.data.resize(static_cast<size_t>(dataSize));
+    reader.ReadArray(tmpl.data.data(), tmpl.data.size());
+
+    uint64_t maskSize = reader.Read<uint64_t>();
+    if (maskSize > MAX_ARRAY_SIZE) {
+        throw IOException("ReadNCCModel: rotated template mask too large");
+    }
+    tmpl.mask.resize(static_cast<size_t>(maskSize));
+    reader.ReadArray(tmpl.mask.data(), tmpl.mask.size());
 }
 
 // Write vector of RotatedTemplates for a level
@@ -610,6 +662,9 @@ void WriteRotatedTemplatesLevel(Platform::BinaryWriter& writer,
 void ReadRotatedTemplatesLevel(Platform::BinaryReader& reader,
                                 std::vector<Internal::RotatedTemplate>& templates) {
     uint64_t count = reader.Read<uint64_t>();
+    if (count > MAX_ROTATED_TEMPLATES) {
+        throw IOException("ReadNCCModel: too many rotated templates in level");
+    }
     templates.resize(static_cast<size_t>(count));
     for (auto& tmpl : templates) {
         ReadRotatedTemplate(reader, tmpl);
@@ -718,6 +773,9 @@ void ReadNCCModel(
 
     // Model parameters
     impl->params_.numLevels = reader.Read<int32_t>();
+    if (impl->params_.numLevels < 1 || impl->params_.numLevels > MAX_PYRAMID_LEVELS) {
+        throw IOException("ReadNCCModel: invalid numLevels: " + std::to_string(impl->params_.numLevels));
+    }
     impl->params_.angleStart = reader.Read<double>();
     impl->params_.angleExtent = reader.Read<double>();
     impl->params_.angleStep = reader.Read<double>();
@@ -729,17 +787,35 @@ void ReadNCCModel(
     impl->origin_.y = reader.Read<double>();
     impl->templateSize_.width = reader.Read<int32_t>();
     impl->templateSize_.height = reader.Read<int32_t>();
+    if (impl->templateSize_.width < 1 || impl->templateSize_.width > MAX_TEMPLATE_SIZE ||
+        impl->templateSize_.height < 1 || impl->templateSize_.height > MAX_TEMPLATE_SIZE) {
+        throw IOException("ReadNCCModel: invalid template size");
+    }
     impl->valid_ = reader.Read<uint8_t>() != 0;
     impl->hasMask_ = reader.Read<uint8_t>() != 0;
     impl->metric_ = static_cast<MetricMode>(reader.Read<int32_t>());
     impl->fineAngleLevels_ = reader.Read<int32_t>();
 
-    // Search angles
-    impl->searchAnglesCoarse_ = reader.ReadVector<double>();
-    impl->searchAnglesFine_ = reader.ReadVector<double>();
+    // Search angles (with size limits)
+    uint64_t numCoarseAngles = reader.Read<uint64_t>();
+    if (numCoarseAngles > MAX_ROTATED_TEMPLATES) {
+        throw IOException("ReadNCCModel: too many coarse angles");
+    }
+    impl->searchAnglesCoarse_.resize(static_cast<size_t>(numCoarseAngles));
+    reader.ReadArray(impl->searchAnglesCoarse_.data(), impl->searchAnglesCoarse_.size());
+
+    uint64_t numFineAngles = reader.Read<uint64_t>();
+    if (numFineAngles > MAX_ROTATED_TEMPLATES) {
+        throw IOException("ReadNCCModel: too many fine angles");
+    }
+    impl->searchAnglesFine_.resize(static_cast<size_t>(numFineAngles));
+    reader.ReadArray(impl->searchAnglesFine_.data(), impl->searchAnglesFine_.size());
 
     // Pyramid levels
     uint64_t numLevels = reader.Read<uint64_t>();
+    if (numLevels > MAX_PYRAMID_LEVELS) {
+        throw IOException("ReadNCCModel: too many pyramid levels");
+    }
     impl->levels_.resize(static_cast<size_t>(numLevels));
     for (auto& level : impl->levels_) {
         ReadNCCLevelModel(reader, level);
@@ -747,6 +823,9 @@ void ReadNCCModel(
 
     // Rotated templates - coarse
     uint64_t numCoarseLevels = reader.Read<uint64_t>();
+    if (numCoarseLevels > MAX_PYRAMID_LEVELS) {
+        throw IOException("ReadNCCModel: too many coarse template levels");
+    }
     impl->rotatedTemplatesCoarse_.resize(static_cast<size_t>(numCoarseLevels));
     for (auto& levelTemplates : impl->rotatedTemplatesCoarse_) {
         ReadRotatedTemplatesLevel(reader, levelTemplates);
@@ -754,6 +833,9 @@ void ReadNCCModel(
 
     // Rotated templates - fine
     uint64_t numFineLevels = reader.Read<uint64_t>();
+    if (numFineLevels > MAX_PYRAMID_LEVELS) {
+        throw IOException("ReadNCCModel: too many fine template levels");
+    }
     impl->rotatedTemplatesFine_.resize(static_cast<size_t>(numFineLevels));
     for (auto& levelTemplates : impl->rotatedTemplatesFine_) {
         ReadRotatedTemplatesLevel(reader, levelTemplates);

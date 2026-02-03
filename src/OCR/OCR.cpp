@@ -781,6 +781,35 @@ const std::vector<std::string> g_alternativeUrls = {
     "https://huggingface.co/QiVision/ocr-models/resolve/main/"
 };
 
+// Validate path for shell command safety (prevent command injection)
+// Returns true if path is safe to use in shell commands
+bool IsPathSafeForShell(const std::string& path) {
+    // Reject empty paths
+    if (path.empty()) return false;
+
+    // Reject paths with shell metacharacters
+    const std::string dangerous = "`$;|&<>(){}[]!\\'\"\n\r\t";
+    for (char c : path) {
+        if (dangerous.find(c) != std::string::npos) {
+            return false;
+        }
+    }
+
+    // Reject paths starting with -
+    if (path[0] == '-') return false;
+
+    return true;
+}
+
+// Validate URL for safety
+bool IsUrlSafe(const std::string& url) {
+    // Must start with https://
+    if (url.find("https://") != 0) return false;
+
+    // No shell metacharacters
+    return IsPathSafeForShell(url);
+}
+
 } // anonymous namespace
 
 std::string ModelStatus::GetMessage() const {
@@ -904,6 +933,15 @@ bool DownloadModels(const std::string& modelDir, bool verbose) {
         std::string url = g_modelDownloadUrl + file;
         std::string destPath = targetDir + "/" + file;
 
+        // Security: validate paths before shell execution
+        if (!IsPathSafeForShell(destPath) || !IsUrlSafe(url)) {
+            if (verbose) {
+                std::cerr << "Error: Invalid path or URL detected, skipping: " << file << "\n";
+            }
+            allSuccess = false;
+            continue;
+        }
+
         if (verbose) {
             std::cout << "Downloading: " << file << "...\n";
         }
@@ -920,11 +958,15 @@ bool DownloadModels(const std::string& modelDir, bool verbose) {
             // Try alternative URLs
             bool downloaded = false;
             for (const auto& altUrl : g_alternativeUrls) {
+                std::string altFullUrl = altUrl + file;
+
+                // Security: validate alternative URL
+                if (!IsUrlSafe(altFullUrl)) continue;
+
                 if (verbose) {
                     std::cout << "  Trying alternative source...\n";
                 }
 
-                std::string altFullUrl = altUrl + file;
                 if (hasCurl) {
                     cmd = "curl -L -o \"" + destPath + "\" \"" + altFullUrl + "\" 2>/dev/null";
                 } else {

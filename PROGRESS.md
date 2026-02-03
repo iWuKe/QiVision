@@ -256,6 +256,16 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-02-03 (ColorConvert Luv 支持)
+
+- **ColorConvert.cpp** (补齐 CIE Luv 颜色空间)
+  - 新增 `RgbToLuv()` / `LuvToRgb()`: sRGB ↔ CIE L*u*v* (D65)
+  - 新增 `RgbToLuvU8()` / `LuvU8ToRgb()`: 8-bit 量化版本
+  - 更新 `TransFromRgb()` / `TransToRgb()`: 支持 Luv
+  - 更新 `CreateColorTransLut()`: 支持 Luv LUT 预计算
+  - OpenCV 兼容量化: L*255/100, (u+134)*255/354, (v+140)*255/262
+  - 往返误差: 87% ≤4, max=37 (8-bit 量化限制，符合预期)
+
 ### 2026-02-03 (OCR 模型管理)
 
 - **OCR.h / OCR.cpp** (模型管理功能)

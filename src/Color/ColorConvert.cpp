@@ -40,10 +40,16 @@ namespace {
 [[maybe_unused]] constexpr double D65_Y = 1.00000;
 [[maybe_unused]] constexpr double D65_Z = 1.08883;
 
-// Lab constants
-constexpr double LAB_EPSILON = 0.008856;
-constexpr double LAB_KAPPA = 903.3;
+// Lab/Luv constants
+constexpr double LAB_EPSILON = 0.008856;    // (6/29)^3
+constexpr double LAB_KAPPA = 903.3;         // (29/3)^3
 [[maybe_unused]] constexpr double LAB_16_116 = 16.0 / 116.0;
+
+// D65 white point chromaticity for Luv
+// u'_n = 4*X_n / (X_n + 15*Y_n + 3*Z_n)
+// v'_n = 9*Y_n / (X_n + 15*Y_n + 3*Z_n)
+constexpr double D65_UN = 0.19783000664283681;  // 4*0.95047 / 19.21696
+constexpr double D65_VN = 0.46831999493879100;  // 9*1.0 / 19.21696
 
 // Helper functions
 inline double Clamp(double val, double minVal, double maxVal) {
@@ -221,6 +227,100 @@ void LabU8ToRgb(uint8_t lIn, uint8_t aIn, uint8_t bIn, uint8_t& r, uint8_t& g, u
     double labB = bIn - 128.0;
 
     LabToRgb(L, a, labB, r, g, b);
+}
+
+// =============================================================================
+// RGB <-> Luv Conversion (CIE L*u*v*, D65 illuminant)
+// =============================================================================
+
+// Convert sRGB [0,255] to Luv
+// L: 0-100, u: ~-134 to +220, v: ~-140 to +122 (for sRGB gamut)
+void RgbToLuv(uint8_t r, uint8_t g, uint8_t b, double& L, double& u, double& v) {
+    // First convert to XYZ
+    double x, y, z;
+    RgbToXyz(r, g, b, x, y, z);
+
+    // Compute u' and v' chromaticity coordinates
+    double denom = x + 15.0 * y + 3.0 * z;
+    double uPrime, vPrime;
+
+    if (denom < 1e-10) {
+        // Black or very dark - set chromaticity to white point
+        uPrime = D65_UN;
+        vPrime = D65_VN;
+    } else {
+        uPrime = 4.0 * x / denom;
+        vPrime = 9.0 * y / denom;
+    }
+
+    // Compute L* (same as Lab)
+    double yr = y / D65_Y;
+    if (yr > LAB_EPSILON) {
+        L = 116.0 * std::cbrt(yr) - 16.0;
+    } else {
+        L = LAB_KAPPA * yr;
+    }
+
+    // Compute u* and v*
+    u = 13.0 * L * (uPrime - D65_UN);
+    v = 13.0 * L * (vPrime - D65_VN);
+}
+
+// Convert Luv to sRGB [0,255]
+void LuvToRgb(double L, double u, double v, uint8_t& r, uint8_t& g, uint8_t& b) {
+    // Handle black case
+    if (L < 1e-10) {
+        r = g = b = 0;
+        return;
+    }
+
+    // Compute u' and v' from u* and v*
+    double uPrime = u / (13.0 * L) + D65_UN;
+    double vPrime = v / (13.0 * L) + D65_VN;
+
+    // Compute Y from L*
+    double y;
+    if (L > 8.0) {  // LAB_KAPPA * LAB_EPSILON ≈ 8
+        double t = (L + 16.0) / 116.0;
+        y = D65_Y * t * t * t;
+    } else {
+        y = D65_Y * L / LAB_KAPPA;
+    }
+
+    // Handle degenerate v' case
+    if (std::abs(vPrime) < 1e-10) {
+        r = g = b = ClampU8(y * 255.0);
+        return;
+    }
+
+    // Compute X and Z from chromaticity
+    double x = y * 9.0 * uPrime / (4.0 * vPrime);
+    double z = y * (12.0 - 3.0 * uPrime - 20.0 * vPrime) / (4.0 * vPrime);
+
+    // XYZ to RGB
+    XyzToRgb(x, y, z, r, g, b);
+}
+
+// RGB to Luv with uint8_t output (OpenCV compatible)
+// L: 0-100 -> 0-255, scale by 255/100
+// u: -134 to +220 -> 0-255, (u + 134) * 255/354
+// v: -140 to +122 -> 0-255, (v + 140) * 255/262
+void RgbToLuvU8(uint8_t r, uint8_t g, uint8_t b, uint8_t& lOut, uint8_t& uOut, uint8_t& vOut) {
+    double L, u, v;
+    RgbToLuv(r, g, b, L, u, v);
+
+    lOut = ClampU8(L * 255.0 / 100.0);
+    uOut = ClampU8((u + 134.0) * 255.0 / 354.0);
+    vOut = ClampU8((v + 140.0) * 255.0 / 262.0);
+}
+
+// Luv (uint8_t) to RGB (OpenCV compatible)
+void LuvU8ToRgb(uint8_t lIn, uint8_t uIn, uint8_t vIn, uint8_t& r, uint8_t& g, uint8_t& b) {
+    double L = lIn * 100.0 / 255.0;
+    double u = uIn * 354.0 / 255.0 - 134.0;
+    double v = vIn * 262.0 / 255.0 - 140.0;
+
+    LuvToRgb(L, u, v, r, g, b);
 }
 
 } // anonymous namespace
@@ -854,9 +954,6 @@ void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace) {
         RgbToBgr(image, output);
         return;
     }
-    if (toSpace == ColorSpace::Luv) {
-        throw UnsupportedException("TransFromRgb: Luv color space not implemented yet");
-    }
 
     int32_t w = image.Width();
     int32_t h = image.Height();
@@ -888,6 +985,9 @@ void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace) {
                 case ColorSpace::YUV:
                     // YUV is similar to YCrCb for our purposes
                     RgbToYCrCb(r, g, b, c1, c3, c2);
+                    break;
+                case ColorSpace::Luv:
+                    RgbToLuvU8(r, g, b, c1, c2, c3);
                     break;
                 case ColorSpace::Lab:
                     RgbToLabU8(r, g, b, c1, c2, c3);
@@ -930,9 +1030,6 @@ void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace) {
         BgrToRgb(image, output);
         return;
     }
-    if (fromSpace == ColorSpace::Luv) {
-        throw UnsupportedException("TransToRgb: Luv color space not implemented yet");
-    }
 
     if (image.Channels() < 3) {
         throw InvalidArgumentException("Input must have at least 3 channels");
@@ -973,6 +1070,9 @@ void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace) {
                     break;
                 case ColorSpace::XYZ:
                     XyzU8ToRgb(c1, c2, c3, r, g, b);
+                    break;
+                case ColorSpace::Luv:
+                    LuvU8ToRgb(c1, c2, c3, r, g, b);
                     break;
                 default:
                     r = c1; g = c2; b = c3;
@@ -1694,7 +1794,8 @@ ColorTransLut CreateColorTransLut(const std::string& colorSpace,
 
     if (targetSpace != ColorSpace::HSV && targetSpace != ColorSpace::HSL &&
         targetSpace != ColorSpace::YCrCb && targetSpace != ColorSpace::YUV &&
-        targetSpace != ColorSpace::Lab && targetSpace != ColorSpace::XYZ) {
+        targetSpace != ColorSpace::Lab && targetSpace != ColorSpace::Luv &&
+        targetSpace != ColorSpace::XYZ) {
         throw UnsupportedException("CreateColorTransLut: target color space not implemented");
     }
     lut.fromSpace_ = fromRgb ? ColorSpace::RGB : targetSpace;
@@ -1731,6 +1832,9 @@ ColorTransLut CreateColorTransLut(const std::string& colorSpace,
                         case ColorSpace::XYZ:
                             RgbToXyzU8(r, g, b, c1, c2, c3);
                             break;
+                        case ColorSpace::Luv:
+                            RgbToLuvU8(r, g, b, c1, c2, c3);
+                            break;
                         default:
                             c1 = r; c2 = g; c3 = b;
                             break;
@@ -1753,6 +1857,9 @@ ColorTransLut CreateColorTransLut(const std::string& colorSpace,
                             break;
                         case ColorSpace::XYZ:
                             XyzU8ToRgb(r, g, b, c1, c2, c3);
+                            break;
+                        case ColorSpace::Luv:
+                            LuvU8ToRgb(r, g, b, c1, c2, c3);
                             break;
                         default:
                             c1 = r; c2 = g; c3 = b;

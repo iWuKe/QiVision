@@ -4,22 +4,16 @@
  * @file Validate.h
  * @brief Unified validation utilities for QiVision SDK
  *
- * Provides consistent input validation across all modules.
- * Design goals:
- * - Uniform error messages
- * - Reusable validation logic
- * - SDK-style consistency
+ * Design principles:
+ * - Type restriction and channel restriction are INDEPENDENT
+ * - Empty image returns false (not an error), invalid throws
+ * - Consistent error message format
  *
- * Usage:
- * @code
- * void MyFunction(const QImage& image, double threshold) {
- *     // Returns false for empty image (caller handles), throws for invalid
- *     if (!Validate::RequireImage(image, "MyFunction")) return;
- *
- *     // Throws if invalid
- *     Validate::RequireRange(threshold, 0.0, 1.0, "threshold", "MyFunction");
- * }
- * @endcode
+ * Layered API:
+ * - RequireImageValid(): only checks empty/valid (no type restriction)
+ * - RequireImageType(): checks pixel type (UInt8, Float32, etc.)
+ * - RequireImageChannels(): checks channel count (independent of type)
+ * - Combined: RequireImageU8(), RequireImageU8Gray(), etc.
  */
 
 #include <QiVision/Core/Export.h>
@@ -27,53 +21,142 @@
 #include <QiVision/Core/QImage.h>
 
 #include <string>
+#include <cstdio>
 
 namespace Qi::Vision::Validate {
 
 // =============================================================================
-// Image Validation
+// Internal Formatting
+// =============================================================================
+
+namespace Detail {
+
+// Format double with limited precision (avoid long tails)
+inline std::string FormatValue(double val) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.4g", val);
+    return buf;
+}
+
+inline std::string FormatValue(float val) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.4g", static_cast<double>(val));
+    return buf;
+}
+
+inline std::string FormatValue(int val) {
+    return std::to_string(val);
+}
+
+inline std::string FormatValue(int64_t val) {
+    return std::to_string(val);
+}
+
+inline std::string FormatValue(uint32_t val) {
+    return std::to_string(val);
+}
+
+inline std::string FormatValue(size_t val) {
+    return std::to_string(val);
+}
+
+inline const char* PixelTypeName(PixelType type) {
+    switch (type) {
+        case PixelType::UInt8:   return "UInt8";
+        case PixelType::UInt16:  return "UInt16";
+        case PixelType::Int16:   return "Int16";
+        case PixelType::Float32: return "Float32";
+        default:                 return "Unknown";
+    }
+}
+
+} // namespace Detail
+
+// =============================================================================
+// Image Validation - Layer 1: Basic validity
 // =============================================================================
 
 /**
- * @brief Validate image for processing
+ * @brief Check image is allocated and valid (no type restriction)
  *
- * @param image Input image to validate
+ * @param image Input image
  * @param funcName Function name for error messages
- * @return false if image is empty (caller should return empty result)
- * @throws InvalidArgumentException if image is invalid
- * @throws UnsupportedException if pixel type is not UInt8
+ * @return false if empty (caller should return empty result)
+ * @throws InvalidArgumentException if image is invalid (corrupted)
  */
-inline bool RequireImage(const QImage& image, const char* funcName) {
+inline bool RequireImageValid(const QImage& image, const char* funcName) {
     if (image.Empty()) {
         return false;  // Empty = no-op, not an error
     }
     if (!image.IsValid()) {
         throw InvalidArgumentException(std::string(funcName) + ": image is invalid");
     }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException(std::string(funcName) + ": only UInt8 images are supported");
-    }
     return true;
 }
 
+// =============================================================================
+// Image Validation - Layer 2: Type restriction (independent)
+// =============================================================================
+
 /**
- * @brief Validate image with channel count check
+ * @brief Check image has specific pixel type
  *
- * @param image Input image to validate
+ * @param image Input image (must be non-empty)
+ * @param expected Expected pixel type
  * @param funcName Function name for error messages
- * @param allowGray Allow 1-channel grayscale
- * @param allowRgb Allow 3-channel RGB
- * @param allowRgba Allow 4-channel RGBA
- * @return false if image is empty
- * @throws UnsupportedException if channel count not allowed
+ * @throws UnsupportedException if type mismatch
  */
-inline bool RequireImageChannels(const QImage& image, const char* funcName,
-                                  bool allowGray = true, bool allowRgb = true,
-                                  bool allowRgba = true) {
-    if (!RequireImage(image, funcName)) {
-        return false;
+inline void RequireImageType(const QImage& image, PixelType expected, const char* funcName) {
+    if (image.Type() != expected) {
+        throw UnsupportedException(
+            std::string(funcName) + ": expected " + Detail::PixelTypeName(expected) +
+            " image, got " + Detail::PixelTypeName(image.Type()));
+    }
+}
+
+/**
+ * @brief Check image type is one of allowed types
+ *
+ * @param image Input image
+ * @param types Array of allowed types
+ * @param count Number of types in array
+ * @param funcName Function name
+ * @throws UnsupportedException if type not in list
+ */
+inline void RequireImageTypeOneOf(const QImage& image, const PixelType* types,
+                                   size_t count, const char* funcName) {
+    PixelType actual = image.Type();
+    for (size_t i = 0; i < count; ++i) {
+        if (actual == types[i]) return;
     }
 
+    std::string allowed;
+    for (size_t i = 0; i < count; ++i) {
+        if (i > 0) allowed += ", ";
+        allowed += Detail::PixelTypeName(types[i]);
+    }
+    throw UnsupportedException(
+        std::string(funcName) + ": expected " + allowed +
+        " image, got " + Detail::PixelTypeName(actual));
+}
+
+// =============================================================================
+// Image Validation - Layer 2: Channel restriction (independent)
+// =============================================================================
+
+/**
+ * @brief Check image channel count
+ *
+ * @param image Input image (must be non-empty)
+ * @param allowGray Allow 1 channel
+ * @param allowRgb Allow 3 channels
+ * @param allowRgba Allow 4 channels
+ * @param funcName Function name
+ * @throws UnsupportedException if channel count not allowed
+ */
+inline void RequireChannelCount(const QImage& image,
+                                 bool allowGray, bool allowRgb, bool allowRgba,
+                                 const char* funcName) {
     int channels = image.Channels();
     bool valid = (allowGray && channels == 1) ||
                  (allowRgb && channels == 3) ||
@@ -84,31 +167,97 @@ inline bool RequireImageChannels(const QImage& image, const char* funcName,
         if (allowGray) allowed += "1";
         if (allowRgb) allowed += (allowed.empty() ? "3" : ", 3");
         if (allowRgba) allowed += (allowed.empty() ? "4" : ", 4");
-        throw UnsupportedException(std::string(funcName) + ": expected " + allowed +
-                                   " channel(s), got " + std::to_string(channels));
+        throw UnsupportedException(
+            std::string(funcName) + ": expected " + allowed +
+            " channel(s), got " + std::to_string(channels));
     }
+}
+
+/**
+ * @brief Check image has exactly N channels
+ */
+inline void RequireChannelCountExact(const QImage& image, int expected, const char* funcName) {
+    int actual = image.Channels();
+    if (actual != expected) {
+        throw UnsupportedException(
+            std::string(funcName) + ": expected " + std::to_string(expected) +
+            " channel(s), got " + std::to_string(actual));
+    }
+}
+
+// =============================================================================
+// Image Validation - Layer 3: Combined convenience functions
+// =============================================================================
+
+/**
+ * @brief Validate UInt8 image (common case)
+ * @return false if empty
+ */
+inline bool RequireImageU8(const QImage& image, const char* funcName) {
+    if (!RequireImageValid(image, funcName)) return false;
+    RequireImageType(image, PixelType::UInt8, funcName);
     return true;
 }
 
 /**
- * @brief Validate grayscale image
+ * @brief Validate UInt8 grayscale image
+ */
+inline bool RequireImageU8Gray(const QImage& image, const char* funcName) {
+    if (!RequireImageValid(image, funcName)) return false;
+    RequireImageType(image, PixelType::UInt8, funcName);
+    RequireChannelCountExact(image, 1, funcName);
+    return true;
+}
+
+/**
+ * @brief Validate Float32 image
+ */
+inline bool RequireImageFloat(const QImage& image, const char* funcName) {
+    if (!RequireImageValid(image, funcName)) return false;
+    RequireImageType(image, PixelType::Float32, funcName);
+    return true;
+}
+
+/**
+ * @brief Validate Float32 grayscale image
+ */
+inline bool RequireImageFloatGray(const QImage& image, const char* funcName) {
+    if (!RequireImageValid(image, funcName)) return false;
+    RequireImageType(image, PixelType::Float32, funcName);
+    RequireChannelCountExact(image, 1, funcName);
+    return true;
+}
+
+/**
+ * @brief Validate grayscale image (any supported type)
  */
 inline bool RequireGrayImage(const QImage& image, const char* funcName) {
-    return RequireImageChannels(image, funcName, true, false, false);
+    if (!RequireImageValid(image, funcName)) return false;
+    RequireChannelCountExact(image, 1, funcName);
+    return true;
 }
 
 /**
- * @brief Validate RGB image (3 channels)
+ * @brief Validate image with flexible channel check (any supported type)
  */
-inline bool RequireRgbImage(const QImage& image, const char* funcName) {
-    return RequireImageChannels(image, funcName, false, true, false);
+inline bool RequireImageChannels(const QImage& image, const char* funcName,
+                                  bool allowGray = true, bool allowRgb = true,
+                                  bool allowRgba = true) {
+    if (!RequireImageValid(image, funcName)) return false;
+    RequireChannelCount(image, allowGray, allowRgb, allowRgba, funcName);
+    return true;
 }
 
 /**
- * @brief Validate color image (3 or 4 channels)
+ * @brief Validate UInt8 image with channel check
  */
-inline bool RequireColorImage(const QImage& image, const char* funcName) {
-    return RequireImageChannels(image, funcName, false, true, true);
+inline bool RequireImageU8Channels(const QImage& image, const char* funcName,
+                                    bool allowGray = true, bool allowRgb = true,
+                                    bool allowRgba = true) {
+    if (!RequireImageValid(image, funcName)) return false;
+    RequireImageType(image, PixelType::UInt8, funcName);
+    RequireChannelCount(image, allowGray, allowRgb, allowRgba, funcName);
+    return true;
 }
 
 // =============================================================================
@@ -117,7 +266,6 @@ inline bool RequireColorImage(const QImage& image, const char* funcName) {
 
 /**
  * @brief Validate value is in range [min, max]
- * @throws InvalidArgumentException if out of range
  */
 template<typename T>
 inline void RequireRange(T value, T minVal, T maxVal,
@@ -125,47 +273,44 @@ inline void RequireRange(T value, T minVal, T maxVal,
     if (value < minVal || value > maxVal) {
         throw InvalidArgumentException(
             std::string(funcName) + ": " + paramName + " must be in [" +
-            std::to_string(minVal) + ", " + std::to_string(maxVal) + "], got " +
-            std::to_string(value));
+            Detail::FormatValue(minVal) + ", " + Detail::FormatValue(maxVal) +
+            "], got " + Detail::FormatValue(value));
     }
 }
 
 /**
  * @brief Validate value is positive (> 0)
- * @throws InvalidArgumentException if not positive
  */
 template<typename T>
 inline void RequirePositive(T value, const char* paramName, const char* funcName) {
     if (value <= T(0)) {
         throw InvalidArgumentException(
             std::string(funcName) + ": " + paramName + " must be > 0, got " +
-            std::to_string(value));
+            Detail::FormatValue(value));
     }
 }
 
 /**
  * @brief Validate value is non-negative (>= 0)
- * @throws InvalidArgumentException if negative
  */
 template<typename T>
 inline void RequireNonNegative(T value, const char* paramName, const char* funcName) {
     if (value < T(0)) {
         throw InvalidArgumentException(
             std::string(funcName) + ": " + paramName + " must be >= 0, got " +
-            std::to_string(value));
+            Detail::FormatValue(value));
     }
 }
 
 /**
  * @brief Validate value is at least minimum (>= min)
- * @throws InvalidArgumentException if below minimum
  */
 template<typename T>
 inline void RequireMin(T value, T minVal, const char* paramName, const char* funcName) {
     if (value < minVal) {
         throw InvalidArgumentException(
             std::string(funcName) + ": " + paramName + " must be >= " +
-            std::to_string(minVal) + ", got " + std::to_string(value));
+            Detail::FormatValue(minVal) + ", got " + Detail::FormatValue(value));
     }
 }
 
@@ -200,33 +345,45 @@ inline void RequireGpuIndex(int gpuIndex, const char* funcName) {
 // =============================================================================
 
 /**
- * Macro for quick image validation with early return
- * Usage: QIVISION_REQUIRE_IMAGE(image); // uses __func__
+ * Early return with custom return value
+ * Usage: QIVISION_REQUIRE_IMAGE_OR(img, result, retval)
+ */
+#define QIVISION_REQUIRE_IMAGE_OR(img, retval) \
+    if (!::Qi::Vision::Validate::RequireImageValid(img, __func__)) return retval
+
+/**
+ * Early return {} (for functions returning containers/structs)
  */
 #define QIVISION_REQUIRE_IMAGE(img) \
-    if (!::Qi::Vision::Validate::RequireImage(img, __func__)) return {}
+    QIVISION_REQUIRE_IMAGE_OR(img, {})
 
 /**
- * Macro for image validation with channels
+ * Early return for void functions
  */
-#define QIVISION_REQUIRE_IMAGE_CHANNELS(img, gray, rgb, rgba) \
-    if (!::Qi::Vision::Validate::RequireImageChannels(img, __func__, gray, rgb, rgba)) return {}
+#define QIVISION_REQUIRE_IMAGE_VOID(img) \
+    if (!::Qi::Vision::Validate::RequireImageValid(img, __func__)) return
 
 /**
- * Macro for range validation
+ * Early return with UInt8 type check
+ */
+#define QIVISION_REQUIRE_IMAGE_U8(img) \
+    if (!::Qi::Vision::Validate::RequireImageU8(img, __func__)) return {}
+
+#define QIVISION_REQUIRE_IMAGE_U8_VOID(img) \
+    if (!::Qi::Vision::Validate::RequireImageU8(img, __func__)) return
+
+#define QIVISION_REQUIRE_IMAGE_U8_OR(img, retval) \
+    if (!::Qi::Vision::Validate::RequireImageU8(img, __func__)) return retval
+
+/**
+ * Range validation macro
  */
 #define QIVISION_REQUIRE_RANGE(val, min, max) \
     ::Qi::Vision::Validate::RequireRange(val, min, max, #val, __func__)
 
-/**
- * Macro for positive value validation
- */
 #define QIVISION_REQUIRE_POSITIVE(val) \
     ::Qi::Vision::Validate::RequirePositive(val, #val, __func__)
 
-/**
- * Macro for non-negative value validation
- */
 #define QIVISION_REQUIRE_NON_NEGATIVE(val) \
     ::Qi::Vision::Validate::RequireNonNegative(val, #val, __func__)
 

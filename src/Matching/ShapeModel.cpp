@@ -76,9 +76,9 @@ SubpixelMethod ParseSubpixel(const std::string& str) {
     throw InvalidArgumentException("Unknown subpixel mode: " + str);
 }
 
-// Use unified validation
+// Matching accepts any valid image (type check done internally)
 inline bool RequireValidImage(const QImage& image, const char* funcName) {
-    return Validate::RequireImage(image, funcName);
+    return Validate::RequireImageValid(image, funcName);
 }
 
 std::string MetricToString(MetricMode mode) {

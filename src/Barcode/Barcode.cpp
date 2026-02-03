@@ -24,9 +24,9 @@ namespace Qi::Vision::Barcode {
 
 namespace {
 
-// Use unified validation (gray, RGB, RGBA)
+// Barcode requires UInt8 image (gray, RGB, or RGBA)
 inline bool RequireBarcodeImage(const QImage& image, const char* funcName) {
-    return Validate::RequireImageChannels(image, funcName, true, true, true);
+    return Validate::RequireImageU8Channels(image, funcName, true, true, true);
 }
 
 inline void ValidateParams(const BarcodeParams& params, const char* funcName) {

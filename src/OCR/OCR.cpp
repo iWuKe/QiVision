@@ -31,9 +31,9 @@ namespace Qi::Vision::OCR {
 
 namespace {
 
-// Use unified validation with OCR-specific channel check (gray, RGB, RGBA)
+// OCR requires UInt8 image (gray, RGB, or RGBA)
 inline bool RequireOCRImage(const QImage& image, const char* funcName) {
-    return Validate::RequireImageChannels(image, funcName, true, true, true);
+    return Validate::RequireImageU8Channels(image, funcName, true, true, true);
 }
 
 inline void ValidateOCRParams(const OCRParams& params, const char* funcName) {

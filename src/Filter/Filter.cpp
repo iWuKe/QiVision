@@ -73,13 +73,13 @@ inline uint8_t ClampU8(double val) {
     return static_cast<uint8_t>(Clamp(val, 0.0, 255.0));
 }
 
-// Use unified validation
+// Use unified validation - Filter requires UInt8 images
 inline bool RequireGrayU8(const QImage& image, const char* funcName) {
-    return Validate::RequireGrayImage(image, funcName);
+    return Validate::RequireImageU8Gray(image, funcName);
 }
 
 inline bool RequireValidImage(const QImage& image, const char* funcName) {
-    return Validate::RequireImage(image, funcName);
+    return Validate::RequireImageU8(image, funcName);
 }
 
 } // anonymous namespace

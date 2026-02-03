@@ -71,9 +71,9 @@ inline uint8_t ClampU8(double val) {
     return (t3 > LAB_EPSILON) ? t3 : (116.0 * t - 16.0) / LAB_KAPPA;
 }
 
-// Use unified validation
+// Color conversion requires UInt8 images
 inline bool RequireImage(const QImage& image, const char* funcName) {
-    return Validate::RequireImage(image, funcName);
+    return Validate::RequireImageU8(image, funcName);
 }
 
 inline bool RequireImages(const QImage& image1, const QImage& image2, const char* funcName) {

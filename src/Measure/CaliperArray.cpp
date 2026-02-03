@@ -18,9 +18,9 @@ namespace {
 
 constexpr double PI = 3.14159265358979323846;
 
-// Use unified validation
+// Measure accepts any valid image
 inline bool RequireValidImage(const QImage& image, const char* funcName) {
-    return Validate::RequireImage(image, funcName);
+    return Validate::RequireImageValid(image, funcName);
 }
 
 // Internal parameters structure (not exposed in public API)

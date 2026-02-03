@@ -256,24 +256,27 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
-### 2026-02-03 (SDK 统一验证工具)
+### 2026-02-03 (SDK 统一验证工具 v2)
 
 - **Core/Validate.h** (新增，SDK 统一验证工具)
   - 新增 `include/QiVision/Core/Validate.h`: 统一验证工具头文件
-  - **主要功能**:
-    - `RequireImage()`: 图像有效性验证（空图返回 false，无效图抛异常）
-    - `RequireImageChannels()`: 带通道数检查的图像验证
-    - `RequireGrayImage()/RequireRgbImage()`: 特定通道图像验证
-    - `RequireRange()/RequirePositive()/RequireNonNegative()`: 数值范围验证
-    - `RequireThreadCount()/RequireGpuIndex()`: 线程/GPU 参数验证
-  - **设计原则**:
-    - 空图像返回 false（调用方处理），无效图像抛异常
-    - 统一错误消息格式：`"funcName: paramName must be..."`
-    - 提供便利宏 `QIVISION_REQUIRE_IMAGE` 等
+  - **分层 API 设计** (类型与通道独立):
+    - Layer 1: `RequireImageValid()` - 只检查空/有效（不限制类型）
+    - Layer 2: `RequireImageType()`, `RequireChannelCount()` - 独立的类型/通道检查
+    - Layer 3: `RequireImageU8()`, `RequireImageU8Gray()`, `RequireImageFloat()` - 组合便捷函数
+  - **数值验证**:
+    - `RequireRange()`, `RequirePositive()`, `RequireNonNegative()`, `RequireMin()`
+    - 使用 `Detail::FormatValue()` 格式化浮点（%.4g，避免长尾数）
+  - **宏支持多种返回类型**:
+    - `QIVISION_REQUIRE_IMAGE(img)` - 返回 {}
+    - `QIVISION_REQUIRE_IMAGE_VOID(img)` - void 函数用
+    - `QIVISION_REQUIRE_IMAGE_OR(img, retval)` - 自定义返回值
+    - `QIVISION_REQUIRE_IMAGE_U8(img)` 等 UInt8 专用版本
   - **已迁移模块**:
-    - OCR, Barcode, Measure (Caliper, CaliperArray)
-    - Filter, Color, Matching (ShapeModel, NCCModel)
-    - Transform (Affine, Homography, Polar)
+    - OCR, Barcode: `RequireImageU8Channels()` (需要 UInt8)
+    - Filter, Color: `RequireImageU8()` / `RequireImageU8Gray()` (需要 UInt8)
+    - Matching, Measure: `RequireImageValid()` (接受任意类型)
+    - Transform: 保持原有模式（设置 dst 为空）
 
 ### 2026-02-02 (OCR 模块集成)
 

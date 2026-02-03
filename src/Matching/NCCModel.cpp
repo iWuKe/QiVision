@@ -72,9 +72,9 @@ inline void ValidateScale(double scaleMin, double scaleMax, double scaleStep, co
     }
 }
 
-// Use unified validation
+// NCC matching accepts any valid image
 inline bool RequireValidImage(const QImage& image, const char* funcName) {
-    return Validate::RequireImage(image, funcName);
+    return Validate::RequireImageValid(image, funcName);
 }
 
 } // anonymous namespace

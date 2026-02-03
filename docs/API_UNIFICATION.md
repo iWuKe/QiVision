@@ -181,6 +181,9 @@ cannot meaningfully proceed without real data or initialization.
 | **Calib** | `RequireImageNonEmpty` | 标定抛 | ✅ | ✅ |
 | **OCR** | `RequireImageU8Channels` | 空返回 | ✅ | ✅ |
 | **Barcode** | `RequireImageU8Channels` | 空返回 | ✅ | ✅ |
+| **IO** | 手写检查 | Read空返回/Write抛 | ✅ | ✅ |
+| **Draw** | 本地 `RequireDrawableImage` | 空 no-op | ✅ | ✅ |
+| **Contour** | 手写检查 | 空返回 | ✅ | ✅ |
 
 ---
 

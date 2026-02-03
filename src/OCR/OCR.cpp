@@ -251,22 +251,21 @@ public:
         return input;
     }
 
-    // Compute box score: mean probability within the contour region
+    // Compute box score: mean probability within the region (not bounding box!)
     double ComputeBoxScore(const float* probData, int probWidth, int probHeight,
-                           const QContour& contour) {
-        if (contour.Empty()) return 0.0;
-
-        auto bbox = contour.BoundingBox();
-        int x1 = std::max(0, static_cast<int>(bbox.x));
-        int y1 = std::max(0, static_cast<int>(bbox.y));
-        int x2 = std::min(probWidth - 1, static_cast<int>(bbox.x + bbox.width));
-        int y2 = std::min(probHeight - 1, static_cast<int>(bbox.y + bbox.height));
+                           const QRegion& region) {
+        if (region.Empty()) return 0.0;
 
         double sum = 0.0;
         int count = 0;
 
-        // Sample probability values inside contour bounding box
-        for (int y = y1; y <= y2; ++y) {
+        // Sample probability values inside region runs (precise, no background dilution)
+        const auto& runs = region.Runs();
+        for (const auto& run : runs) {
+            int y = run.row;
+            if (y < 0 || y >= probHeight) continue;
+            int x1 = std::max(0, run.colBegin);
+            int x2 = std::min(probWidth - 1, run.colEnd - 1);  // colEnd is exclusive
             for (int x = x1; x <= x2; ++x) {
                 sum += probData[y * probWidth + x];
                 count++;
@@ -307,18 +306,18 @@ public:
             size_t prev = (i + n - 1) % n;
             size_t next = (i + 1) % n;
 
-            // Compute edge normals
+            // Compute edge normals (outward for clockwise polygon)
             double dx1 = polygon[i].x - polygon[prev].x;
             double dy1 = polygon[i].y - polygon[prev].y;
             double len1 = std::sqrt(dx1 * dx1 + dy1 * dy1);
             if (len1 < 1e-6) { expanded.push_back(polygon[i]); continue; }
-            double nx1 = -dy1 / len1, ny1 = dx1 / len1;
+            double nx1 = dy1 / len1, ny1 = -dx1 / len1;  // (dy, -dx) for outward normal
 
             double dx2 = polygon[next].x - polygon[i].x;
             double dy2 = polygon[next].y - polygon[i].y;
             double len2 = std::sqrt(dx2 * dx2 + dy2 * dy2);
             if (len2 < 1e-6) { expanded.push_back(polygon[i]); continue; }
-            double nx2 = -dy2 / len2, ny2 = dx2 / len2;
+            double nx2 = dy2 / len2, ny2 = -dx2 / len2;  // (dy, -dx) for outward normal
 
             // Average normal direction
             double nx = (nx1 + nx2) * 0.5;
@@ -382,6 +381,20 @@ public:
         float scaleX = static_cast<float>(image.Width()) / outWidth;
         float scaleY = static_cast<float>(image.Height()) / outHeight;
 
+        // Check if output needs sigmoid (if values are outside [0,1] range)
+        float minP = outputData[0], maxP = outputData[0];
+        for (int i = 1; i < outWidth * outHeight; ++i) {
+            minP = std::min(minP, outputData[i]);
+            maxP = std::max(maxP, outputData[i]);
+        }
+
+        // Apply sigmoid if output appears to be logits (not probabilities)
+        if (minP < -0.1f || maxP > 1.1f) {
+            for (int i = 0; i < outWidth * outHeight; ++i) {
+                outputData[i] = 1.0f / (1.0f + std::exp(-outputData[i]));
+            }
+        }
+
         // Create binary mask from probability map
         QImage probMap(outWidth, outHeight, PixelType::UInt8, ChannelType::Gray);
         for (int y = 0; y < outHeight; ++y) {
@@ -392,8 +405,12 @@ public:
             }
         }
 
+        // Dilate to expand and connect text regions (critical for DB)
+        QImage dilated;
+        Morphology::GrayDilationRectangle(probMap, dilated, 3, 3);
+
         // Find connected regions
-        QRegion binaryRegion = Segment::ThresholdToRegion(probMap, 128.0, 255.0);
+        QRegion binaryRegion = Segment::ThresholdToRegion(dilated, 128.0, 255.0);
 
         std::vector<QRegion> regions;
         Blob::Connection(binaryRegion, regions);
@@ -405,12 +422,12 @@ public:
         for (const auto& region : regions) {
             if (region.Area() < minArea) continue;
 
-            // Convert region to contour for better shape analysis
+            // Convert region to contour for shape analysis
             QContour contour = Internal::RegionToContour(region);
             if (contour.Size() < 4) continue;
 
-            // Compute box score (mean probability in region)
-            double boxScore = ComputeBoxScore(outputData, outWidth, outHeight, contour);
+            // Compute box score (mean probability in region - precise, no background dilution)
+            double boxScore = ComputeBoxScore(outputData, outWidth, outHeight, region);
             if (boxScore < params.boxScoreThresh) continue;
 
             // Get minimum area rectangle
@@ -423,7 +440,7 @@ public:
             double shortEdge = std::min(minRect.width, minRect.height);
             if (shortEdge < minShortEdge) continue;
 
-            // Get corners and apply unclip
+            // Get corners and apply unclip expansion
             auto corners = Internal::RotatedRectCorners(minRect);
             std::vector<Point2d> polygon(corners.begin(), corners.end());
             polygon = UnclipPolygon(polygon, params.unClipRatio);

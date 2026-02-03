@@ -227,6 +227,27 @@ inline void RequireImageNonEmptyU8(const QImage& image, const char* funcName) {
     RequireImageType(image, PixelType::UInt8, funcName);
 }
 
+/**
+ * @brief Check image is non-empty with channel count (throws on empty)
+ */
+inline void RequireImageNonEmptyChannels(const QImage& image, const char* funcName,
+                                          bool allowGray = true, bool allowRgb = true,
+                                          bool allowRgba = true) {
+    RequireImageNonEmpty(image, funcName);
+    RequireChannelCount(image, allowGray, allowRgb, allowRgba, funcName);
+}
+
+/**
+ * @brief Check image is non-empty, UInt8, with channel count (throws on empty)
+ */
+inline void RequireImageNonEmptyU8Channels(const QImage& image, const char* funcName,
+                                            bool allowGray = true, bool allowRgb = true,
+                                            bool allowRgba = true) {
+    RequireImageNonEmpty(image, funcName);
+    RequireImageType(image, PixelType::UInt8, funcName);
+    RequireChannelCount(image, allowGray, allowRgb, allowRgba, funcName);
+}
+
 // --- Optional empty variants (return false on empty, for filtering/search) ---
 
 /**
@@ -297,6 +318,30 @@ inline bool RequireImageU8Channels(const QImage& image, const char* funcName,
     if (!RequireImageValid(image, funcName)) return false;
     RequireImageType(image, PixelType::UInt8, funcName);
     RequireChannelCount(image, allowGray, allowRgb, allowRgba, funcName);
+    return true;
+}
+
+// --- Multi-type variants ---
+
+/**
+ * @brief Validate image is UInt8 or Float32 (common for algorithms supporting both)
+ * @return false if empty
+ */
+inline bool RequireImageU8OrFloat(const QImage& image, const char* funcName) {
+    if (!RequireImageValid(image, funcName)) return false;
+    static const PixelType allowed[] = { PixelType::UInt8, PixelType::Float32 };
+    RequireImageTypeOneOf(image, allowed, 2, funcName);
+    return true;
+}
+
+/**
+ * @brief Validate grayscale image is UInt8 or Float32
+ */
+inline bool RequireImageU8OrFloatGray(const QImage& image, const char* funcName) {
+    if (!RequireImageValid(image, funcName)) return false;
+    static const PixelType allowed[] = { PixelType::UInt8, PixelType::Float32 };
+    RequireImageTypeOneOf(image, allowed, 2, funcName);
+    RequireChannelCountExact(image, 1, funcName);
     return true;
 }
 
@@ -426,6 +471,27 @@ inline void RequireGpuIndex(int gpuIndex, const char* funcName) {
 
 #define QIVISION_REQUIRE_IMAGE_U8_OR(img, retval) \
     if (!::Qi::Vision::Validate::RequireImageU8(img, __func__)) return retval
+
+/**
+ * Float32 variants
+ */
+#define QIVISION_REQUIRE_IMAGE_FLOAT(img) \
+    if (!::Qi::Vision::Validate::RequireImageFloat(img, __func__)) return {}
+
+#define QIVISION_REQUIRE_IMAGE_FLOAT_VOID(img) \
+    if (!::Qi::Vision::Validate::RequireImageFloat(img, __func__)) return
+
+#define QIVISION_REQUIRE_IMAGE_FLOAT_OR(img, retval) \
+    if (!::Qi::Vision::Validate::RequireImageFloat(img, __func__)) return retval
+
+/**
+ * UInt8 or Float32 variants (common for algorithms supporting both)
+ */
+#define QIVISION_REQUIRE_IMAGE_U8_OR_FLOAT(img) \
+    if (!::Qi::Vision::Validate::RequireImageU8OrFloat(img, __func__)) return {}
+
+#define QIVISION_REQUIRE_IMAGE_U8_OR_FLOAT_VOID(img) \
+    if (!::Qi::Vision::Validate::RequireImageU8OrFloat(img, __func__)) return
 
 /**
  * Range validation macro

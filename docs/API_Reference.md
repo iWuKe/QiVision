@@ -1,7 +1,7 @@
 # QiVision API Reference
 
-> Version: 0.15.0
-> Last Updated: 2026-02-02
+> Version: 0.16.0
+> Last Updated: 2026-02-03
 > Namespace: `Qi::Vision`
 
 Professional industrial machine vision library.
@@ -28,7 +28,8 @@ Professional industrial machine vision library.
 16. [Defect](#16-defect) - Defect detection (Variation Model)
 17. [Texture](#17-texture) - Texture analysis (LBP, GLCM, Gabor)
 18. [Barcode](#18-barcode) - Barcode and QR code reading (ZXing-cpp)
-19. [Appendix](#appendix) - Types and constants
+19. [OCR](#19-ocr) - Optical character recognition (ONNXRuntime + PaddleOCR)
+20. [Appendix](#appendix) - Types and constants
 
 ---
 
@@ -5309,10 +5310,180 @@ auto qrCodes = Barcode::ReadBarcodes(image, params);
 
 ---
 
+## 19. OCR
+
+**Namespace**: `Qi::Vision::OCR`
+**Header**: `<QiVision/OCR/OCR.h>`
+
+Optical character recognition powered by ONNXRuntime + PaddleOCR v4. Supports Chinese, English, and multilingual text detection and recognition.
+
+**Requirements**:
+- ONNXRuntime library
+- PaddleOCR v4 ONNX models (included in `models/ocr/`)
+
+---
+
+### Structures
+
+#### TextBlock
+
+Single detected text block.
+
+```cpp
+struct TextBlock {
+    std::string text;               // Recognized text
+    double confidence;              // Recognition confidence [0,1]
+    double boxScore;                // Detection box score [0,1]
+    std::vector<Point2d> corners;   // Four corner points (clockwise)
+
+    Point2d Center() const;         // Box center
+    Rect2i BoundingRect() const;    // Axis-aligned bounding rect
+};
+```
+
+#### OCRResult
+
+Complete OCR result.
+
+```cpp
+struct OCRResult {
+    std::vector<TextBlock> textBlocks;  // Detected text blocks
+    std::string fullText;               // Combined text (newline separated)
+    double detectTime;                  // Detection time [ms]
+    double recognizeTime;               // Recognition time [ms]
+    double totalTime;                   // Total time [ms]
+
+    bool Empty() const;                 // No text found
+    size_t Size() const;                // Number of blocks
+};
+```
+
+#### OCRParams
+
+Parameters for OCR.
+
+```cpp
+struct OCRParams {
+    int maxSideLen = 960;          // Max image size (longer side)
+    float boxThresh = 0.5f;        // Detection threshold [0,1]
+    float unclipRatio = 1.6f;      // Box expansion ratio
+    bool useDilation = true;       // Dilate detection map
+
+    static OCRParams Default();    // Default parameters
+    static OCRParams Fast();       // Fast mode (lower accuracy)
+    static OCRParams Accurate();   // Accurate mode (slower)
+};
+```
+
+---
+
+### OCRModel Class
+
+```cpp
+class OCRModel {
+public:
+    OCRModel();
+    ~OCRModel();
+
+    // Initialization
+    bool Init(const std::string& modelDir,
+              const std::string& detModel = "ch_PP-OCRv4_det_infer.onnx",
+              const std::string& clsModel = "ch_ppocr_mobile_v2.0_cls_infer.onnx",
+              const std::string& recModel = "ch_PP-OCRv4_rec_infer.onnx",
+              const std::string& keysFile = "ppocr_keys_v1.txt");
+    bool InitDefault();           // Auto-find models
+    bool IsValid() const;
+
+    // Configuration
+    void SetNumThread(int n);     // CPU threads (default: 4)
+    void SetGpuIndex(int idx);    // GPU device (-1=CPU, >=0=GPU)
+
+    // Recognition
+    OCRResult Recognize(const QImage& image,
+                        const OCRParams& params = OCRParams::Default()) const;
+    OCRResult Recognize(const std::string& imagePath,
+                        const OCRParams& params = OCRParams::Default()) const;
+
+    // Direct line recognition (skip detection)
+    std::string RecognizeLine(const QImage& image, double& confidence) const;
+};
+```
+
+---
+
+### Global Functions
+
+```cpp
+// Initialize global model
+bool InitOCR(const std::string& modelDir, int gpuIndex = -1);
+bool InitOCRDefault(int gpuIndex = -1);
+void ReleaseOCR();
+bool IsOCRReady();
+
+// Recognition using global model
+OCRResult RecognizeText(const QImage& image,
+                        const OCRParams& params = OCRParams::Default());
+OCRResult RecognizeText(const std::string& imagePath,
+                        const OCRParams& params = OCRParams::Default());
+
+// Simple API (returns text only)
+std::string ReadText(const QImage& image);
+std::string ReadText(const std::string& imagePath);
+
+// Direct line recognition (skip detection)
+std::string RecognizeLine(const QImage& image, double& confidence);
+
+// Utility
+bool IsAvailable();           // ONNXRuntime available
+std::string GetVersion();     // Version string
+std::string GetDefaultModelDir();  // Default model path
+```
+
+---
+
+### Example
+
+```cpp
+#include <QiVision/OCR/OCR.h>
+using namespace Qi::Vision;
+
+// Initialize OCR (CPU)
+if (!OCR::InitOCR("models/ocr")) {
+    std::cerr << "Failed to init OCR\n";
+    return;
+}
+
+// Recognize text in image
+QImage image = QImage::FromFile("document.jpg");
+auto result = OCR::RecognizeText(image);
+
+std::cout << "Found " << result.Size() << " text blocks\n";
+for (const auto& block : result.textBlocks) {
+    std::cout << block.text << " (" << block.confidence * 100 << "%)\n";
+}
+
+// Or use simple API
+std::string text = OCR::ReadText("document.jpg");
+
+// For pre-cropped text lines (skip detection)
+double conf;
+std::string lineText = OCR::RecognizeLine(croppedLine, conf);
+
+// GPU acceleration (requires CUDA)
+OCR::ReleaseOCR();
+OCR::InitOCR("models/ocr", 0);  // Use GPU 0
+
+// Cleanup
+OCR::ReleaseOCR();
+```
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.16.0 | 2026-02-03 | Add OCR module (ONNXRuntime + PaddleOCR v4) |
 | 0.15.0 | 2026-02-02 | Add Barcode module (ZXing-cpp integration) |
 | 0.14.0 | 2026-01-30 | Add Defect and Texture modules |
 | 0.13.0 | 2026-01-29 | Add Contour module (XLD operations) |

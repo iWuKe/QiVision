@@ -370,8 +370,8 @@ void EstimateThresholds(
     double& lowThreshold,
     double& highThreshold
 ) {
-    if (image.Empty() || !image.IsValid() ||
-        image.Type() != PixelType::UInt8 || image.Channels() != 1) {
+    // Return default thresholds for invalid input
+    if (!Validate::RequireImageU8Gray(image, "EstimateThresholds")) {
         lowThreshold = 20.0;
         highThreshold = 40.0;
         return;

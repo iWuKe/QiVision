@@ -527,11 +527,8 @@ void DrawHoughLines(
     const Scalar& color,
     int32_t thickness
 ) {
-    if (image.Empty() || lines.empty()) {
+    if (!Validate::RequireImageValid(image, "DrawHoughLines") || lines.empty()) {
         return;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException("DrawHoughLines: invalid image");
     }
 
     int32_t width = image.Width();
@@ -553,11 +550,8 @@ void DrawHoughCircles(
     const Scalar& color,
     int32_t thickness
 ) {
-    if (image.Empty() || circles.empty()) {
+    if (!Validate::RequireImageValid(image, "DrawHoughCircles") || circles.empty()) {
         return;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException("DrawHoughCircles: invalid image");
     }
 
     for (const auto& circle : circles) {

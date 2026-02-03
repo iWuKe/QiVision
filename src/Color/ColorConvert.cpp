@@ -76,6 +76,11 @@ inline bool RequireImage(const QImage& image, const char* funcName) {
     return Validate::RequireImageU8(image, funcName);
 }
 
+// Grayscale UInt8 image validation
+inline bool RequireGrayU8(const QImage& image, const char* funcName) {
+    return Validate::RequireImageU8Gray(image, funcName);
+}
+
 inline bool RequireImages(const QImage& image1, const QImage& image2, const char* funcName) {
     return RequireImage(image1, funcName) && RequireImage(image2, funcName);
 }
@@ -92,8 +97,131 @@ inline bool RequireImages(const QImage& image1, const QImage& image2, const QIma
            RequireImage(image3, funcName) && RequireImage(image4, funcName);
 }
 
-// Note: RGB_TO_XYZ, XYZ_TO_RGB, D65_X/Y/Z, LAB_16_116 are reserved for
-// future Lab/Luv/XYZ color space implementations
+// =============================================================================
+// RGB <-> XYZ Conversion (sRGB, D65 illuminant)
+// =============================================================================
+
+// Convert sRGB [0,255] to XYZ
+// XYZ values are scaled: X,Y,Z in [0,1] range normalized to D65
+void RgbToXyz(uint8_t r, uint8_t g, uint8_t b, double& x, double& y, double& z) {
+    // sRGB to linear RGB
+    double rLin = SrgbToLinear(r / 255.0);
+    double gLin = SrgbToLinear(g / 255.0);
+    double bLin = SrgbToLinear(b / 255.0);
+
+    // Linear RGB to XYZ (D65)
+    x = RGB_TO_XYZ[0][0] * rLin + RGB_TO_XYZ[0][1] * gLin + RGB_TO_XYZ[0][2] * bLin;
+    y = RGB_TO_XYZ[1][0] * rLin + RGB_TO_XYZ[1][1] * gLin + RGB_TO_XYZ[1][2] * bLin;
+    z = RGB_TO_XYZ[2][0] * rLin + RGB_TO_XYZ[2][1] * gLin + RGB_TO_XYZ[2][2] * bLin;
+}
+
+// Convert XYZ to sRGB [0,255]
+void XyzToRgb(double x, double y, double z, uint8_t& r, uint8_t& g, uint8_t& b) {
+    // XYZ to linear RGB
+    double rLin = XYZ_TO_RGB[0][0] * x + XYZ_TO_RGB[0][1] * y + XYZ_TO_RGB[0][2] * z;
+    double gLin = XYZ_TO_RGB[1][0] * x + XYZ_TO_RGB[1][1] * y + XYZ_TO_RGB[1][2] * z;
+    double bLin = XYZ_TO_RGB[2][0] * x + XYZ_TO_RGB[2][1] * y + XYZ_TO_RGB[2][2] * z;
+
+    // Linear RGB to sRGB
+    r = ClampU8(LinearToSrgb(rLin) * 255.0);
+    g = ClampU8(LinearToSrgb(gLin) * 255.0);
+    b = ClampU8(LinearToSrgb(bLin) * 255.0);
+}
+
+// RGB to XYZ with uint8_t output (scaled to 0-255)
+// X: 0-0.95047 -> 0-255, Y: 0-1.0 -> 0-255, Z: 0-1.08883 -> 0-255
+void RgbToXyzU8(uint8_t r, uint8_t g, uint8_t b, uint8_t& xOut, uint8_t& yOut, uint8_t& zOut) {
+    double x, y, z;
+    RgbToXyz(r, g, b, x, y, z);
+
+    // Scale to 0-255 (using D65 white point as max)
+    xOut = ClampU8(x / D65_X * 255.0);
+    yOut = ClampU8(y / D65_Y * 255.0);
+    zOut = ClampU8(z / D65_Z * 255.0);
+}
+
+// XYZ (uint8_t, scaled) to RGB
+void XyzU8ToRgb(uint8_t xIn, uint8_t yIn, uint8_t zIn, uint8_t& r, uint8_t& g, uint8_t& b) {
+    // Unscale from 0-255 to actual XYZ values
+    double x = (xIn / 255.0) * D65_X;
+    double y = (yIn / 255.0) * D65_Y;
+    double z = (zIn / 255.0) * D65_Z;
+
+    XyzToRgb(x, y, z, r, g, b);
+}
+
+// =============================================================================
+// RGB <-> Lab Conversion (CIE L*a*b*, D65 illuminant)
+// =============================================================================
+
+// Convert sRGB [0,255] to Lab
+// L: 0-100, a: -128 to +127, b: -128 to +127
+void RgbToLab(uint8_t r, uint8_t g, uint8_t b, double& L, double& a, double& labB) {
+    // First convert to XYZ
+    double x, y, z;
+    RgbToXyz(r, g, b, x, y, z);
+
+    // Normalize by D65 white point
+    double xn = x / D65_X;
+    double yn = y / D65_Y;
+    double zn = z / D65_Z;
+
+    // Apply Lab transfer function
+    double fx = LabF(xn);
+    double fy = LabF(yn);
+    double fz = LabF(zn);
+
+    // Compute Lab values
+    L = 116.0 * fy - 16.0;      // L: 0-100
+    a = 500.0 * (fx - fy);      // a: typically -128 to +127
+    labB = 200.0 * (fy - fz);   // b: typically -128 to +127
+}
+
+// Convert Lab to sRGB [0,255]
+void LabToRgb(double L, double a, double labB, uint8_t& r, uint8_t& g, uint8_t& b) {
+    // Lab to XYZ
+    double fy = (L + 16.0) / 116.0;
+    double fx = a / 500.0 + fy;
+    double fz = fy - labB / 200.0;
+
+    double xn = LabFInv(fx);
+    double yn = LabFInv(fy);
+    double zn = LabFInv(fz);
+
+    // Denormalize by D65 white point
+    double x = xn * D65_X;
+    double y = yn * D65_Y;
+    double z = zn * D65_Z;
+
+    // XYZ to RGB
+    XyzToRgb(x, y, z, r, g, b);
+}
+
+// RGB to Lab with uint8_t output
+// L: 0-100 -> 0-255 (scale by 2.55)
+// a: -128 to +127 -> 0-255 (offset by 128)
+// b: -128 to +127 -> 0-255 (offset by 128)
+void RgbToLabU8(uint8_t r, uint8_t g, uint8_t b, uint8_t& lOut, uint8_t& aOut, uint8_t& bOut) {
+    double L, a, labB;
+    RgbToLab(r, g, b, L, a, labB);
+
+    // Scale L from 0-100 to 0-255
+    lOut = ClampU8(L * 2.55);
+    // Offset a and b from [-128, 127] to [0, 255]
+    aOut = ClampU8(a + 128.0);
+    bOut = ClampU8(labB + 128.0);
+}
+
+// Lab (uint8_t, scaled) to RGB
+void LabU8ToRgb(uint8_t lIn, uint8_t aIn, uint8_t bIn, uint8_t& r, uint8_t& g, uint8_t& b) {
+    // Unscale L from 0-255 to 0-100
+    double L = lIn / 2.55;
+    // Unoffset a and b from [0, 255] to [-128, 127]
+    double a = aIn - 128.0;
+    double labB = bIn - 128.0;
+
+    LabToRgb(L, a, labB, r, g, b);
+}
 
 } // anonymous namespace
 
@@ -184,10 +312,6 @@ void Rgb1ToGray(const QImage& image, QImage& output, const std::string& method) 
         return;
     }
 
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("Rgb1ToGray only supports UInt8 images");
-    }
-
     int srcChannels = image.Channels();
     if (srcChannels < 3) {
         throw InvalidArgumentException("Input must have at least 3 channels");
@@ -256,16 +380,9 @@ void Rgb3ToGray(const QImage& red, const QImage& green, const QImage& blue,
 }
 
 void GrayToRgb(const QImage& gray, QImage& output) {
-    if (!RequireImage(gray, "GrayToRgb")) {
+    if (!RequireGrayU8(gray, "GrayToRgb")) {
         output = QImage();
         return;
-    }
-
-    if (gray.GetChannelType() != ChannelType::Gray) {
-        throw InvalidArgumentException("Input must be grayscale");
-    }
-    if (gray.Type() != PixelType::UInt8) {
-        throw UnsupportedException("GrayToRgb only supports UInt8 images");
     }
 
     output = QImage(gray.Width(), gray.Height(), gray.Type(), ChannelType::RGB);
@@ -295,9 +412,6 @@ void Decompose3(const QImage& image, QImage& ch1, QImage& ch2, QImage& ch3) {
 
     if (image.Channels() < 3) {
         throw InvalidArgumentException("Input must have at least 3 channels");
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("Decompose3 only supports UInt8 images");
     }
 
     int32_t w = image.Width();
@@ -331,9 +445,6 @@ void Decompose4(const QImage& image, QImage& ch1, QImage& ch2, QImage& ch3, QIma
 
     if (image.Channels() < 4) {
         throw InvalidArgumentException("Input must have 4 channels");
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("Decompose4 only supports UInt8 images");
     }
 
     int32_t w = image.Width();
@@ -444,9 +555,6 @@ void AccessChannel(const QImage& image, QImage& output, int32_t channelIndex) {
     int channels = image.Channels();
     if (channelIndex < 0 || channelIndex >= channels) {
         throw InvalidArgumentException("Channel index out of range");
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("AccessChannel only supports UInt8 images");
     }
 
     int32_t w = image.Width();
@@ -729,10 +837,6 @@ void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace) {
         return;
     }
 
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("TransFromRgb only supports UInt8 images");
-    }
-
     if (image.Channels() < 3) {
         throw InvalidArgumentException("Input must have at least 3 channels");
     }
@@ -750,8 +854,8 @@ void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace) {
         RgbToBgr(image, output);
         return;
     }
-    if (toSpace == ColorSpace::Lab || toSpace == ColorSpace::Luv || toSpace == ColorSpace::XYZ) {
-        throw UnsupportedException("TransFromRgb: target color space not implemented");
+    if (toSpace == ColorSpace::Luv) {
+        throw UnsupportedException("TransFromRgb: Luv color space not implemented yet");
     }
 
     int32_t w = image.Width();
@@ -785,6 +889,12 @@ void TransFromRgb(const QImage& image, QImage& output, ColorSpace toSpace) {
                     // YUV is similar to YCrCb for our purposes
                     RgbToYCrCb(r, g, b, c1, c3, c2);
                     break;
+                case ColorSpace::Lab:
+                    RgbToLabU8(r, g, b, c1, c2, c3);
+                    break;
+                case ColorSpace::XYZ:
+                    RgbToXyzU8(r, g, b, c1, c2, c3);
+                    break;
                 default:
                     c1 = r; c2 = g; c3 = b;
                     break;
@@ -807,10 +917,6 @@ void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace) {
         return;
     }
 
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("TransToRgb only supports UInt8 images");
-    }
-
     // Handle simple cases
     if (fromSpace == ColorSpace::RGB) {
         output = image.Clone();
@@ -824,8 +930,8 @@ void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace) {
         BgrToRgb(image, output);
         return;
     }
-    if (fromSpace == ColorSpace::Lab || fromSpace == ColorSpace::Luv || fromSpace == ColorSpace::XYZ) {
-        throw UnsupportedException("TransToRgb: source color space not implemented");
+    if (fromSpace == ColorSpace::Luv) {
+        throw UnsupportedException("TransToRgb: Luv color space not implemented yet");
     }
 
     if (image.Channels() < 3) {
@@ -861,6 +967,12 @@ void TransToRgb(const QImage& image, QImage& output, ColorSpace fromSpace) {
                     break;
                 case ColorSpace::YUV:
                     YCrCbToRgb(c1, c3, c2, r, g, b);
+                    break;
+                case ColorSpace::Lab:
+                    LabU8ToRgb(c1, c2, c3, r, g, b);
+                    break;
+                case ColorSpace::XYZ:
+                    XyzU8ToRgb(c1, c2, c3, r, g, b);
                     break;
                 default:
                     r = c1; g = c2; b = c3;
@@ -1027,9 +1139,6 @@ void AdjustGamma(const QImage& image, QImage& output, double gamma) {
     if (gamma <= 0.0) {
         throw InvalidArgumentException("AdjustGamma: gamma must be > 0");
     }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("AdjustGamma only supports UInt8 images");
-    }
 
     output = image.Clone();
     int32_t w = image.Width();
@@ -1055,9 +1164,6 @@ void InvertColors(const QImage& image, QImage& output) {
     if (!RequireImage(image, "InvertColors")) {
         output = QImage();
         return;
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("InvertColors only supports UInt8 images");
     }
 
     output = image.Clone();
@@ -1173,13 +1279,9 @@ void ScaleImageMax(const QImage& image, QImage& output) {
 }
 
 void EquHistoImage(const QImage& image, QImage& output) {
-    if (!RequireImage(image, "EquHistoImage")) {
+    if (!RequireGrayU8(image, "EquHistoImage")) {
         output = QImage();
         return;
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("EquHistoImage requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -1245,9 +1347,6 @@ void GrayHisto(const QImage& image,
 
     if (!RequireImage(image, "GrayHisto")) {
         return;
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("GrayHisto only supports UInt8 images");
     }
 
     int32_t w = image.Width();
@@ -1473,9 +1572,6 @@ void AutoWhiteBalance(const QImage& image, QImage& output, const std::string& me
         output = QImage();
         return;
     }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("AutoWhiteBalance only supports UInt8 images");
-    }
     if (image.Channels() < 3) {
         throw InvalidArgumentException("AutoWhiteBalance requires at least 3 channels");
     }
@@ -1544,9 +1640,6 @@ void ApplyWhiteBalance(const QImage& image, QImage& output,
     if (!std::isfinite(whiteR) || !std::isfinite(whiteG) || !std::isfinite(whiteB)) {
         throw InvalidArgumentException("ApplyWhiteBalance: invalid white balance factors");
     }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("ApplyWhiteBalance only supports UInt8 images");
-    }
     if (image.Channels() < 3) {
         throw InvalidArgumentException("ApplyWhiteBalance requires at least 3 channels");
     }
@@ -1600,7 +1693,8 @@ ColorTransLut CreateColorTransLut(const std::string& colorSpace,
     bool fromRgb = (lowerDir == "from_rgb");
 
     if (targetSpace != ColorSpace::HSV && targetSpace != ColorSpace::HSL &&
-        targetSpace != ColorSpace::YCrCb && targetSpace != ColorSpace::YUV) {
+        targetSpace != ColorSpace::YCrCb && targetSpace != ColorSpace::YUV &&
+        targetSpace != ColorSpace::Lab && targetSpace != ColorSpace::XYZ) {
         throw UnsupportedException("CreateColorTransLut: target color space not implemented");
     }
     lut.fromSpace_ = fromRgb ? ColorSpace::RGB : targetSpace;
@@ -1631,6 +1725,12 @@ ColorTransLut CreateColorTransLut(const std::string& colorSpace,
                         case ColorSpace::YUV:
                             RgbToYCrCb(r, g, b, c1, c3, c2);
                             break;
+                        case ColorSpace::Lab:
+                            RgbToLabU8(r, g, b, c1, c2, c3);
+                            break;
+                        case ColorSpace::XYZ:
+                            RgbToXyzU8(r, g, b, c1, c2, c3);
+                            break;
                         default:
                             c1 = r; c2 = g; c3 = b;
                             break;
@@ -1647,6 +1747,12 @@ ColorTransLut CreateColorTransLut(const std::string& colorSpace,
                         case ColorSpace::YCrCb:
                         case ColorSpace::YUV:
                             YCrCbToRgb(r, b, g, c1, c2, c3);
+                            break;
+                        case ColorSpace::Lab:
+                            LabU8ToRgb(r, g, b, c1, c2, c3);
+                            break;
+                        case ColorSpace::XYZ:
+                            XyzU8ToRgb(r, g, b, c1, c2, c3);
                             break;
                         default:
                             c1 = r; c2 = g; c3 = b;
@@ -1723,9 +1829,6 @@ void ApplyColorTransLut(const QImage& image, QImage& output, const ColorTransLut
     if (!RequireImage(image, "ApplyColorTransLut")) {
         output = QImage();
         return;
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("ApplyColorTransLut only supports UInt8 images");
     }
     if (image.Channels() != 3) {
         throw InvalidArgumentException("Input must be a 3-channel image");

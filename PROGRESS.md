@@ -256,6 +256,18 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-02-03 (ColorConvert Lab/XYZ 支持)
+
+- **ColorConvert.cpp** (补齐颜色空间)
+  - 新增 `RgbToXyz()` / `XyzToRgb()`: sRGB ↔ XYZ (D65 illuminant)
+  - 新增 `RgbToLab()` / `LabToRgb()`: sRGB ↔ CIE L*a*b* (D65)
+  - 新增 U8 变体用于图像处理: `RgbToLabU8`, `RgbToXyzU8`, `LabU8ToRgb`, `XyzU8ToRgb`
+  - 更新 `TransFromRgb()`: 支持 Lab, XYZ 目标颜色空间
+  - 更新 `TransToRgb()`: 支持 Lab, XYZ 源颜色空间
+  - 更新 `CreateColorTransLut()`: 支持 Lab, XYZ LUT 预计算
+  - 往返误差 0-4 (正常 8-bit 量化误差)
+  - Luv 暂未实现（抛 UnsupportedException）
+
 ### 2026-02-03 (NCCModel 亚像素插值)
 
 - **NCCModelScore.cpp** (算法改进)

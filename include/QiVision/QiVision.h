@@ -57,6 +57,11 @@
 #include <QiVision/Barcode/Barcode.h>
 #endif
 
+#if QIVISION_BUILD_OCR
+#include <QiVision/Inference/Inference.h>
+#include <QiVision/OCR/OCR.h>
+#endif
+
 namespace Qi::Vision {
 
 /**

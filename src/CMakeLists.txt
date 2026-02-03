@@ -119,6 +119,8 @@ set(QIVISION_SOURCES
     $<$<BOOL:${QIVISION_BUILD_BARCODE}>:Barcode/Barcode.cpp>
     # OCR (Feature Layer - requires ONNXRuntime)
     $<$<BOOL:${QIVISION_BUILD_OCR}>:OCR/OCR.cpp>
+    # Inference (Feature Layer - requires ONNXRuntime)
+    $<$<BOOL:${QIVISION_BUILD_OCR}>:Inference/Inference.cpp>
 )
 
 set(QIVISION_HEADERS
@@ -244,6 +246,8 @@ set(QIVISION_HEADERS
     $<$<BOOL:${QIVISION_BUILD_BARCODE}>:${CMAKE_SOURCE_DIR}/include/QiVision/Barcode/Barcode.h>
     # OCR (Feature Layer)
     $<$<BOOL:${QIVISION_BUILD_OCR}>:${CMAKE_SOURCE_DIR}/include/QiVision/OCR/OCR.h>
+    # Inference (Feature Layer)
+    $<$<BOOL:${QIVISION_BUILD_OCR}>:${CMAKE_SOURCE_DIR}/include/QiVision/Inference/Inference.h>
 )
 
 # Create library

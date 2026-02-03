@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-03 (OCR 检测修复 + debug 功能)
+> 最后更新: 2026-02-03 (Inference 模块 + OCR 重构)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -255,6 +255,19 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-03 (Inference 模块 + OCR 重构)
+
+- **Inference/Inference.h** (新增模块)
+  - 轻量级 ONNX 推理封装，统一管理 ONNXRuntime
+  - `Tensor`: 输入/输出张量 (name + shape + data)
+  - `SessionOptions`: 会话配置 (numThreads, gpuIndex, enableFP16)
+  - `Model`: Load() / Run() / Reset() / InputNames() / OutputNames()
+  - 跨平台支持 (Windows/Linux/macOS)
+- **OCR.cpp** (重构为使用 Inference 层)
+  - 移除直接 ONNXRuntime API 调用
+  - 改用 `Inference::Model` 管理 det/cls/rec 三个模型
+  - 代码更简洁，跨平台处理集中在 Inference 层
 
 ### 2026-02-03 (OCR 检测修复 + debug 功能)
 

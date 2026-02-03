@@ -15,6 +15,7 @@
 #include <QiVision/Segment/Segment.h>
 #include <QiVision/Blob/Blob.h>
 #include <QiVision/Morphology/Morphology.h>
+#include <QiVision/Inference/Inference.h>
 #include <QiVision/Platform/Timer.h>
 #include <QiVision/Platform/FileIO.h>
 #include <QiVision/Internal/ContourConvert.h>
@@ -22,10 +23,6 @@
 #include <QiVision/Internal/Geometry2d.h>
 #include <QiVision/Internal/Homography.h>
 #include <QiVision/Internal/AffineTransform.h>
-
-#ifdef QIVISION_HAS_ONNXRUNTIME
-#include <onnxruntime_cxx_api.h>
-#endif
 
 #include <mutex>
 #include <fstream>
@@ -97,12 +94,9 @@ Point2d TextBlock::Center() const {
 
 class OCRModel::Impl {
 public:
-    Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "QiVisionOCR"};
-    Ort::SessionOptions sessionOptions;
-
-    std::unique_ptr<Ort::Session> detSession;
-    std::unique_ptr<Ort::Session> clsSession;
-    std::unique_ptr<Ort::Session> recSession;
+    Inference::Model detModel;
+    Inference::Model clsModel;
+    Inference::Model recModel;
 
     std::vector<std::string> keys;  // Character dictionary
     bool initialized = false;
@@ -111,57 +105,34 @@ public:
     bool useGpu = false;
 
     // Model input/output names
-    std::vector<const char*> detInputNames = {"x"};
-    std::vector<const char*> detOutputNames = {"sigmoid_0.tmp_0"};
-    std::vector<const char*> clsInputNames = {"x"};
-    std::vector<const char*> clsOutputNames = {"softmax_0.tmp_0"};
-    std::vector<const char*> recInputNames = {"x"};
-    std::vector<const char*> recOutputNames = {"softmax_11.tmp_0"};
+    std::string detInputName = "x";
+    std::string clsInputName = "x";
+    std::string recInputName = "x";
 
     bool Init(const std::string& modelDir,
-              const std::string& detModel,
-              const std::string& clsModel,
-              const std::string& recModel,
+              const std::string& detModelFile,
+              const std::string& clsModelFile,
+              const std::string& recModelFile,
               const std::string& keysFile) {
         try {
-            sessionOptions.SetIntraOpNumThreads(numThread);
-            sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+            Inference::SessionOptions options;
+            options.numThreads = numThread;
+            options.gpuIndex = useGpu ? gpuIndex : -1;
 
-            // Enable CUDA if requested
-            if (useGpu && gpuIndex >= 0) {
-                OrtCUDAProviderOptions cudaOptions;
-                cudaOptions.device_id = gpuIndex;
-                sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
-            }
-
-            std::string detPath = modelDir + "/" + detModel;
-            std::string clsPath = modelDir + "/" + clsModel;
-            std::string recPath = modelDir + "/" + recModel;
+            std::string detPath = modelDir + "/" + detModelFile;
+            std::string clsPath = modelDir + "/" + clsModelFile;
+            std::string recPath = modelDir + "/" + recModelFile;
             std::string keysPath = modelDir + "/" + keysFile;
 
             // Load models
-#ifdef _WIN32
-            std::wstring wDetPath(detPath.begin(), detPath.end());
-            std::wstring wRecPath(recPath.begin(), recPath.end());
-            detSession = std::make_unique<Ort::Session>(env, wDetPath.c_str(), sessionOptions);
-            recSession = std::make_unique<Ort::Session>(env, wRecPath.c_str(), sessionOptions);
+            detModel.Load(detPath, options);
+            recModel.Load(recPath, options);
             // cls model is optional
             try {
-                std::wstring wClsPath(clsPath.begin(), clsPath.end());
-                clsSession = std::make_unique<Ort::Session>(env, wClsPath.c_str(), sessionOptions);
+                clsModel.Load(clsPath, options);
             } catch (...) {
-                clsSession = nullptr;  // cls is optional
+                clsModel.Reset();
             }
-#else
-            detSession = std::make_unique<Ort::Session>(env, detPath.c_str(), sessionOptions);
-            recSession = std::make_unique<Ort::Session>(env, recPath.c_str(), sessionOptions);
-            // cls model is optional
-            try {
-                clsSession = std::make_unique<Ort::Session>(env, clsPath.c_str(), sessionOptions);
-            } catch (...) {
-                clsSession = nullptr;  // cls is optional
-            }
-#endif
 
             // Load character dictionary
             if (!LoadKeys(keysPath)) {
@@ -170,7 +141,7 @@ public:
 
             initialized = true;
             return true;
-        } catch (const Ort::Exception& e) {
+        } catch (const std::exception&) {
             return false;
         }
     }
@@ -360,20 +331,20 @@ public:
         // Preprocess
         auto input = PreprocessForDetection(image, targetWidth, targetHeight);
 
-        // Create input tensor
-        std::vector<int64_t> inputShape = {1, 3, targetHeight, targetWidth};
-        Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-        Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
-            memoryInfo, input.data(), input.size(), inputShape.data(), inputShape.size());
-
         // Run detection
-        auto outputTensors = detSession->Run(Ort::RunOptions{nullptr},
-            detInputNames.data(), &inputTensor, 1,
-            detOutputNames.data(), 1);
+        Inference::Tensor inputTensor;
+        inputTensor.name = detInputName;
+        inputTensor.shape = {1, 3, targetHeight, targetWidth};
+        inputTensor.data = std::move(input);
+
+        auto outputTensors = detModel.Run({std::move(inputTensor)});
+        if (outputTensors.empty() || outputTensors[0].shape.size() < 4 || outputTensors[0].data.empty()) {
+            return boxes;
+        }
 
         // Process detection output (probability map)
-        float* outputData = outputTensors[0].GetTensorMutableData<float>();
-        auto outputShape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
+        std::vector<float>& outputData = outputTensors[0].data;
+        const auto& outputShape = outputTensors[0].shape;
 
         int outHeight = static_cast<int>(outputShape[2]);
         int outWidth = static_cast<int>(outputShape[3]);
@@ -382,16 +353,17 @@ public:
         float scaleY = static_cast<float>(image.Height()) / outHeight;
 
         // Check if output needs sigmoid (if values are outside [0,1] range)
-        float minP = outputData[0], maxP = outputData[0];
+        float* outputPtr = outputData.data();
+        float minP = outputPtr[0], maxP = outputPtr[0];
         for (int i = 1; i < outWidth * outHeight; ++i) {
-            minP = std::min(minP, outputData[i]);
-            maxP = std::max(maxP, outputData[i]);
+            minP = std::min(minP, outputPtr[i]);
+            maxP = std::max(maxP, outputPtr[i]);
         }
 
         // Apply sigmoid if output appears to be logits (not probabilities)
         if (minP < -0.1f || maxP > 1.1f) {
             for (int i = 0; i < outWidth * outHeight; ++i) {
-                outputData[i] = 1.0f / (1.0f + std::exp(-outputData[i]));
+                outputPtr[i] = 1.0f / (1.0f + std::exp(-outputPtr[i]));
             }
         }
 
@@ -400,7 +372,7 @@ public:
         for (int y = 0; y < outHeight; ++y) {
             uint8_t* row = static_cast<uint8_t*>(probMap.RowPtr(y));
             for (int x = 0; x < outWidth; ++x) {
-                float prob = outputData[y * outWidth + x];
+                float prob = outputPtr[y * outWidth + x];
                 row[x] = (prob > params.boxThresh) ? 255 : 0;
             }
         }
@@ -433,7 +405,7 @@ public:
             if (contour.Size() < 4) { ++filteredByContour; continue; }
 
             // Compute box score (mean probability in region - precise, no background dilution)
-            double boxScore = ComputeBoxScore(outputData, outWidth, outHeight, region);
+            double boxScore = ComputeBoxScore(outputPtr, outWidth, outHeight, region);
             minBoxScore = std::min(minBoxScore, boxScore);
             maxBoxScore = std::max(maxBoxScore, boxScore);
             sumBoxScore += boxScore;
@@ -497,20 +469,21 @@ public:
 
         auto input = PreprocessForDetection(cropImage, targetWidth, targetHeight);
 
-        // Create input tensor
-        std::vector<int64_t> inputShape = {1, 3, targetHeight, targetWidth};
-        Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-        Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
-            memoryInfo, input.data(), input.size(), inputShape.data(), inputShape.size());
-
         // Run recognition
-        auto outputTensors = recSession->Run(Ort::RunOptions{nullptr},
-            recInputNames.data(), &inputTensor, 1,
-            recOutputNames.data(), 1);
+        Inference::Tensor inputTensor;
+        inputTensor.name = recInputName;
+        inputTensor.shape = {1, 3, targetHeight, targetWidth};
+        inputTensor.data = std::move(input);
+
+        auto outputTensors = recModel.Run({std::move(inputTensor)});
+        if (outputTensors.empty() || outputTensors[0].shape.size() < 3 || outputTensors[0].data.empty()) {
+            confidence = 0.0;
+            return "";
+        }
 
         // CTC decode
-        float* outputData = outputTensors[0].GetTensorMutableData<float>();
-        auto outputShape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
+        const std::vector<float>& outputData = outputTensors[0].data;
+        const auto& outputShape = outputTensors[0].shape;
 
         int seqLen = static_cast<int>(outputShape[1]);
         int numClasses = static_cast<int>(outputShape[2]);
@@ -796,7 +769,6 @@ void OCRModel::SetNumThread(int numThread) {
     }
 #ifdef QIVISION_HAS_ONNXRUNTIME
     impl_->numThread = numThread;
-    impl_->sessionOptions.SetIntraOpNumThreads(numThread);
 #else
     (void)numThread;
 #endif

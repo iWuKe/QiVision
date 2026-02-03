@@ -91,6 +91,9 @@ struct QIVISION_API OCRParams {
     int numThread = 4;                  ///< Number of threads
     int gpuIndex = -1;                  ///< GPU index (-1 for CPU)
 
+    // Debug
+    bool debug = false;                 ///< Print debug statistics
+
     /// Default parameters
     static OCRParams Default() { return OCRParams(); }
 

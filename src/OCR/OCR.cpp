@@ -419,26 +419,36 @@ public:
         constexpr int minArea = 50;
         constexpr double minShortEdge = 3.0;
 
+        // Debug statistics
+        int filteredByArea = 0, filteredByContour = 0, filteredByScore = 0;
+        int filteredByRect = 0, filteredBySize = 0;
+        double minBoxScore = 1.0, maxBoxScore = 0.0, sumBoxScore = 0.0;
+        int boxScoreCount = 0;
+
         for (const auto& region : regions) {
-            if (region.Area() < minArea) continue;
+            if (region.Area() < minArea) { ++filteredByArea; continue; }
 
             // Convert region to contour for shape analysis
             QContour contour = Internal::RegionToContour(region);
-            if (contour.Size() < 4) continue;
+            if (contour.Size() < 4) { ++filteredByContour; continue; }
 
             // Compute box score (mean probability in region - precise, no background dilution)
             double boxScore = ComputeBoxScore(outputData, outWidth, outHeight, region);
-            if (boxScore < params.boxScoreThresh) continue;
+            minBoxScore = std::min(minBoxScore, boxScore);
+            maxBoxScore = std::max(maxBoxScore, boxScore);
+            sumBoxScore += boxScore;
+            ++boxScoreCount;
+            if (boxScore < params.boxScoreThresh) { ++filteredByScore; continue; }
 
             // Get minimum area rectangle
             auto minRectOpt = Internal::ContourMinAreaRect(contour);
-            if (!minRectOpt) continue;
+            if (!minRectOpt) { ++filteredByRect; continue; }
 
             RotatedRect2d minRect = *minRectOpt;
 
             // Filter small boxes
             double shortEdge = std::min(minRect.width, minRect.height);
-            if (shortEdge < minShortEdge) continue;
+            if (shortEdge < minShortEdge) { ++filteredBySize; continue; }
 
             // Get corners and apply unclip expansion
             auto corners = Internal::RotatedRectCorners(minRect);
@@ -457,6 +467,22 @@ public:
             if (scaledCorners.size() >= 4) {
                 boxes.push_back(std::move(scaledCorners));
             }
+        }
+
+        // Debug output
+        if (params.debug) {
+            std::cerr << "[OCR] Detection stats:\n"
+                      << "  Regions: " << regions.size() << " total\n"
+                      << "  Filtered: area=" << filteredByArea
+                      << ", contour=" << filteredByContour
+                      << ", score=" << filteredByScore
+                      << ", rect=" << filteredByRect
+                      << ", size=" << filteredBySize << "\n"
+                      << "  BoxScore: min=" << minBoxScore
+                      << ", max=" << maxBoxScore
+                      << ", avg=" << (boxScoreCount > 0 ? sumBoxScore / boxScoreCount : 0.0)
+                      << " (thresh=" << params.boxScoreThresh << ")\n"
+                      << "  Output: " << boxes.size() << " boxes\n";
         }
 
         return boxes;

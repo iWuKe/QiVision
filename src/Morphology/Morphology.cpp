@@ -9,6 +9,7 @@
 #include <QiVision/Internal/MorphGray.h>
 #include <QiVision/Internal/RLEOps.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 
 #include <algorithm>
 #include <cmath>
@@ -17,16 +18,7 @@
 namespace Qi::Vision::Morphology {
 
 static bool RequireGrayU8Input(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (image.Type() != PixelType::UInt8 || image.GetChannelType() != ChannelType::Gray) {
-        throw InvalidArgumentException(std::string(funcName) + ": image must be Gray UInt8");
-    }
-    return true;
+    return Validate::RequireImageU8Gray(image, funcName);
 }
 
 // =============================================================================

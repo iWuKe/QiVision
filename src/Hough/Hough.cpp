@@ -7,6 +7,7 @@
 
 #include <QiVision/Hough/Hough.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/Internal/Hough.h>
 #include <QiVision/Display/Draw.h>
 
@@ -24,21 +25,8 @@ namespace {
 constexpr double PI = 3.14159265358979323846;
 constexpr double EPSILON = 1e-10;
 
-void ValidateBinaryInput(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return;  // Empty input -> empty output (don't throw)
-    }
-
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException(std::string(funcName) + " requires UInt8 image");
-    }
-
-    if (image.Channels() != 1) {
-        throw UnsupportedException(std::string(funcName) + " requires single-channel image");
-    }
+bool ValidateBinaryInput(const QImage& image, const char* funcName) {
+    return Validate::RequireImageU8Gray(image, funcName);
 }
 
 void RequireFinite(double value, const char* message) {
@@ -217,7 +205,9 @@ void HoughLines(
         return;
     }
 
-    ValidateBinaryInput(edgeImage, "HoughLines");
+    if (!ValidateBinaryInput(edgeImage, "HoughLines")) {
+        return;
+    }
 
     // Build parameters
     Internal::HoughLineParams params = BuildInternalLineParams(
@@ -287,7 +277,9 @@ void HoughLinesP(
         return;
     }
 
-    ValidateBinaryInput(edgeImage, "HoughLinesP");
+    if (!ValidateBinaryInput(edgeImage, "HoughLinesP")) {
+        return;
+    }
 
     Internal::HoughLineProbParams params = BuildInternalLinePParams(
         rhoResolution, thetaResolution, threshold, minLineLength, maxLineGap);
@@ -392,7 +384,9 @@ void HoughCircles(
         return;
     }
 
-    ValidateBinaryInput(edgeImage, "HoughCircles");
+    if (!ValidateBinaryInput(edgeImage, "HoughCircles")) {
+        return;
+    }
 
     Internal::HoughCircleParams params = BuildInternalCircleParams(
         dp, minDist, param1, param2, minRadius, maxRadius);
@@ -421,7 +415,9 @@ void HoughCircles(
         return;
     }
 
-    ValidateBinaryInput(edgeImage, "HoughCircles");
+    if (!ValidateBinaryInput(edgeImage, "HoughCircles")) {
+        return;
+    }
     if (gradientX.Empty() || gradientY.Empty()) {
         return;
     }
@@ -596,7 +592,9 @@ void DetectHoughLines(
         return;
     }
 
-    ValidateBinaryInput(edgeImage, "DetectHoughLines");
+    if (!ValidateBinaryInput(edgeImage, "DetectHoughLines")) {
+        return;
+    }
     RequireFinite(params.rhoResolution, "DetectHoughLines: invalid rhoResolution");
     RequireFinite(params.thetaResolution, "DetectHoughLines: invalid thetaResolution");
     RequireFinite(params.threshold, "DetectHoughLines: invalid threshold");
@@ -642,7 +640,9 @@ void DetectHoughLinesP(
         return;
     }
 
-    ValidateBinaryInput(edgeImage, "DetectHoughLinesP");
+    if (!ValidateBinaryInput(edgeImage, "DetectHoughLinesP")) {
+        return;
+    }
     RequireFinite(params.rhoResolution, "DetectHoughLinesP: invalid rhoResolution");
     RequireFinite(params.thetaResolution, "DetectHoughLinesP: invalid thetaResolution");
     RequireFinite(params.minLineLength, "DetectHoughLinesP: invalid minLineLength");
@@ -687,7 +687,9 @@ void DetectHoughCircles(
         return;
     }
 
-    ValidateBinaryInput(edgeImage, "DetectHoughCircles");
+    if (!ValidateBinaryInput(edgeImage, "DetectHoughCircles")) {
+        return;
+    }
     RequireFinite(params.dp, "DetectHoughCircles: invalid dp");
     RequireFinite(params.minDist, "DetectHoughCircles: invalid minDist");
     RequireFinite(params.param1, "DetectHoughCircles: invalid param1");

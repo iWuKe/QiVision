@@ -131,3 +131,13 @@ cannot meaningfully proceed without real data or initialization.
 ### Display / Draw
 - Empty image: treat as no-op (return without modifying).
 - Invalid parameters: throw `InvalidArgumentException`.
+
+## Validation Strategy Summary
+
+| Function type              | Empty input behavior                  | Validation function          |
+|---------------------------|---------------------------------------|------------------------------|
+| Model creation (Create*)  | throw `InvalidArgumentException`      | `RequireImageNonEmpty*`      |
+| Fitting (Fit*, Measure+Fit)| throw `InvalidArgumentException`     | `RequireImageNonEmpty*`      |
+| Search (Find*)            | return empty result                   | `RequireImageValid`          |
+| Measure (MeasurePos/Pair) | return empty result                   | `RequireImageValid`          |
+| Filter/Transform/Convert  | return empty result / empty image     | `RequireImageValid`          |

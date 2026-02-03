@@ -6,6 +6,7 @@
 #include <QiVision/Measure/Metrology.h>
 #include <QiVision/Measure/Caliper.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/Internal/Fitting.h>
 #include <QiVision/Internal/Profiler.h>
 #include <QiVision/Internal/Edge1D.h>
@@ -681,12 +682,9 @@ const MetrologyObject* MetrologyModel::GetObject(int32_t index) const {
 }
 
 bool MetrologyModel::Apply(const QImage& image) {
-    if (image.Empty()) {
+    if (!Validate::RequireImageValid(image, "Apply")) {
         impl_->ClearResults();
         return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException("Apply: invalid image");
     }
 
     impl_->ClearResults();

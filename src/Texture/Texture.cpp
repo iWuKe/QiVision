@@ -5,6 +5,7 @@
 
 #include <QiVision/Texture/Texture.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/Internal/Convolution.h>
 
 #include <cmath>
@@ -19,26 +20,6 @@ namespace Qi::Vision::Texture {
 // =============================================================================
 
 namespace {
-
-bool RequireGrayU8(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException(std::string(funcName) +
-                                   " requires single-channel UInt8 image");
-    }
-    return true;
-}
-
-void RequirePositive(int32_t value, const char* name, const char* funcName) {
-    if (value <= 0) {
-        throw InvalidArgumentException(std::string(funcName) + ": " + name + " must be > 0");
-    }
-}
 
 int32_t LbpNumBins(LBPType type) {
     switch (type) {
@@ -125,7 +106,7 @@ static int32_t GetRIMapping(uint8_t pattern) {
 }
 
 void ComputeLBP(const QImage& image, QImage& lbpImage, LBPType type) {
-    if (!RequireGrayU8(image, "ComputeLBP")) {
+    if (!Validate::RequireImageU8Gray(image, "ComputeLBP")) {
         lbpImage = QImage();
         return;
     }
@@ -197,7 +178,7 @@ void ComputeLBP(const QImage& image, QImage& lbpImage, LBPType type) {
 
 void ComputeLBPExtended(const QImage& image, QImage& lbpImage,
                         int32_t radius, int32_t numPoints, LBPType type) {
-    if (!RequireGrayU8(image, "ComputeLBPExtended")) {
+    if (!Validate::RequireImageU8Gray(image, "ComputeLBPExtended")) {
         lbpImage = QImage();
         return;
     }
@@ -268,16 +249,11 @@ int32_t ComputeLBPHistogram(const QImage& lbpImage,
                             std::vector<double>& histogram,
                             LBPType type) {
     int32_t numBins = LbpNumBins(type);
+    histogram.assign(numBins, 0.0);
 
-    if (lbpImage.Empty()) {
-        histogram.assign(numBins, 0.0);
+    if (!Validate::RequireImageU8Gray(lbpImage, "ComputeLBPHistogram")) {
         return numBins;
     }
-    if (lbpImage.Type() != PixelType::UInt8 || lbpImage.Channels() != 1) {
-        throw UnsupportedException("ComputeLBPHistogram requires single-channel UInt8 image");
-    }
-
-    histogram.assign(numBins, 0.0);
 
     const uint8_t* data = static_cast<const uint8_t*>(lbpImage.Data());
     int32_t stride = lbpImage.Stride();
@@ -310,16 +286,12 @@ int32_t ComputeLBPHistogram(const QImage& lbpImage,
                             std::vector<double>& histogram,
                             LBPType type) {
     int32_t numBins = LbpNumBins(type);
+    histogram.assign(numBins, 0.0);
 
-    if (lbpImage.Empty()) {
-        histogram.assign(numBins, 0.0);
+    if (!Validate::RequireImageU8Gray(lbpImage, "ComputeLBPHistogram")) {
         return numBins;
     }
-    if (lbpImage.Type() != PixelType::UInt8 || lbpImage.Channels() != 1) {
-        throw UnsupportedException("ComputeLBPHistogram requires single-channel UInt8 image");
-    }
     if (region.Empty()) {
-        histogram.assign(numBins, 0.0);
         return numBins;
     }
 
@@ -358,7 +330,7 @@ void ComputeGLCM(const QImage& image,
                  int32_t distance,
                  GLCMDirection direction,
                  int32_t numLevels) {
-    if (!RequireGrayU8(image, "ComputeGLCM")) {
+    if (!Validate::RequireImageU8Gray(image, "ComputeGLCM")) {
         glcm.clear();
         return;
     }
@@ -457,7 +429,7 @@ void ComputeGLCM(const QImage& image,
                  int32_t distance,
                  GLCMDirection direction,
                  int32_t numLevels) {
-    if (!RequireGrayU8(image, "ComputeGLCM")) {
+    if (!Validate::RequireImageU8Gray(image, "ComputeGLCM")) {
         glcm.clear();
         return;
     }
@@ -606,7 +578,7 @@ void CreateGaborKernel(const GaborParams& params, QImage& kernel) {
 
 void ApplyGaborFilter(const QImage& image, QImage& output,
                       const GaborParams& params) {
-    if (!RequireGrayU8(image, "ApplyGaborFilter")) {
+    if (!Validate::RequireImageU8Gray(image, "ApplyGaborFilter")) {
         output = QImage();
         return;
     }
@@ -656,11 +628,11 @@ void ApplyGaborFilterBank(const QImage& image,
                           int32_t numOrientations,
                           double sigma,
                           double lambda) {
-    RequirePositive(numOrientations, "numOrientations", "ApplyGaborFilterBank");
+    Validate::RequirePositive(numOrientations, "numOrientations", "ApplyGaborFilterBank");
     if (!std::isfinite(sigma) || !std::isfinite(lambda) || sigma <= 0.0 || lambda <= 0.0) {
         throw InvalidArgumentException("ApplyGaborFilterBank: sigma/lambda must be > 0");
     }
-    if (!RequireGrayU8(image, "ApplyGaborFilterBank")) {
+    if (!Validate::RequireImageU8Gray(image, "ApplyGaborFilterBank")) {
         responses.clear();
         return;
     }
@@ -678,7 +650,7 @@ void ApplyGaborFilterBank(const QImage& image,
 
 void ComputeGaborEnergy(const QImage& image, QImage& energy,
                         const GaborParams& params) {
-    if (!RequireGrayU8(image, "ComputeGaborEnergy")) {
+    if (!Validate::RequireImageU8Gray(image, "ComputeGaborEnergy")) {
         energy = QImage();
         return;
     }
@@ -718,14 +690,14 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
                                     double sigma,
                                     double lambda) {
     GaborFeatures f;
-    RequirePositive(numOrientations, "numOrientations", "ExtractGaborFeatures");
+    Validate::RequirePositive(numOrientations, "numOrientations", "ExtractGaborFeatures");
     if (!std::isfinite(sigma) || !std::isfinite(lambda) || sigma <= 0.0 || lambda <= 0.0) {
         throw InvalidArgumentException("ExtractGaborFeatures: sigma/lambda must be > 0");
     }
     f.meanEnergy.resize(numOrientations);
     f.stdEnergy.resize(numOrientations);
 
-    if (!RequireGrayU8(image, "ExtractGaborFeatures")) {
+    if (!Validate::RequireImageU8Gray(image, "ExtractGaborFeatures")) {
         f.dominantOrientation = 0.0;
         f.orientationStrength = 0.0;
         return f;
@@ -783,7 +755,7 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
                                     int32_t numOrientations,
                                     double sigma,
                                     double lambda) {
-    RequirePositive(numOrientations, "numOrientations", "ExtractGaborFeatures");
+    Validate::RequirePositive(numOrientations, "numOrientations", "ExtractGaborFeatures");
     if (!std::isfinite(sigma) || !std::isfinite(lambda) || sigma <= 0.0 || lambda <= 0.0) {
         throw InvalidArgumentException("ExtractGaborFeatures: sigma/lambda must be > 0");
     }
@@ -791,7 +763,7 @@ GaborFeatures ExtractGaborFeatures(const QImage& image,
     f.meanEnergy.resize(numOrientations);
     f.stdEnergy.resize(numOrientations);
 
-    if (!RequireGrayU8(image, "ExtractGaborFeatures") || region.Empty()) {
+    if (!Validate::RequireImageU8Gray(image, "ExtractGaborFeatures") || region.Empty()) {
         return f;
     }
     // Use bounding box for simplicity
@@ -863,9 +835,9 @@ double CompareGaborFeatures(const GaborFeatures& f1, const GaborFeatures& f2) {
 
 int32_t SegmentByTextureLBP(const QImage& image, QImage& labels,
                             int32_t numClusters, int32_t windowSize) {
-    RequirePositive(numClusters, "numClusters", "SegmentByTextureLBP");
-    RequirePositive(windowSize, "windowSize", "SegmentByTextureLBP");
-    if (!RequireGrayU8(image, "SegmentByTextureLBP")) {
+    Validate::RequirePositive(numClusters, "numClusters", "SegmentByTextureLBP");
+    Validate::RequirePositive(windowSize, "windowSize", "SegmentByTextureLBP");
+    if (!Validate::RequireImageU8Gray(image, "SegmentByTextureLBP")) {
         labels = QImage();
         return 0;
     }
@@ -970,8 +942,8 @@ void DetectTextureAnomalies(const QImage& image,
                             QImage& anomalyMap,
                             int32_t windowSize,
                             LBPType type) {
-    RequirePositive(windowSize, "windowSize", "DetectTextureAnomalies");
-    if (!RequireGrayU8(image, "DetectTextureAnomalies")) {
+    Validate::RequirePositive(windowSize, "windowSize", "DetectTextureAnomalies");
+    if (!Validate::RequireImageU8Gray(image, "DetectTextureAnomalies")) {
         anomalyMap = QImage();
         return;
     }

@@ -14,30 +14,20 @@ namespace Qi::Vision::Transform {
 
 namespace {
 
-// Transform-specific: sets dst to empty on empty src
-inline bool RequireImage(const QImage& src, QImage& dst, const char* funcName) {
-    if (src.Empty()) {
+// Transform-specific: sets dst to empty on empty src, requires UInt8
+inline bool RequireImageU8(const QImage& src, QImage& dst, const char* funcName) {
+    if (!Validate::RequireImageU8(src, funcName)) {
         dst = QImage();
         return false;
-    }
-    if (!src.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (src.Type() != PixelType::UInt8) {
-        throw UnsupportedException(std::string(funcName) + ": only UInt8 images are supported");
     }
     return true;
 }
 
-inline void RequirePositive(double value, const char* name, const char* funcName) {
+inline void RequirePositiveFinite(double value, const char* name, const char* funcName) {
     if (!std::isfinite(value)) {
         throw InvalidArgumentException(std::string(funcName) + ": " + name + " is invalid");
     }
     Validate::RequirePositive(value, name, funcName);
-}
-
-inline void RequireNonNegativeSize(int32_t value, const char* name, const char* funcName) {
-    Validate::RequireNonNegative(value, name, funcName);
 }
 
 void RequirePointValid(const Point2d& point, const char* funcName) {
@@ -75,13 +65,13 @@ void CartesianToPolar(
     PolarMode mode,
     PolarInterpolation interp)
 {
-    if (!RequireImage(src, dst, "CartesianToPolar")) {
+    if (!RequireImageU8(src, dst, "CartesianToPolar")) {
         return;
     }
     RequirePointValid(center, "CartesianToPolar");
-    RequirePositive(maxRadius, "maxRadius", "CartesianToPolar");
-    RequireNonNegativeSize(dstWidth, "dstWidth", "CartesianToPolar");
-    RequireNonNegativeSize(dstHeight, "dstHeight", "CartesianToPolar");
+    RequirePositiveFinite(maxRadius, "maxRadius", "CartesianToPolar");
+    Validate::RequireNonNegative(dstWidth, "dstWidth", "CartesianToPolar");
+    Validate::RequireNonNegative(dstHeight, "dstHeight", "CartesianToPolar");
     dst = Internal::WarpPolar(
         src, center, maxRadius,
         dstWidth, dstHeight,
@@ -103,13 +93,13 @@ void PolarToCartesian(
     PolarMode mode,
     PolarInterpolation interp)
 {
-    if (!RequireImage(src, dst, "PolarToCartesian")) {
+    if (!RequireImageU8(src, dst, "PolarToCartesian")) {
         return;
     }
     RequirePointValid(center, "PolarToCartesian");
-    RequirePositive(maxRadius, "maxRadius", "PolarToCartesian");
-    RequireNonNegativeSize(dstWidth, "dstWidth", "PolarToCartesian");
-    RequireNonNegativeSize(dstHeight, "dstHeight", "PolarToCartesian");
+    RequirePositiveFinite(maxRadius, "maxRadius", "PolarToCartesian");
+    Validate::RequireNonNegative(dstWidth, "dstWidth", "PolarToCartesian");
+    Validate::RequireNonNegative(dstHeight, "dstHeight", "PolarToCartesian");
     // Default output size = 2 * maxRadius
     if (dstWidth == 0) dstWidth = static_cast<int32_t>(maxRadius * 2);
     if (dstHeight == 0) dstHeight = static_cast<int32_t>(maxRadius * 2);
@@ -136,13 +126,13 @@ void WarpPolar(
     bool inverse,
     PolarInterpolation interp)
 {
-    if (!RequireImage(src, dst, "WarpPolar")) {
+    if (!RequireImageU8(src, dst, "WarpPolar")) {
         return;
     }
     RequirePointValid(center, "WarpPolar");
-    RequirePositive(maxRadius, "maxRadius", "WarpPolar");
-    RequireNonNegativeSize(dstWidth, "dstWidth", "WarpPolar");
-    RequireNonNegativeSize(dstHeight, "dstHeight", "WarpPolar");
+    RequirePositiveFinite(maxRadius, "maxRadius", "WarpPolar");
+    Validate::RequireNonNegative(dstWidth, "dstWidth", "WarpPolar");
+    Validate::RequireNonNegative(dstHeight, "dstHeight", "WarpPolar");
     if (inverse) {
         PolarToCartesian(src, dst, center, maxRadius, dstWidth, dstHeight, mode, interp);
     } else {

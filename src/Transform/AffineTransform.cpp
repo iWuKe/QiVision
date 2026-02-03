@@ -17,17 +17,11 @@ namespace Qi::Vision::Transform {
 
 namespace {
 
-// Transform-specific: sets dst to empty on empty src
-inline bool RequireImage(const QImage& src, QImage& dst, const char* funcName) {
-    if (src.Empty()) {
+// Transform-specific: sets dst to empty on empty src, requires UInt8
+inline bool RequireImageU8(const QImage& src, QImage& dst, const char* funcName) {
+    if (!Validate::RequireImageU8(src, funcName)) {
         dst = QImage();
         return false;
-    }
-    if (!src.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (src.Type() != PixelType::UInt8) {
-        throw UnsupportedException(std::string(funcName) + ": only UInt8 images are supported");
     }
     return true;
 }
@@ -38,11 +32,7 @@ inline void RequireFinite(double value, const char* name, const char* funcName) 
     }
 }
 
-inline void RequireNonNegativeSize(int32_t value, const char* name, const char* funcName) {
-    Validate::RequireNonNegative(value, name, funcName);
-}
-
-inline void RequirePositive(double value, const char* name, const char* funcName) {
+inline void RequirePositiveFinite(double value, const char* name, const char* funcName) {
     RequireFinite(value, name, funcName);
     Validate::RequirePositive(value, name, funcName);
 }
@@ -113,7 +103,7 @@ void AffineTransImage(
     const std::string& borderMode,
     double borderValue)
 {
-    if (!RequireImage(src, dst, "AffineTransImage")) {
+    if (!RequireImageU8(src, dst, "AffineTransImage")) {
         return;
     }
     RequireMatrixFinite(matrix, "AffineTransImage");
@@ -138,12 +128,12 @@ void AffineTransImage(
     const std::string& borderMode,
     double borderValue)
 {
-    if (!RequireImage(src, dst, "AffineTransImage")) {
+    if (!RequireImageU8(src, dst, "AffineTransImage")) {
         return;
     }
     RequireMatrixFinite(matrix, "AffineTransImage");
-    RequireNonNegativeSize(dstWidth, "dstWidth", "AffineTransImage");
-    RequireNonNegativeSize(dstHeight, "dstHeight", "AffineTransImage");
+    Validate::RequireNonNegative(dstWidth, "dstWidth", "AffineTransImage");
+    Validate::RequireNonNegative(dstHeight, "dstHeight", "AffineTransImage");
     RequireFinite(borderValue, "borderValue", "AffineTransImage");
     dst = Internal::WarpAffine(
         src,
@@ -161,7 +151,7 @@ void RotateImage(
     double angle,
     const std::string& interpolation)
 {
-    if (!RequireImage(src, dst, "RotateImage")) {
+    if (!RequireImageU8(src, dst, "RotateImage")) {
         return;
     }
     RequireFinite(angle, "angle", "RotateImage");
@@ -183,7 +173,7 @@ void RotateImage(
     double centerCol,
     const std::string& interpolation)
 {
-    if (!RequireImage(src, dst, "RotateImage")) {
+    if (!RequireImageU8(src, dst, "RotateImage")) {
         return;
     }
     RequireFinite(angle, "angle", "RotateImage");
@@ -208,11 +198,11 @@ void ScaleImage(
     double scaleY,
     const std::string& interpolation)
 {
-    if (!RequireImage(src, dst, "ScaleImage")) {
+    if (!RequireImageU8(src, dst, "ScaleImage")) {
         return;
     }
-    RequirePositive(scaleX, "scaleX", "ScaleImage");
-    RequirePositive(scaleY, "scaleY", "ScaleImage");
+    RequirePositiveFinite(scaleX, "scaleX", "ScaleImage");
+    RequirePositiveFinite(scaleY, "scaleY", "ScaleImage");
     dst = Internal::ScaleImageFactor(
         src,
         scaleX,
@@ -228,11 +218,11 @@ void ZoomImageSize(
     int32_t dstHeight,
     const std::string& interpolation)
 {
-    if (!RequireImage(src, dst, "ZoomImageSize")) {
+    if (!RequireImageU8(src, dst, "ZoomImageSize")) {
         return;
     }
-    RequireNonNegativeSize(dstWidth, "dstWidth", "ZoomImageSize");
-    RequireNonNegativeSize(dstHeight, "dstHeight", "ZoomImageSize");
+    Validate::RequireNonNegative(dstWidth, "dstWidth", "ZoomImageSize");
+    Validate::RequireNonNegative(dstHeight, "dstHeight", "ZoomImageSize");
     dst = Internal::ScaleImage(
         src,
         dstWidth,

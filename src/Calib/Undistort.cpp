@@ -5,6 +5,7 @@
 
 #include <QiVision/Calib/Undistort.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 
 #include <cmath>
 #include <algorithm>
@@ -49,12 +50,9 @@ void Undistort(
     const CameraModel& camera,
     Internal::InterpolationMethod method)
 {
-    if (src.Empty()) {
+    if (!Validate::RequireImageValid(src, "Undistort")) {
         dst = QImage();
         return;
-    }
-    if (!src.IsValid()) {
-        throw InvalidArgumentException("Undistort: invalid image");
     }
     if (!camera.IsValid()) {
         throw InvalidArgumentException("Undistort: invalid camera model");
@@ -73,12 +71,9 @@ void Undistort(
     const Size2i& outputSize,
     Internal::InterpolationMethod method)
 {
-    if (src.Empty()) {
+    if (!Validate::RequireImageValid(src, "Undistort")) {
         dst = QImage();
         return;
-    }
-    if (!src.IsValid()) {
-        throw InvalidArgumentException("Undistort: invalid image");
     }
     if (!camera.IsValid()) {
         throw InvalidArgumentException("Undistort: invalid camera model");
@@ -188,12 +183,9 @@ void Remap(
     Internal::BorderMode borderMode,
     double borderValue)
 {
-    if (src.Empty()) {
+    if (!Validate::RequireImageValid(src, "Remap")) {
         dst = QImage();
         return;
-    }
-    if (!src.IsValid()) {
-        throw InvalidArgumentException("Remap: invalid image");
     }
     if (!std::isfinite(borderValue)) {
         throw InvalidArgumentException("Remap: invalid borderValue");

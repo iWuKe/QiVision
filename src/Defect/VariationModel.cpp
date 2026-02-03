@@ -9,6 +9,7 @@
 #include <QiVision/Internal/MorphBinary.h>
 #include <QiVision/Internal/StructElement.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/Platform/Memory.h>
 
 #include <cmath>
@@ -385,9 +386,7 @@ VariationModel::VariationModel(VariationModel&& other) noexcept = default;
 VariationModel& VariationModel::operator=(VariationModel&& other) noexcept = default;
 
 void VariationModel::Train(const QImage& goodImage) {
-    if (goodImage.Empty()) {
-        throw InvalidArgumentException("VariationModel::Train: empty image");
-    }
+    Validate::RequireImageNonEmpty(goodImage, "VariationModel::Train");
     if (impl_->width_ == 0) {
         impl_->InitAccumulators(goodImage.Width(), goodImage.Height());
     }
@@ -410,9 +409,7 @@ void VariationModel::CreateFromSingleImage(
     double edgeSigma,
     int32_t edgeDilateRadius
 ) {
-    if (golden.Empty()) {
-        throw InvalidArgumentException("VariationModel::CreateFromSingleImage: empty image");
-    }
+    Validate::RequireImageNonEmpty(golden, "VariationModel::CreateFromSingleImage");
     if (edgeTolerance < 0.0 || flatTolerance < 0.0) {
         throw InvalidArgumentException("VariationModel::CreateFromSingleImage: tolerances must be >= 0");
     }
@@ -427,9 +424,8 @@ void VariationModel::CreateFromSingleImage(
 }
 
 void VariationModel::CreateFromImages(const QImage& golden, const QImage& varImage) {
-    if (golden.Empty() || varImage.Empty()) {
-        throw InvalidArgumentException("VariationModel::CreateFromImages: empty image");
-    }
+    Validate::RequireImageNonEmpty(golden, "VariationModel::CreateFromImages");
+    Validate::RequireImageNonEmpty(varImage, "VariationModel::CreateFromImages");
     if (golden.Width() != varImage.Width() || golden.Height() != varImage.Height()) {
         throw InvalidArgumentException("VariationModel::CreateFromImages: image size mismatch");
     }
@@ -483,9 +479,7 @@ QImage VariationModel::GetVarImage() const {
 }
 
 void VariationModel::SetVarImage(const QImage& varImage) {
-    if (varImage.Empty()) {
-        throw InvalidArgumentException("VariationModel::SetVarImage: empty image");
-    }
+    Validate::RequireImageNonEmpty(varImage, "VariationModel::SetVarImage");
     if (varImage.Width() != impl_->width_ || varImage.Height() != impl_->height_) {
         throw InvalidArgumentException("VariationModel::SetVarImage: image size mismatch");
     }

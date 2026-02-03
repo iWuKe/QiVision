@@ -18,17 +18,11 @@ namespace Qi::Vision::Transform {
 
 namespace {
 
-// Transform-specific: sets dst to empty on empty src
-inline bool RequireImage(const QImage& src, QImage& dst, const char* funcName) {
-    if (src.Empty()) {
+// Transform-specific: sets dst to empty on empty src, requires UInt8
+inline bool RequireImageU8(const QImage& src, QImage& dst, const char* funcName) {
+    if (!Validate::RequireImageU8(src, funcName)) {
         dst = QImage();
         return false;
-    }
-    if (!src.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (src.Type() != PixelType::UInt8) {
-        throw UnsupportedException(std::string(funcName) + ": only UInt8 images are supported");
     }
     return true;
 }
@@ -37,10 +31,6 @@ inline void RequireFinite(double value, const char* name, const char* funcName) 
     if (!std::isfinite(value)) {
         throw InvalidArgumentException(std::string(funcName) + ": " + name + " is invalid");
     }
-}
-
-inline void RequireNonNegativeSize(int32_t value, const char* name, const char* funcName) {
-    Validate::RequireNonNegative(value, name, funcName);
 }
 
 void RequireHomographyFinite(const HomMat3d& homMat3d, const char* funcName) {
@@ -253,7 +243,7 @@ void ProjectiveTransImage(
     const std::string& borderMode,
     double borderValue)
 {
-    if (!RequireImage(src, dst, "ProjectiveTransImage")) {
+    if (!RequireImageU8(src, dst, "ProjectiveTransImage")) {
         return;
     }
     RequireHomographyFinite(homMat3d, "ProjectiveTransImage");
@@ -279,12 +269,12 @@ void ProjectiveTransImage(
     const std::string& borderMode,
     double borderValue)
 {
-    if (!RequireImage(src, dst, "ProjectiveTransImage")) {
+    if (!RequireImageU8(src, dst, "ProjectiveTransImage")) {
         return;
     }
     RequireHomographyFinite(homMat3d, "ProjectiveTransImage");
-    RequireNonNegativeSize(dstWidth, "dstWidth", "ProjectiveTransImage");
-    RequireNonNegativeSize(dstHeight, "dstHeight", "ProjectiveTransImage");
+    Validate::RequireNonNegative(dstWidth, "dstWidth", "ProjectiveTransImage");
+    Validate::RequireNonNegative(dstHeight, "dstHeight", "ProjectiveTransImage");
     RequireFinite(borderValue, "borderValue", "ProjectiveTransImage");
     Internal::Homography internal = ToInternalHomography(homMat3d);
     dst = Internal::WarpPerspective(

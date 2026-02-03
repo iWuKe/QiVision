@@ -7,6 +7,7 @@
 
 #include <QiVision/Edge/Edge.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/Internal/Canny.h>
 #include <QiVision/Internal/Steger.h>
 #include <QiVision/Internal/Gradient.h>
@@ -123,21 +124,7 @@ void ValidateStegerParams(const StegerLineParams& params, const char* funcName) 
 }
 
 bool ValidateGrayscaleInput(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException(std::string(funcName) + " only supports UInt8 images");
-    }
-
-    if (image.Channels() != 1) {
-        throw UnsupportedException(std::string(funcName) + " requires single-channel grayscale image");
-    }
-    return true;
+    return Validate::RequireImageU8Gray(image, funcName);
 }
 
 } // anonymous namespace

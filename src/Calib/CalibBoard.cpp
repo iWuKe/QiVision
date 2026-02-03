@@ -16,6 +16,7 @@
 
 #include <QiVision/Calib/CalibBoard.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 #include <QiVision/Internal/CornerRefine.h>
 #include <QiVision/Internal/Threshold.h>
 #include <QiVision/Internal/Histogram.h>
@@ -86,12 +87,9 @@ struct CornerCandidate {
  * @brief Normalize image to use full dynamic range
  */
 void NormalizeImage(const QImage& src, QImage& dst) {
-    if (src.Empty()) {
+    if (!Validate::RequireImageU8(src, "NormalizeImage")) {
         dst = QImage();
         return;
-    }
-    if (!src.IsValid()) {
-        throw InvalidArgumentException("NormalizeImage: invalid image");
     }
 
     dst = QImage(src.Width(), src.Height(), src.Type(), src.GetChannelType());
@@ -123,12 +121,9 @@ void NormalizeImage(const QImage& src, QImage& dst) {
  * @brief Simple box blur
  */
 void BoxBlur(const QImage& src, QImage& dst, int32_t kernelSize) {
-    if (src.Empty() || kernelSize < 3) {
+    if (!Validate::RequireImageU8(src, "BoxBlur") || kernelSize < 3) {
         dst = src.Clone();
         return;
-    }
-    if (!src.IsValid()) {
-        throw InvalidArgumentException("BoxBlur: invalid image");
     }
 
     const int32_t width = src.Width();
@@ -543,11 +538,8 @@ CornerGrid FindChessboardCorners(
     result.rows = patternRows;
     result.found = false;
 
-    if (image.Empty()) {
+    if (!Validate::RequireImageValid(image, "FindChessboardCorners")) {
         return result;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException("FindChessboardCorners: invalid image");
     }
 
     if (patternCols < 2 || patternRows < 2) {

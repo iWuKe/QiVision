@@ -8,6 +8,7 @@
 #include <QiVision/Internal/RegionFeatures.h>
 #include <QiVision/Internal/RLEOps.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 
 #include <algorithm>
 #include <array>
@@ -95,17 +96,8 @@ void Connection(const QImage& binaryImage,
                 std::vector<QRegion>& regions,
                 Connectivity connectivity) {
     regions.clear();
-    if (binaryImage.Empty()) {
+    if (!Validate::RequireImageU8Gray(binaryImage, "Connection")) {
         return;
-    }
-    if (!binaryImage.IsValid()) {
-        throw InvalidArgumentException("Connection: invalid image");
-    }
-    if (binaryImage.Type() != PixelType::UInt8) {
-        throw UnsupportedException("Connection: requires UInt8 binary image");
-    }
-    if (binaryImage.Channels() != 1) {
-        throw UnsupportedException("Connection: requires single-channel image");
     }
 
     int32_t numLabels = 0;

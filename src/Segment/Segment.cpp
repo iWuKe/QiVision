@@ -9,6 +9,7 @@
 #include <QiVision/Internal/Threshold.h>
 #include <QiVision/Internal/Histogram.h>
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Core/Validate.h>
 
 #include <algorithm>
 #include <array>
@@ -28,17 +29,7 @@ namespace Qi::Vision::Segment {
 namespace {
 
 bool RequireGrayU8(const QImage& image, const char* funcName) {
-    if (image.Empty()) {
-        return false;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
-    }
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException(std::string(funcName) +
-                                   " requires single-channel UInt8 image");
-    }
-    return true;
+    return Validate::RequireImageU8Gray(image, funcName);
 }
 
 void RequireFinite(double value, const char* message) {
@@ -877,14 +868,8 @@ KMeansResult RunKMeans(const std::vector<std::vector<double>>& features,
 KMeansResult KMeans(const QImage& image, const KMeansParams& params) {
     KMeansResult result;
 
-    if (image.Empty()) {
+    if (!Validate::RequireImageU8(image, "KMeans")) {
         return result;
-    }
-    if (!image.IsValid()) {
-        throw InvalidArgumentException("KMeans: invalid image");
-    }
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("KMeans: requires UInt8 image");
     }
     if (params.k < 1) {
         throw InvalidArgumentException("KMeans: k must be >= 1");
@@ -1399,11 +1384,8 @@ void ExtractWatershedRegions(const int16_t* labels, int32_t width, int32_t heigh
 } // anonymous namespace
 
 QImage DistanceTransform(const QImage& binaryImage) {
-    if (binaryImage.Empty()) {
+    if (!RequireGrayU8(binaryImage, "DistanceTransform")) {
         return QImage();
-    }
-    if (binaryImage.Type() != PixelType::UInt8 || binaryImage.Channels() != 1) {
-        throw UnsupportedException("DistanceTransform: requires single-channel UInt8 image");
     }
 
     int32_t width = binaryImage.Width();
@@ -1486,11 +1468,8 @@ QImage CreateWatershedMarkers(const QImage& distanceImage,
 WatershedResult Watershed(const QImage& image, const QImage& markers) {
     WatershedResult result;
 
-    if (image.Empty() || markers.Empty()) {
+    if (!RequireGrayU8(image, "Watershed") || markers.Empty()) {
         return result;
-    }
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("Watershed: requires single-channel UInt8 image");
     }
     if (markers.Type() != PixelType::Int16) {
         throw InvalidArgumentException("Watershed: markers must be Int16 image");

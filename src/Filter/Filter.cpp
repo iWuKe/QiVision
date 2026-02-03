@@ -168,10 +168,6 @@ void GaussFilter(const QImage& image, QImage& output, double sigmaX, double sigm
         throw InvalidArgumentException("GaussFilter: sigma must be > 0");
     }
 
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("GaussFilter only supports UInt8 images");
-    }
-
     BorderMode border = ParseBorderMode(borderMode);
 
     // Generate Gaussian kernels
@@ -230,10 +226,6 @@ void MeanImage(const QImage& image, QImage& output, int32_t width, int32_t heigh
         throw InvalidArgumentException("MeanImage: width/height must be > 0");
     }
 
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("MeanImage only supports UInt8 images");
-    }
-
     // Create uniform kernel
     std::vector<double> kernelX(width, 1.0 / width);
     std::vector<double> kernelY(height, 1.0 / height);
@@ -289,10 +281,6 @@ void MedianImage(const QImage& image, QImage& output, const std::string& maskTyp
         throw InvalidArgumentException("MedianImage: radius must be > 0");
     }
 
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("MedianImage only supports UInt8 images");
-    }
-
     int32_t size = 2 * radius + 1;
     MedianRect(image, output, size, size);
 }
@@ -304,10 +292,6 @@ void MedianRect(const QImage& image, QImage& output, int32_t width, int32_t heig
     }
     if (width <= 0 || height <= 0) {
         throw InvalidArgumentException("MedianRect: width/height must be > 0");
-    }
-
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("MedianRect only supports UInt8 images");
     }
 
     int32_t w = image.Width();
@@ -367,10 +351,6 @@ void BilateralFilter(const QImage& image, QImage& output, int32_t size,
     if (!std::isfinite(sigmaSpatial) || !std::isfinite(sigmaIntensity) ||
         sigmaSpatial <= 0.0 || sigmaIntensity <= 0.0) {
         throw InvalidArgumentException("BilateralFilter: sigma must be > 0");
-    }
-
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("BilateralFilter only supports UInt8 images");
     }
 
     int32_t w = image.Width();
@@ -493,13 +473,9 @@ void BinomialFilter(const QImage& image, QImage& output, int32_t width, int32_t 
 
 void SobelAmp(const QImage& image, QImage& output,
                const std::string& filterType, int32_t size) {
-    if (!RequireValidImage(image, "SobelAmp")) {
+    if (!RequireGrayU8(image, "SobelAmp")) {
         output = QImage();
         return;
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("SobelAmp requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -580,13 +556,9 @@ void SobelDir(const QImage& image, QImage& output,
         throw InvalidArgumentException("SobelDir: unknown dirType: " + dirType);
     }
     bool tangent = (lowerType == "tangent");
-    if (!RequireValidImage(image, "SobelDir")) {
+    if (!RequireGrayU8(image, "SobelDir")) {
         output = QImage();
         return;
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("SobelDir requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -634,13 +606,9 @@ void SobelDir(const QImage& image, QImage& output,
 }
 
 void PrewittAmp(const QImage& image, QImage& output, const std::string& filterType) {
-    if (!RequireValidImage(image, "PrewittAmp")) {
+    if (!RequireGrayU8(image, "PrewittAmp")) {
         output = QImage();
         return;
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("PrewittAmp requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -704,13 +672,9 @@ void PrewittAmp(const QImage& image, QImage& output, const std::string& filterTy
 }
 
 void RobertsAmp(const QImage& image, QImage& output, const std::string& filterType) {
-    if (!RequireValidImage(image, "RobertsAmp")) {
+    if (!RequireGrayU8(image, "RobertsAmp")) {
         output = QImage();
         return;
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("RobertsAmp requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -764,13 +728,9 @@ void DerivateGauss(const QImage& image, QImage& output,
     if (!std::isfinite(sigma) || sigma <= 0.0) {
         throw InvalidArgumentException("DerivateGauss: sigma must be > 0");
     }
-    if (!RequireValidImage(image, "DerivateGauss")) {
+    if (!RequireGrayU8(image, "DerivateGauss")) {
         output = QImage();
         return;
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("DerivateGauss requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -893,13 +853,9 @@ void GradientDirection(const QImage& image, QImage& output, double sigma) {
 }
 
 void Laplace(const QImage& image, QImage& output, const std::string& filterType) {
-    if (!RequireValidImage(image, "Laplace")) {
+    if (!RequireGrayU8(image, "Laplace")) {
         output = QImage();
         return;
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("Laplace requires single-channel UInt8 image");
     }
 
     // Laplacian kernels
@@ -1118,7 +1074,7 @@ void ShockFilter(const QImage& image, QImage& output, int32_t iterations, double
 
 void AnisoDiff(const QImage& image, QImage& output, const std::string& mode,
                 double contrast, double theta, int32_t iterations) {
-    if (!RequireValidImage(image, "AnisoDiff")) {
+    if (!RequireGrayU8(image, "AnisoDiff")) {
         output = QImage();
         return;
     }
@@ -1130,10 +1086,6 @@ void AnisoDiff(const QImage& image, QImage& output, const std::string& mode,
     }
     if (iterations <= 0) {
         throw InvalidArgumentException("AnisoDiff: iterations must be > 0");
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("AnisoDiff requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -1234,10 +1186,6 @@ void ConvolImage(const QImage& image, QImage& output,
         throw InvalidArgumentException("ConvolImage: kernel size mismatch");
     }
 
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("ConvolImage only supports UInt8 images");
-    }
-
     int32_t w = image.Width();
     int32_t h = image.Height();
     int channels = image.Channels();
@@ -1291,10 +1239,6 @@ void ConvolSeparable(const QImage& image, QImage& output,
         throw InvalidArgumentException("ConvolSeparable: kernels must be non-empty");
     }
 
-    if (image.Type() != PixelType::UInt8) {
-        throw UnsupportedException("ConvolSeparable only supports UInt8 images");
-    }
-
     int32_t w = image.Width();
     int32_t h = image.Height();
     int channels = image.Channels();
@@ -1335,7 +1279,7 @@ void ConvolSeparable(const QImage& image, QImage& output,
 
 void RankImage(const QImage& image, QImage& output,
                 int32_t width, int32_t height, int32_t rank) {
-    if (!RequireValidImage(image, "RankImage")) {
+    if (!RequireGrayU8(image, "RankImage")) {
         output = QImage();
         return;
     }
@@ -1344,10 +1288,6 @@ void RankImage(const QImage& image, QImage& output,
     }
     if (rank < 0) {
         throw InvalidArgumentException("RankImage: rank must be >= 0");
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("RankImage requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -1421,16 +1361,12 @@ void StdDevImage(const QImage& image, QImage& output, int32_t width, int32_t hei
 }
 
 void VarianceImage(const QImage& image, QImage& output, int32_t width, int32_t height) {
-    if (!RequireValidImage(image, "VarianceImage")) {
+    if (!RequireGrayU8(image, "VarianceImage")) {
         output = QImage();
         return;
     }
     if (width <= 0 || height <= 0) {
         throw InvalidArgumentException("VarianceImage: width/height must be > 0");
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("VarianceImage requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();
@@ -1470,7 +1406,7 @@ void VarianceImage(const QImage& image, QImage& output, int32_t width, int32_t h
 
 void EntropyImage(const QImage& image, QImage& output,
                    int32_t width, int32_t height, int32_t numBins) {
-    if (!RequireValidImage(image, "EntropyImage")) {
+    if (!RequireGrayU8(image, "EntropyImage")) {
         output = QImage();
         return;
     }
@@ -1479,10 +1415,6 @@ void EntropyImage(const QImage& image, QImage& output,
     }
     if (numBins <= 0) {
         throw InvalidArgumentException("EntropyImage: numBins must be > 0");
-    }
-
-    if (image.Type() != PixelType::UInt8 || image.Channels() != 1) {
-        throw UnsupportedException("EntropyImage requires single-channel UInt8 image");
     }
 
     int32_t w = image.Width();

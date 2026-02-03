@@ -745,11 +745,18 @@ std::vector<EdgeResult> FuzzyMeasurePos(
 
 ### MetrologyModel
 
-Combined measurement model framework.
+Combined measurement model for automatic edge detection and geometric fitting.
+
+**Workflow:**
+1. Create `MetrologyModel`
+2. Add measurement objects (`AddLineMeasure`, `AddCircleMeasure`, etc.)
+3. Call `Apply(image)` to measure all objects
+4. Retrieve results (`GetLineResult`, `GetCircleResult`, etc.)
 
 ```cpp
 class MetrologyModel {
 public:
+    // Add measurement objects
     int32_t AddLineMeasure(double row1, double col1, double row2, double col2,
                            double measureLength1, double measureLength2,
                            const std::string& transition = "all",
@@ -783,8 +790,10 @@ public:
                                   const std::string& select = "all",
                                   const MetrologyMeasureParams& params = {});
 
+    // Execute measurement
     bool Apply(const QImage& image);
 
+    // Retrieve results
     MetrologyLineResult GetLineResult(int32_t index) const;
     MetrologyCircleResult GetCircleResult(int32_t index) const;
     MetrologyEllipseResult GetEllipseResult(int32_t index) const;
@@ -793,10 +802,32 @@ public:
     std::vector<Point2d> GetMeasuredPoints(int32_t index) const;
     std::vector<double> GetPointWeights(int32_t index) const;
 
+    // Alignment (for template matching integration)
     void Align(double rowOffset, double colOffset, double phi);
     void ResetAlignment();
+
+    // Utilities
+    int32_t NumObjects() const;
+    const MetrologyObject* GetObject(int32_t index) const;
+    void ClearObject(int32_t index);
+    void ClearAll();
 };
 ```
+
+**Parameter `transition` values:**
+| Value | Description |
+|-------|-------------|
+| `"all"` | Detect all edge transitions |
+| `"positive"` | Dark-to-bright transitions only |
+| `"negative"` | Bright-to-dark transitions only |
+
+**Parameter `select` values:**
+| Value | Description |
+|-------|-------------|
+| `"all"` | Use all detected edges |
+| `"first"` | Use first edge along profile |
+| `"last"` | Use last edge along profile |
+| `"strongest"` / `"best"` | Use edge with highest amplitude |
 
 **Method Returns**
 | Method | Returns | Description |
@@ -813,6 +844,95 @@ public:
 | GetRectangle2Result | MetrologyRectangle2Result | Fitted rectangle result for object at index |
 | GetMeasuredPoints | std::vector<Point2d> | Edge points used for fitting |
 | GetPointWeights | std::vector<double> | Weight of each edge point (0-1) |
+
+**Example: Measure a circle**
+```cpp
+#include <QiVision/Measure/Metrology.h>
+using namespace Qi::Vision::Measure;
+
+MetrologyModel model;
+
+// Add circle measurement at (row=200, col=300) with radius 100
+MetrologyMeasureParams params;
+params.SetNumMeasures(20)        // 20 calipers around circle
+      .SetThreshold("auto")      // Automatic edge threshold
+      .SetFitMethod("ransac");   // RANSAC fitting
+
+model.AddCircleMeasure(200, 300, 100, 20.0, 5.0, "all", "first", params);
+
+// Measure
+model.Apply(grayImage);
+
+// Get result
+auto result = model.GetCircleResult(0);
+std::cout << "Center: (" << result.column << ", " << result.row << ")\n";
+std::cout << "Radius: " << result.radius << " px\n";
+std::cout << "RMS error: " << result.rmsError << " px\n";
+```
+
+**Example: Measure a line**
+```cpp
+MetrologyModel model;
+MetrologyMeasureParams params;
+params.SetNumMeasures(15).SetThreshold("auto");
+
+// Add line from (100, 100) to (100, 500) - horizontal edge
+model.AddLineMeasure(100, 100, 100, 500, 20.0, 5.0, "positive", "first", params);
+
+model.Apply(grayImage);
+
+auto result = model.GetLineResult(0);
+std::cout << "Line from (" << result.column1 << "," << result.row1 << ") to ("
+          << result.column2 << "," << result.row2 << ")\n";
+```
+
+---
+
+### MetrologyLineResult / MetrologyCircleResult
+
+Result structures for fitted geometric primitives.
+
+```cpp
+struct MetrologyLineResult {
+    double row1, col1;        // Start point
+    double row2, col2;        // End point
+    double nr, nc, dist;      // Hesse normal form: nr*row + nc*col = dist
+    int32_t numUsed;          // Number of edge points used
+    double rmsError;          // RMS fitting error [px]
+    bool valid;               // True if fitting succeeded
+    // Angle can be calculated: atan2(row2-row1, col2-col1)
+};
+
+struct MetrologyCircleResult {
+    double row, column;       // Center
+    double radius;            // Radius [px]
+    double startAngle, endAngle;  // Arc range (for partial circles)
+    double score;             // Fit quality [0, 1]
+    int32_t numUsed;          // Number of edge points used
+    double rmsError;          // RMS fitting error [px]
+    bool valid;               // True if fitting succeeded
+};
+
+struct MetrologyEllipseResult {
+    double row, column;       // Center
+    double phi;               // Rotation angle [rad]
+    double ra, rb;            // Semi-axes (ra >= rb)
+    double score;
+    int32_t numUsed;
+    double rmsError;
+    bool valid;
+};
+
+struct MetrologyRectangle2Result {
+    double row, column;       // Center
+    double phi;               // Rotation angle [rad]
+    double length1, length2;  // Half-lengths (x and y directions)
+    double score;
+    int32_t numUsed;
+    double rmsError;
+    bool valid;
+};
+```
 
 ---
 

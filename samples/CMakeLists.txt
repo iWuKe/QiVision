@@ -20,6 +20,7 @@ add_sample(matching_ncc_match matching/ncc_match.cpp)
 
 # Measure - Metrology & Caliper
 add_sample(measure_circle_metrology measure/circle_metrology.cpp)
+add_sample(measure_line_metrology measure/line_metrology.cpp)
 add_sample(measure_caliper_pairs measure/caliper_pairs.cpp)
 add_sample(measure_caliper_circle_manual measure/caliper_circle_manual.cpp)
 
@@ -46,6 +47,7 @@ set(SAMPLE_TARGETS
     matching_test_scaled_match
     matching_ncc_match
     measure_circle_metrology
+    measure_line_metrology
     measure_caliper_pairs
     measure_caliper_circle_manual
     blob_analysis

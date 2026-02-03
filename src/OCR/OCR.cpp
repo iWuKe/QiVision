@@ -37,6 +37,7 @@ inline bool RequireOCRImage(const QImage& image, const char* funcName) {
 }
 
 inline void ValidateOCRParams(const OCRParams& params, const char* funcName) {
+    Validate::RequireNonNegative(params.padding, "padding", funcName);
     Validate::RequirePositive(params.maxSideLen, "maxSideLen", funcName);
     Validate::RequireRange(params.boxScoreThresh, 0.0, 1.0, "boxScoreThresh", funcName);
     Validate::RequireRange(params.boxThresh, 0.0, 1.0, "boxThresh", funcName);

@@ -79,6 +79,8 @@ inline const char* PixelTypeName(PixelType type) {
 /**
  * @brief Check image is allocated and valid (no type restriction)
  *
+ * Use this when empty image should be a silent no-op (e.g., filtering).
+ *
  * @param image Input image
  * @param funcName Function name for error messages
  * @return false if empty (caller should return empty result)
@@ -92,6 +94,24 @@ inline bool RequireImageValid(const QImage& image, const char* funcName) {
         throw InvalidArgumentException(std::string(funcName) + ": image is invalid");
     }
     return true;
+}
+
+/**
+ * @brief Check image is non-empty and valid (throws on empty)
+ *
+ * Use this when empty image is an error (e.g., model creation, fitting).
+ *
+ * @param image Input image
+ * @param funcName Function name for error messages
+ * @throws InvalidArgumentException if image is empty or invalid
+ */
+inline void RequireImageNonEmpty(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        throw InvalidArgumentException(std::string(funcName) + ": image is empty");
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": image is invalid");
+    }
 }
 
 // =============================================================================
@@ -188,6 +208,26 @@ inline void RequireChannelCountExact(const QImage& image, int expected, const ch
 // =============================================================================
 // Image Validation - Layer 3: Combined convenience functions
 // =============================================================================
+
+// --- Non-empty variants (throw on empty, for model creation/fitting) ---
+
+/**
+ * @brief Check image is non-empty, valid, and has specific type (throws on empty)
+ */
+inline void RequireImageNonEmptyType(const QImage& image, PixelType expected, const char* funcName) {
+    RequireImageNonEmpty(image, funcName);
+    RequireImageType(image, expected, funcName);
+}
+
+/**
+ * @brief Check image is non-empty, valid, UInt8 (throws on empty)
+ */
+inline void RequireImageNonEmptyU8(const QImage& image, const char* funcName) {
+    RequireImageNonEmpty(image, funcName);
+    RequireImageType(image, PixelType::UInt8, funcName);
+}
+
+// --- Optional empty variants (return false on empty, for filtering/search) ---
 
 /**
  * @brief Validate UInt8 image (common case)
@@ -345,14 +385,26 @@ inline void RequireGpuIndex(int gpuIndex, const char* funcName) {
 // =============================================================================
 
 /**
- * Early return with custom return value
- * Usage: QIVISION_REQUIRE_IMAGE_OR(img, result, retval)
+ * Macro usage convention by return type:
+ *
+ * | Return type      | Macro to use                          |
+ * |------------------|---------------------------------------|
+ * | void             | QIVISION_REQUIRE_IMAGE_VOID(img)      |
+ * | bool / int       | QIVISION_REQUIRE_IMAGE_OR(img, false) |
+ * | struct / vector  | QIVISION_REQUIRE_IMAGE(img)           |
+ *
+ * For algorithms where empty input is an ERROR (not no-op),
+ * use RequireImageNonEmpty() directly instead of macros.
+ */
+
+/**
+ * Early return with custom return value (for bool/int/pointer returns)
  */
 #define QIVISION_REQUIRE_IMAGE_OR(img, retval) \
     if (!::Qi::Vision::Validate::RequireImageValid(img, __func__)) return retval
 
 /**
- * Early return {} (for functions returning containers/structs)
+ * Early return {} (for struct/vector/container returns)
  */
 #define QIVISION_REQUIRE_IMAGE(img) \
     QIVISION_REQUIRE_IMAGE_OR(img, {})
@@ -364,7 +416,7 @@ inline void RequireGpuIndex(int gpuIndex, const char* funcName) {
     if (!::Qi::Vision::Validate::RequireImageValid(img, __func__)) return
 
 /**
- * Early return with UInt8 type check
+ * UInt8 variants
  */
 #define QIVISION_REQUIRE_IMAGE_U8(img) \
     if (!::Qi::Vision::Validate::RequireImageU8(img, __func__)) return {}

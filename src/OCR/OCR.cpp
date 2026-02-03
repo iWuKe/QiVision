@@ -16,6 +16,7 @@
 #include <QiVision/Blob/Blob.h>
 #include <QiVision/Morphology/Morphology.h>
 #include <QiVision/Platform/Timer.h>
+#include <QiVision/Platform/FileIO.h>
 
 #ifdef QIVISION_HAS_ONNXRUNTIME
 #include <onnxruntime_cxx_api.h>
@@ -23,9 +24,11 @@
 
 #include <mutex>
 #include <fstream>
+#include <iostream>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <cstdlib>
 
 namespace Qi::Vision::OCR {
 
@@ -513,16 +516,76 @@ bool OCRModel::Init(const std::string& modelDir,
                     const std::string& recModel,
                     const std::string& keysFile) {
     if (modelDir.empty()) {
-        throw InvalidArgumentException("OCRModel::Init: modelDir is empty");
+        throw InvalidArgumentException("OCRModel::Init: modelDir is empty. "
+            "Use GetDefaultModelDir() to get the default path, or set QIVISION_OCR_MODELS environment variable.");
     }
     if (detModel.empty() || recModel.empty() || keysFile.empty()) {
         throw InvalidArgumentException("OCRModel::Init: model filenames must not be empty");
     }
-    return impl_->Init(modelDir, detModel, clsModel, recModel, keysFile);
+
+    // Check if directory exists
+    if (!Platform::DirectoryExists(modelDir)) {
+        std::string msg = "OCRModel::Init: Model directory not found: " + modelDir + "\n\n";
+        msg += "To install OCR models, use one of these methods:\n";
+        msg += "1. Call OCR::DownloadModels(\"" + modelDir + "\")\n";
+        msg += "2. Download manually from: " + GetModelDownloadUrl() + "\n";
+        msg += "3. Set QIVISION_OCR_MODELS environment variable\n\n";
+        msg += "Required files: ";
+        auto requiredFiles = GetRequiredModelFiles();
+        for (size_t i = 0; i < requiredFiles.size(); ++i) {
+            if (i > 0) msg += ", ";
+            msg += requiredFiles[i];
+        }
+        throw IOException(msg);
+    }
+
+    // Check for required model files
+    std::vector<std::string> filesToCheck = {detModel, recModel, keysFile};
+    std::vector<std::string> missingFiles;
+
+    for (const auto& file : filesToCheck) {
+        std::string path = modelDir + "/" + file;
+        if (!Platform::FileExists(path)) {
+            missingFiles.push_back(file);
+        }
+    }
+
+    if (!missingFiles.empty()) {
+        std::string msg = "OCRModel::Init: Required model files not found in " + modelDir + ":\n";
+        for (const auto& f : missingFiles) {
+            msg += "  - " + f + "\n";
+        }
+        msg += "\nTo install, run: OCR::DownloadModels(\"" + modelDir + "\")\n";
+        msg += "Or download from: " + GetModelDownloadUrl();
+        throw IOException(msg);
+    }
+
+    bool success = impl_->Init(modelDir, detModel, clsModel, recModel, keysFile);
+
+    if (!success) {
+        std::string msg = "OCRModel::Init: Failed to load ONNX models.\n\n";
+        msg += "Possible causes:\n";
+        msg += "1. Model files may be corrupted - try re-downloading\n";
+        msg += "2. ONNXRuntime version mismatch - ensure compatible version\n";
+        msg += "3. Insufficient memory for model loading\n\n";
+        msg += "Model directory: " + modelDir;
+        throw IOException(msg);
+    }
+
+    return true;
 }
 
 bool OCRModel::InitDefault() {
-    return Init(GetDefaultModelDir());
+    std::string modelDir = GetDefaultModelDir();
+
+    // Check models before attempting to init
+    ModelStatus status = CheckModels(modelDir);
+    if (!status.IsReady()) {
+        std::string msg = "OCRModel::InitDefault: " + status.GetMessage();
+        throw IOException(msg);
+    }
+
+    return Init(modelDir);
 }
 
 bool OCRModel::IsValid() const {
@@ -600,8 +663,19 @@ namespace {
 
 bool InitOCR(const std::string& modelDir, int gpuIndex) {
     if (modelDir.empty()) {
-        throw InvalidArgumentException("InitOCR: modelDir is empty");
+        std::string defaultDir = GetDefaultModelDir();
+        throw InvalidArgumentException(
+            "InitOCR: modelDir is empty.\n"
+            "Use InitOCRDefault() for automatic model discovery, or specify a path.\n"
+            "Default model directory: " + defaultDir);
     }
+
+    // Check models before initializing
+    ModelStatus status = CheckModels(modelDir);
+    if (!status.IsReady()) {
+        throw IOException("InitOCR: " + status.GetMessage());
+    }
+
     std::lock_guard<std::mutex> lock(g_ocrMutex);
     g_ocrModel = std::make_unique<OCRModel>();
     if (gpuIndex >= 0) {
@@ -611,12 +685,20 @@ bool InitOCR(const std::string& modelDir, int gpuIndex) {
 }
 
 bool InitOCRDefault(int gpuIndex) {
+    std::string modelDir = GetDefaultModelDir();
+
+    // Check models before initializing
+    ModelStatus status = CheckModels(modelDir);
+    if (!status.IsReady()) {
+        throw IOException("InitOCRDefault: " + status.GetMessage());
+    }
+
     std::lock_guard<std::mutex> lock(g_ocrMutex);
     g_ocrModel = std::make_unique<OCRModel>();
     if (gpuIndex >= 0) {
         g_ocrModel->SetGpuIndex(gpuIndex);
     }
-    return g_ocrModel->InitDefault();
+    return g_ocrModel->Init(modelDir);
 }
 
 void ReleaseOCR() {
@@ -672,6 +754,266 @@ std::string RecognizeLine(const QImage& image, double& confidence) {
 }
 
 // =============================================================================
+// Model Management
+// =============================================================================
+
+namespace {
+
+// Required model files (must be present)
+const std::vector<std::string> g_requiredModelFiles = {
+    "ch_PP-OCRv4_det_infer.onnx",   // Text detection model
+    "ch_PP-OCRv4_rec_infer.onnx",   // Text recognition model
+    "ppocr_keys_v1.txt"             // Character dictionary
+};
+
+// Optional model files (enhance functionality)
+const std::vector<std::string> g_optionalModelFiles = {
+    "ch_ppocr_mobile_v2.0_cls_infer.onnx"  // Angle classification (optional)
+};
+
+// Model download base URL
+const std::string g_modelDownloadUrl =
+    "https://github.com/PaddlePaddle/PaddleOCR/releases/download/v2.8.0/";
+
+// Alternative download URLs
+const std::vector<std::string> g_alternativeUrls = {
+    "https://paddleocr.bj.bcebos.com/PP-OCRv4/chinese/",
+    "https://huggingface.co/QiVision/ocr-models/resolve/main/"
+};
+
+} // anonymous namespace
+
+std::string ModelStatus::GetMessage() const {
+    std::string msg;
+
+    if (allRequired) {
+        msg = "OCR models ready";
+        if (!allOptional) {
+            msg += " (optional models missing: angle classification)";
+        }
+    } else {
+        msg = "OCR models not found\n";
+        msg += "Directory: " + modelDir + "\n";
+        msg += "Missing required files:\n";
+        for (const auto& f : missing) {
+            msg += "  - " + f + "\n";
+        }
+        msg += "\nTo install OCR models:\n";
+        msg += "1. Download from: " + GetModelDownloadUrl() + "\n";
+        msg += "2. Place files in: " + modelDir + "\n";
+        msg += "\nOr run: OCR::DownloadModels(\"" + modelDir + "\")";
+    }
+
+    return msg;
+}
+
+std::vector<std::string> GetRequiredModelFiles() {
+    return g_requiredModelFiles;
+}
+
+std::vector<std::string> GetOptionalModelFiles() {
+    return g_optionalModelFiles;
+}
+
+std::string GetModelDownloadUrl() {
+    return g_modelDownloadUrl;
+}
+
+ModelStatus CheckModels(const std::string& modelDir) {
+    ModelStatus status;
+    status.modelDir = modelDir.empty() ? GetDefaultModelDir() : modelDir;
+
+    // Check required files
+    for (const auto& file : g_requiredModelFiles) {
+        std::string path = status.modelDir + "/" + file;
+        if (Platform::FileExists(path)) {
+            status.found.push_back(file);
+        } else {
+            status.missing.push_back(file);
+        }
+    }
+
+    // Check optional files
+    bool allOptionalFound = true;
+    for (const auto& file : g_optionalModelFiles) {
+        std::string path = status.modelDir + "/" + file;
+        if (Platform::FileExists(path)) {
+            status.found.push_back(file);
+        } else {
+            allOptionalFound = false;
+        }
+    }
+
+    status.allRequired = status.missing.empty();
+    status.allOptional = allOptionalFound;
+
+    return status;
+}
+
+bool DownloadModels(const std::string& modelDir, bool verbose) {
+    std::string targetDir = modelDir.empty() ? GetDefaultModelDir() : modelDir;
+
+    // Create directory if needed
+    if (!Platform::DirectoryExists(targetDir)) {
+        if (!Platform::CreateDirectory(targetDir)) {
+            if (verbose) {
+                std::cerr << "Error: Cannot create directory: " << targetDir << "\n";
+            }
+            return false;
+        }
+    }
+
+    // Check which files are missing
+    ModelStatus status = CheckModels(targetDir);
+    if (status.allRequired) {
+        if (verbose) {
+            std::cout << "All required OCR models already present in: " << targetDir << "\n";
+        }
+        return true;
+    }
+
+    if (verbose) {
+        std::cout << "Downloading OCR models to: " << targetDir << "\n";
+        std::cout << "Missing files: " << status.missing.size() << "\n";
+    }
+
+    // Try to download using curl or wget
+    bool hasCurl = false;
+    bool hasWget = false;
+
+#ifndef _WIN32
+    hasCurl = (std::system("which curl > /dev/null 2>&1") == 0);
+    hasWget = (std::system("which wget > /dev/null 2>&1") == 0);
+#else
+    hasCurl = (std::system("where curl > nul 2>&1") == 0);
+    hasWget = (std::system("where wget > nul 2>&1") == 0);
+#endif
+
+    if (!hasCurl && !hasWget) {
+        if (verbose) {
+            std::cerr << "\nError: Neither curl nor wget found on this system.\n";
+            std::cerr << "Please download models manually:\n\n";
+            PrintModelInstallInstructions();
+        }
+        return false;
+    }
+
+    // Download each missing file
+    bool allSuccess = true;
+    for (const auto& file : status.missing) {
+        std::string url = g_modelDownloadUrl + file;
+        std::string destPath = targetDir + "/" + file;
+
+        if (verbose) {
+            std::cout << "Downloading: " << file << "...\n";
+        }
+
+        std::string cmd;
+        if (hasCurl) {
+            cmd = "curl -L -o \"" + destPath + "\" \"" + url + "\" 2>/dev/null";
+        } else {
+            cmd = "wget -q -O \"" + destPath + "\" \"" + url + "\"";
+        }
+
+        int result = std::system(cmd.c_str());
+        if (result != 0 || !Platform::FileExists(destPath) || Platform::GetFileSize(destPath) < 1000) {
+            // Try alternative URLs
+            bool downloaded = false;
+            for (const auto& altUrl : g_alternativeUrls) {
+                if (verbose) {
+                    std::cout << "  Trying alternative source...\n";
+                }
+
+                std::string altFullUrl = altUrl + file;
+                if (hasCurl) {
+                    cmd = "curl -L -o \"" + destPath + "\" \"" + altFullUrl + "\" 2>/dev/null";
+                } else {
+                    cmd = "wget -q -O \"" + destPath + "\" \"" + altFullUrl + "\"";
+                }
+
+                result = std::system(cmd.c_str());
+                if (result == 0 && Platform::FileExists(destPath) && Platform::GetFileSize(destPath) >= 1000) {
+                    downloaded = true;
+                    break;
+                }
+            }
+
+            if (!downloaded) {
+                if (verbose) {
+                    std::cerr << "  Failed to download: " << file << "\n";
+                }
+                // Clean up partial file
+                Platform::DeleteFile(destPath);
+                allSuccess = false;
+            }
+        }
+
+        if (verbose && Platform::FileExists(destPath)) {
+            int64_t size = Platform::GetFileSize(destPath);
+            std::cout << "  Done (" << (size / 1024 / 1024) << " MB)\n";
+        }
+    }
+
+    if (allSuccess) {
+        if (verbose) {
+            std::cout << "\nAll OCR models downloaded successfully!\n";
+            std::cout << "You can now use: OCR::InitOCR(\"" << targetDir << "\")\n";
+        }
+    } else {
+        if (verbose) {
+            std::cerr << "\nSome downloads failed. Please download manually:\n";
+            PrintModelInstallInstructions();
+        }
+    }
+
+    return allSuccess;
+}
+
+std::string GetDefaultModelDir() {
+    // Check environment variable first
+    const char* envDir = std::getenv("QIVISION_OCR_MODELS");
+    if (envDir && Platform::DirectoryExists(envDir)) {
+        return envDir;
+    }
+
+    // Check local project directory first (for development)
+    if (Platform::FileExists("models/ocr/ch_PP-OCRv4_det_infer.onnx")) {
+        return "models/ocr";
+    }
+
+    // Check relative to executable
+    if (Platform::FileExists("./ocr_models/ch_PP-OCRv4_det_infer.onnx")) {
+        return "./ocr_models";
+    }
+
+    // Default system paths
+#ifdef _WIN32
+    const char* appData = std::getenv("LOCALAPPDATA");
+    if (appData) {
+        return std::string(appData) + "/QiVision/ocr_models";
+    }
+    return "C:/ProgramData/QiVision/ocr_models";
+#elif defined(__APPLE__)
+    const char* home = std::getenv("HOME");
+    if (home) {
+        return std::string(home) + "/Library/Application Support/QiVision/ocr_models";
+    }
+    return "/usr/local/share/qivision/ocr_models";
+#else
+    // Linux/Unix
+    const char* xdgData = std::getenv("XDG_DATA_HOME");
+    if (xdgData) {
+        return std::string(xdgData) + "/qivision/ocr_models";
+    }
+    const char* home = std::getenv("HOME");
+    if (home) {
+        return std::string(home) + "/.local/share/qivision/ocr_models";
+    }
+    return "/usr/share/qivision/ocr_models";
+#endif
+}
+
+// =============================================================================
 // Utility Functions
 // =============================================================================
 
@@ -685,36 +1027,52 @@ bool IsAvailable() {
 
 std::string GetVersion() {
 #ifdef QIVISION_HAS_ONNXRUNTIME
-    return "QiVision OCR (ONNXRuntime + PaddleOCR v4 models)";
+    return "QiVision OCR v1.0 (ONNXRuntime + PaddleOCR v4)";
 #else
-    return "OCR not available (ONNXRuntime not found)";
+    return "OCR backend not available (compile with -DQIVISION_BUILD_OCR=ON and ONNXRuntime)";
 #endif
 }
 
-bool DownloadModels(const std::string& modelDir) {
-    // TODO: Implement model download from official source
-    (void)modelDir;
-    return false;
-}
+void PrintModelInstallInstructions() {
+    std::string defaultDir = GetDefaultModelDir();
 
-std::string GetDefaultModelDir() {
-    // Check environment variable first
-    const char* envDir = std::getenv("QIVISION_OCR_MODELS");
-    if (envDir) {
-        return envDir;
+    std::cout << "\n";
+    std::cout << "=== QiVision OCR Model Installation ===\n";
+    std::cout << "\n";
+    std::cout << "Required model files:\n";
+    for (const auto& f : g_requiredModelFiles) {
+        std::cout << "  - " << f << "\n";
     }
-
-    // Check local project directory first (for development)
-    if (std::ifstream("models/ocr/ch_PP-OCRv4_det_infer.onnx").good()) {
-        return "models/ocr";
+    std::cout << "\n";
+    std::cout << "Optional model files:\n";
+    for (const auto& f : g_optionalModelFiles) {
+        std::cout << "  - " << f << " (angle classification)\n";
     }
-
-    // Default system paths
-#ifdef _WIN32
-    return "C:/ProgramData/QiVision/ocr_models";
-#else
-    return "/usr/share/qivision/ocr_models";
-#endif
+    std::cout << "\n";
+    std::cout << "Download from:\n";
+    std::cout << "  " << g_modelDownloadUrl << "\n";
+    std::cout << "\n";
+    std::cout << "Alternative sources:\n";
+    for (const auto& url : g_alternativeUrls) {
+        std::cout << "  " << url << "\n";
+    }
+    std::cout << "\n";
+    std::cout << "Installation:\n";
+    std::cout << "  1. Download all required files from one of the sources above\n";
+    std::cout << "  2. Create directory: " << defaultDir << "\n";
+    std::cout << "  3. Copy all model files to that directory\n";
+    std::cout << "  4. Or set QIVISION_OCR_MODELS environment variable to your model path\n";
+    std::cout << "\n";
+    std::cout << "Quick install (Linux/macOS):\n";
+    std::cout << "  mkdir -p " << defaultDir << "\n";
+    std::cout << "  cd " << defaultDir << "\n";
+    for (const auto& f : g_requiredModelFiles) {
+        std::cout << "  curl -LO \"" << g_modelDownloadUrl << f << "\"\n";
+    }
+    std::cout << "\n";
+    std::cout << "Or use programmatic download:\n";
+    std::cout << "  OCR::DownloadModels(\"" << defaultDir << "\");\n";
+    std::cout << "\n";
 }
 
 } // namespace Qi::Vision::OCR

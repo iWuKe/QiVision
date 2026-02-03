@@ -256,6 +256,19 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-02-03 (OCR 模型管理)
+
+- **OCR.h / OCR.cpp** (模型管理功能)
+  - 新增 `ModelStatus` 结构体: 模型状态信息
+  - 新增 `CheckModels()`: 检查模型文件完整性
+  - 新增 `GetRequiredModelFiles()` / `GetOptionalModelFiles()`: 获取模型文件列表
+  - 新增 `GetModelDownloadUrl()`: 获取下载 URL
+  - 新增 `PrintModelInstallInstructions()`: 打印安装指南
+  - 改进 `DownloadModels()`: 使用 curl/wget 自动下载，支持备用源
+  - 改进 `GetDefaultModelDir()`: 支持多平台路径 (Linux/macOS/Windows)
+  - **友好错误提示**: 模型不存在时给出详细的下载和安装指导
+  - 改进 `Init()` / `InitOCR()` / `InitOCRDefault()`: 预检查模型完整性
+
 ### 2026-02-03 (ColorConvert Lab/XYZ 支持)
 
 - **ColorConvert.cpp** (补齐颜色空间)

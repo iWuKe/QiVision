@@ -271,11 +271,77 @@ QIVISION_API std::string ReadText(const std::string& imagePath);
 QIVISION_API std::string RecognizeLine(const QImage& image, double& confidence);
 
 // =============================================================================
+// Model Management
+// =============================================================================
+
+/**
+ * @brief Model status information
+ */
+struct QIVISION_API ModelStatus {
+    bool allRequired = false;          ///< All required models present
+    bool allOptional = false;          ///< All optional models present
+    std::vector<std::string> missing;  ///< Missing required files
+    std::vector<std::string> found;    ///< Found files
+    std::string modelDir;              ///< Checked directory
+
+    /// Check if models are ready for use
+    bool IsReady() const { return allRequired; }
+
+    /// Get human-readable status message
+    std::string GetMessage() const;
+};
+
+/**
+ * @brief Check if OCR models are present in directory
+ *
+ * @param modelDir Directory to check (empty = default)
+ * @return Model status with missing/found files
+ */
+QIVISION_API ModelStatus CheckModels(const std::string& modelDir = "");
+
+/**
+ * @brief Get list of required model files
+ */
+QIVISION_API std::vector<std::string> GetRequiredModelFiles();
+
+/**
+ * @brief Get list of optional model files
+ */
+QIVISION_API std::vector<std::string> GetOptionalModelFiles();
+
+/**
+ * @brief Get model download URL for manual download
+ */
+QIVISION_API std::string GetModelDownloadUrl();
+
+/**
+ * @brief Download models to specified directory
+ *
+ * Uses curl/wget if available on the system.
+ * If download tools are not available, prints instructions for manual download.
+ *
+ * @param modelDir Target directory (created if not exists)
+ * @param verbose Print progress messages
+ * @return true if all required models downloaded successfully
+ */
+QIVISION_API bool DownloadModels(const std::string& modelDir, bool verbose = true);
+
+/**
+ * @brief Get default model directory path
+ *
+ * Search order:
+ * 1. QIVISION_OCR_MODELS environment variable
+ * 2. ./models/ocr (development)
+ * 3. Platform-specific system path
+ */
+QIVISION_API std::string GetDefaultModelDir();
+
+// =============================================================================
 // Utility Functions
 // =============================================================================
 
 /**
- * @brief Check if RapidOcrOnnx is available
+ * @brief Check if ONNXRuntime backend is available
  * @return true if OCR backend is available
  */
 QIVISION_API bool IsAvailable();
@@ -286,16 +352,10 @@ QIVISION_API bool IsAvailable();
 QIVISION_API std::string GetVersion();
 
 /**
- * @brief Download default models to specified directory
+ * @brief Print installation instructions for OCR models
  *
- * @param modelDir Target directory
- * @return true if download successful
+ * Outputs detailed instructions on how to download and install OCR models.
  */
-QIVISION_API bool DownloadModels(const std::string& modelDir);
-
-/**
- * @brief Get default model directory path
- */
-QIVISION_API std::string GetDefaultModelDir();
+QIVISION_API void PrintModelInstallInstructions();
 
 } // namespace Qi::Vision::OCR

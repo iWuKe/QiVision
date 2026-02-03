@@ -10,11 +10,12 @@
  */
 
 #include <QiVision/Core/QImage.h>
+#include <QiVision/Core/QContour.h>
 #include <QiVision/Display/Draw.h>
 #include <QiVision/Color/ColorConvert.h>
 #include <QiVision/Measure/Caliper.h>
 #include <QiVision/Measure/MeasureHandle.h>
-#include <QiVision/Internal/Fitting.h>
+#include <QiVision/Contour/Contour.h>
 #include <QiVision/IO/ImageIO.h>
 #include <QiVision/GUI/Window.h>
 
@@ -24,6 +25,7 @@
 
 using namespace Qi::Vision;
 using namespace Qi::Vision::Measure;
+using namespace Qi::Vision::Contour;
 using namespace Qi::Vision::GUI;
 using namespace Qi::Vision::IO;
 
@@ -122,34 +124,51 @@ int main() {
     std::cout << "Points found: " << edgePoints.size() << "/" << numCalipers << std::endl;
 
     if (edgePoints.size() >= 3) {
-        // 使用 RANSAC 拟合圆
-        Internal::RansacParams ransacParams;
-        ransacParams.SetThreshold(3.5).SetMaxIterations(100);
-        auto result = Internal::FitCircleRANSAC(edgePoints, ransacParams);
+        // 从边缘点创建轮廓，然后用公开 API 拟合圆
+        QContour edgeContour(edgePoints, false);
+
+        double fittedRow, fittedCol, fittedRadius, startPhi, endPhi;
+        bool fitSuccess = Contour::FitCircleContourXld(edgeContour,
+                                                        fittedRow, fittedCol,
+                                                        fittedRadius,
+                                                        startPhi, endPhi,
+                                                        "algebraic");
+
+        if (!fitSuccess) {
+            std::cerr << "Circle fitting failed!" << std::endl;
+            return 1;
+        }
 
         std::cout << "\nFitted circle:" << std::endl;
         std::cout << "  Center: (" << std::setprecision(2)
-                  << result.circle.center.x << ", " << result.circle.center.y << ")" << std::endl;
-        std::cout << "  Radius: " << result.circle.radius << " px" << std::endl;
-        std::cout << "  Inliers: " << result.numInliers << "/" << edgePoints.size() << std::endl;
-        std::cout << "  RMS error: " << std::setprecision(3) << result.residualRMS << " px" << std::endl;
+                  << fittedCol << ", " << fittedRow << ")" << std::endl;
+        std::cout << "  Radius: " << fittedRadius << " px" << std::endl;
+        std::cout << "  Points used: " << edgePoints.size() << std::endl;
 
         // =========================================================================
         // 可视化
         // =========================================================================
         Scalar cyan(0, 255, 255);    // 卡尺工具
-        Scalar green(0, 255, 0);     // 边缘点（内点）
-        Scalar red(255, 0, 0);       // 离群点
+        Scalar green(0, 255, 0);     // 边缘点
         Scalar yellow(255, 255, 0);  // 拟合结果
 
         QImage colorImg;
         Color::GrayToRgb(gray, colorImg);
 
-        // 绘制卡尺工具（包含连接线 + 矩形框 + 中心点）
+        // 绘制卡尺工具
         Draw::MeasureRects(colorImg, calipers, cyan, 1);
 
+        // 绘制边缘点
+        for (const auto& pt : edgePoints) {
+            Draw::Cross(colorImg, pt, 5, green, 1);
+        }
+
+        // 绘制拟合圆
+        Draw::Circle(colorImg, fittedRow, fittedCol, fittedRadius, yellow, 2);
+        Draw::Cross(colorImg, Point2d(fittedCol, fittedRow), 8, yellow, 2);
+
         // 保存结果
-        WriteImage(colorImg, "tests/output/caliper_only.png");
+        WriteImage(colorImg, "tests/output/caliper_circle_manual.png");
 
         // 显示
         Window win("Manual Circle Measurement");
@@ -158,9 +177,8 @@ int main() {
         win.DispImage(colorImg);
 
         std::cout << "\n[Visualization]" << std::endl;
-        std::cout << "  Cyan: Caliper tools (with projection lines)" << std::endl;
-        std::cout << "  Green: Edge points (inliers)" << std::endl;
-        std::cout << "  Red: Edge points (outliers)" << std::endl;
+        std::cout << "  Cyan: Caliper tools" << std::endl;
+        std::cout << "  Green: Detected edge points" << std::endl;
         std::cout << "  Yellow: Fitted circle" << std::endl;
         std::cout << "\nPress any key to close..." << std::endl;
 

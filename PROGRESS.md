@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-02 (OCR 模块集成)
+> 最后更新: 2026-02-03 (SDK 统一验证工具完成)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -256,6 +256,25 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-02-03 (NCCModel 序列化与深拷贝)
+
+- **NCCModel 模块** (补齐功能)
+  - `NCCModelImpl.h`: 添加 `Clone()` 方法声明
+  - `NCCModel.cpp`: 实现 `NCCModelImpl::Clone()` 深拷贝方法
+  - `NCCModel.cpp`: 更新 copy constructor 和 assignment operator，调用 `Clone()`
+  - `NCCModel.cpp`: 实现 `WriteNCCModel()` 序列化函数
+  - `NCCModel.cpp`: 实现 `ReadNCCModel()` 反序列化函数
+
+- **序列化格式**
+  - Magic: `0x434E4951` ("QINC" - QiVision NCC)
+  - Version: 1
+  - 完整保存: params, origin, templateSize, metric, searchAngles, levels, rotatedTemplates
+
+- **测试**
+  - 新增 `tests/test_ncc_serialization.cpp`: 深拷贝和序列化单元测试
+  - 测试内容: copy constructor, assignment operator, Write/Read 往返, 加载后匹配验证
+  - 28项测试全部通过
+
 ### 2026-02-03 (SDK 统一验证工具 v2)
 
 - **Core/Validate.h** (新增，SDK 统一验证工具)
@@ -272,11 +291,18 @@ Tests    █████████████████░░░ 87%
     - `QIVISION_REQUIRE_IMAGE_VOID(img)` - void 函数用
     - `QIVISION_REQUIRE_IMAGE_OR(img, retval)` - 自定义返回值
     - `QIVISION_REQUIRE_IMAGE_U8(img)` 等 UInt8 专用版本
-  - **已迁移模块**:
+  - **已迁移模块** (全部 Feature 层完成):
     - OCR, Barcode: `RequireImageU8Channels()` (需要 UInt8)
-    - Filter, Color: `RequireImageU8()` / `RequireImageU8Gray()` (需要 UInt8)
+    - Filter: 删除17处冗余类型检查，统一使用 `RequireValidImage`/`RequireGrayU8`
+    - Color/ColorConvert: 删除12处冗余类型检查，新增 `RequireGrayU8` 辅助函数
+    - Segment: 删除本地 `RequireGrayU8`，改用 `Validate::RequireImageU8Gray`
     - Matching, Measure: `RequireImageValid()` (接受任意类型)
-    - Transform: 保持原有模式（设置 dst 为空）
+    - Transform/PolarTransform, AffineTransform, Homography: `RequireImageU8` + 删除冗余检查
+    - Morphology: `RequireGrayU8Input` 改为调用 `Validate::RequireImageU8Gray`
+    - Edge, Hough, Metrology, Undistort, VariationModel: 已迁移
+    - CalibBoard: `RequireImageValid()` / `RequireImageU8()`
+    - Blob: `RequireImageU8Gray()` (Connection)
+    - Texture: `RequireImageU8Gray()` / `RequirePositive()` (删除本地函数)
 
 ### 2026-02-02 (OCR 模块集成)
 

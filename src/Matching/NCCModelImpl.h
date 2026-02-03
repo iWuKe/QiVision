@@ -168,11 +168,17 @@ public:
     NCCModelImpl() = default;
     ~NCCModelImpl() = default;
 
-    // Disable copy (use move or NCCModel wrapper)
+    // Disable copy (use Clone() for deep copy via NCCModel wrapper)
     NCCModelImpl(const NCCModelImpl&) = delete;
     NCCModelImpl& operator=(const NCCModelImpl&) = delete;
     NCCModelImpl(NCCModelImpl&&) = default;
     NCCModelImpl& operator=(NCCModelImpl&&) = default;
+
+    /**
+     * @brief Create a deep copy of this model
+     * @return New NCCModelImpl with copied data
+     */
+    std::unique_ptr<NCCModelImpl> Clone() const;
 
     // =========================================================================
     // Model Data

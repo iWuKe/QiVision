@@ -18,10 +18,10 @@
 
 #include <QiVision/Core/Exception.h>
 #include <QiVision/Core/Validate.h>
+#include <QiVision/Platform/FileIO.h>
 #include <algorithm>
 #include <cmath>
 #include <fstream>
-#include <cmath>
 
 namespace Qi::Vision::Matching {
 
@@ -86,6 +86,34 @@ inline void RequireTemplateImage(const QImage& image, const char* funcName) {
 
 } // anonymous namespace
 
+// =============================================================================
+// NCCModelImpl::Clone() Implementation
+// =============================================================================
+
+std::unique_ptr<Internal::NCCModelImpl> Internal::NCCModelImpl::Clone() const {
+    auto clone = std::make_unique<NCCModelImpl>();
+
+    // Copy all member data
+    clone->levels_ = levels_;
+    clone->rotatedTemplatesCoarse_ = rotatedTemplatesCoarse_;
+    clone->rotatedTemplatesFine_ = rotatedTemplatesFine_;
+    clone->params_ = params_;
+    clone->origin_ = origin_;
+    clone->templateSize_ = templateSize_;
+    clone->valid_ = valid_;
+    clone->hasMask_ = hasMask_;
+    clone->metric_ = metric_;
+    clone->searchAnglesCoarse_ = searchAnglesCoarse_;
+    clone->searchAnglesFine_ = searchAnglesFine_;
+    clone->fineAngleLevels_ = fineAngleLevels_;
+
+    return clone;
+}
+
+// =============================================================================
+// NCCModel Class Implementation
+// =============================================================================
+
 NCCModel::NCCModel()
     : impl_(std::make_unique<Internal::NCCModelImpl>())
 {
@@ -97,10 +125,7 @@ NCCModel::NCCModel(const NCCModel& other)
     : impl_(nullptr)
 {
     if (other.impl_) {
-        // Deep copy by creating new impl
-        // Note: Full copy not implemented yet
-        impl_ = std::make_unique<Internal::NCCModelImpl>();
-        // TODO: Copy implementation data
+        impl_ = other.impl_->Clone();
     }
 }
 
@@ -110,8 +135,7 @@ NCCModel& NCCModel::operator=(const NCCModel& other)
 {
     if (this != &other) {
         if (other.impl_) {
-            impl_ = std::make_unique<Internal::NCCModelImpl>();
-            // TODO: Copy implementation data
+            impl_ = other.impl_->Clone();
         } else {
             impl_.reset();
         }
@@ -513,6 +537,87 @@ void GetNCCModelSize(
 // Model I/O Functions
 // =============================================================================
 
+namespace {
+
+// File format constants
+constexpr uint32_t NCC_MODEL_MAGIC = 0x434E4951;  // "QINC" - QiVision NCC
+constexpr uint32_t NCC_MODEL_VERSION = 1;
+
+// Serialization helpers for NCCLevelModel
+void WriteNCCLevelModel(Platform::BinaryWriter& writer, const Internal::NCCLevelModel& level) {
+    writer.Write<int32_t>(level.width);
+    writer.Write<int32_t>(level.height);
+    writer.Write<double>(level.scale);
+    writer.Write<double>(level.mean);
+    writer.Write<double>(level.stddev);
+    writer.Write<double>(level.sumSq);
+    writer.Write<int32_t>(level.numPixels);
+    writer.WriteVector(level.data);
+    writer.WriteVector(level.mask);
+    writer.WriteVector(level.zeroMean);
+}
+
+void ReadNCCLevelModel(Platform::BinaryReader& reader, Internal::NCCLevelModel& level) {
+    level.width = reader.Read<int32_t>();
+    level.height = reader.Read<int32_t>();
+    level.scale = reader.Read<double>();
+    level.mean = reader.Read<double>();
+    level.stddev = reader.Read<double>();
+    level.sumSq = reader.Read<double>();
+    level.numPixels = reader.Read<int32_t>();
+    level.data = reader.ReadVector<float>();
+    level.mask = reader.ReadVector<uint8_t>();
+    level.zeroMean = reader.ReadVector<float>();
+}
+
+// Serialization helpers for RotatedTemplate
+void WriteRotatedTemplate(Platform::BinaryWriter& writer, const Internal::RotatedTemplate& tmpl) {
+    writer.Write<double>(tmpl.angle);
+    writer.Write<double>(tmpl.mean);
+    writer.Write<double>(tmpl.stddev);
+    writer.Write<int32_t>(tmpl.width);
+    writer.Write<int32_t>(tmpl.height);
+    writer.Write<int32_t>(tmpl.offsetX);
+    writer.Write<int32_t>(tmpl.offsetY);
+    writer.Write<int32_t>(tmpl.numPixels);
+    writer.WriteVector(tmpl.data);
+    writer.WriteVector(tmpl.mask);
+}
+
+void ReadRotatedTemplate(Platform::BinaryReader& reader, Internal::RotatedTemplate& tmpl) {
+    tmpl.angle = reader.Read<double>();
+    tmpl.mean = reader.Read<double>();
+    tmpl.stddev = reader.Read<double>();
+    tmpl.width = reader.Read<int32_t>();
+    tmpl.height = reader.Read<int32_t>();
+    tmpl.offsetX = reader.Read<int32_t>();
+    tmpl.offsetY = reader.Read<int32_t>();
+    tmpl.numPixels = reader.Read<int32_t>();
+    tmpl.data = reader.ReadVector<float>();
+    tmpl.mask = reader.ReadVector<uint8_t>();
+}
+
+// Write vector of RotatedTemplates for a level
+void WriteRotatedTemplatesLevel(Platform::BinaryWriter& writer,
+                                 const std::vector<Internal::RotatedTemplate>& templates) {
+    writer.Write<uint64_t>(templates.size());
+    for (const auto& tmpl : templates) {
+        WriteRotatedTemplate(writer, tmpl);
+    }
+}
+
+// Read vector of RotatedTemplates for a level
+void ReadRotatedTemplatesLevel(Platform::BinaryReader& reader,
+                                std::vector<Internal::RotatedTemplate>& templates) {
+    uint64_t count = reader.Read<uint64_t>();
+    templates.resize(static_cast<size_t>(count));
+    for (auto& tmpl : templates) {
+        ReadRotatedTemplate(reader, tmpl);
+    }
+}
+
+} // anonymous namespace
+
 void WriteNCCModel(
     const NCCModel& model,
     const std::string& filename)
@@ -524,20 +629,137 @@ void WriteNCCModel(
         throw InvalidArgumentException("WriteNCCModel: filename is empty");
     }
 
-    // TODO: Implement model serialization
-    throw UnsupportedException("WriteNCCModel: Not implemented yet");
+    Platform::BinaryWriter writer(filename);
+    if (!writer.IsOpen()) {
+        throw IOException("WriteNCCModel: failed to open file: " + filename);
+    }
+
+    const auto* impl = model.Impl();
+
+    // Header
+    writer.Write<uint32_t>(NCC_MODEL_MAGIC);
+    writer.Write<uint32_t>(NCC_MODEL_VERSION);
+
+    // Model parameters
+    writer.Write<int32_t>(impl->params_.numLevels);
+    writer.Write<double>(impl->params_.angleStart);
+    writer.Write<double>(impl->params_.angleExtent);
+    writer.Write<double>(impl->params_.angleStep);
+    writer.Write<double>(impl->params_.scaleMin);
+    writer.Write<double>(impl->params_.scaleMax);
+
+    // Model state
+    writer.Write<double>(impl->origin_.x);
+    writer.Write<double>(impl->origin_.y);
+    writer.Write<int32_t>(impl->templateSize_.width);
+    writer.Write<int32_t>(impl->templateSize_.height);
+    writer.Write<uint8_t>(impl->valid_ ? 1 : 0);
+    writer.Write<uint8_t>(impl->hasMask_ ? 1 : 0);
+    writer.Write<int32_t>(static_cast<int32_t>(impl->metric_));
+    writer.Write<int32_t>(impl->fineAngleLevels_);
+
+    // Search angles
+    writer.WriteVector(impl->searchAnglesCoarse_);
+    writer.WriteVector(impl->searchAnglesFine_);
+
+    // Pyramid levels
+    writer.Write<uint64_t>(impl->levels_.size());
+    for (const auto& level : impl->levels_) {
+        WriteNCCLevelModel(writer, level);
+    }
+
+    // Rotated templates - coarse
+    writer.Write<uint64_t>(impl->rotatedTemplatesCoarse_.size());
+    for (const auto& levelTemplates : impl->rotatedTemplatesCoarse_) {
+        WriteRotatedTemplatesLevel(writer, levelTemplates);
+    }
+
+    // Rotated templates - fine
+    writer.Write<uint64_t>(impl->rotatedTemplatesFine_.size());
+    for (const auto& levelTemplates : impl->rotatedTemplatesFine_) {
+        WriteRotatedTemplatesLevel(writer, levelTemplates);
+    }
+
+    writer.Close();
 }
 
 void ReadNCCModel(
     const std::string& filename,
     NCCModel& model)
 {
-    (void)model;
     if (filename.empty()) {
         throw InvalidArgumentException("ReadNCCModel: filename is empty");
     }
-    // TODO: Implement model deserialization
-    throw UnsupportedException("ReadNCCModel: Not implemented yet");
+
+    Platform::BinaryReader reader(filename);
+    if (!reader.IsOpen()) {
+        throw IOException("ReadNCCModel: failed to open file: " + filename);
+    }
+
+    // Header verification
+    uint32_t magic = reader.Read<uint32_t>();
+    if (magic != NCC_MODEL_MAGIC) {
+        throw IOException("ReadNCCModel: invalid file format (magic mismatch)");
+    }
+
+    uint32_t version = reader.Read<uint32_t>();
+    if (version != NCC_MODEL_VERSION) {
+        throw VersionMismatchException("ReadNCCModel: unsupported version: " + std::to_string(version));
+    }
+
+    auto* impl = model.Impl();
+
+    // Clear existing data
+    impl->levels_.clear();
+    impl->rotatedTemplatesCoarse_.clear();
+    impl->rotatedTemplatesFine_.clear();
+    impl->searchAnglesCoarse_.clear();
+    impl->searchAnglesFine_.clear();
+
+    // Model parameters
+    impl->params_.numLevels = reader.Read<int32_t>();
+    impl->params_.angleStart = reader.Read<double>();
+    impl->params_.angleExtent = reader.Read<double>();
+    impl->params_.angleStep = reader.Read<double>();
+    impl->params_.scaleMin = reader.Read<double>();
+    impl->params_.scaleMax = reader.Read<double>();
+
+    // Model state
+    impl->origin_.x = reader.Read<double>();
+    impl->origin_.y = reader.Read<double>();
+    impl->templateSize_.width = reader.Read<int32_t>();
+    impl->templateSize_.height = reader.Read<int32_t>();
+    impl->valid_ = reader.Read<uint8_t>() != 0;
+    impl->hasMask_ = reader.Read<uint8_t>() != 0;
+    impl->metric_ = static_cast<MetricMode>(reader.Read<int32_t>());
+    impl->fineAngleLevels_ = reader.Read<int32_t>();
+
+    // Search angles
+    impl->searchAnglesCoarse_ = reader.ReadVector<double>();
+    impl->searchAnglesFine_ = reader.ReadVector<double>();
+
+    // Pyramid levels
+    uint64_t numLevels = reader.Read<uint64_t>();
+    impl->levels_.resize(static_cast<size_t>(numLevels));
+    for (auto& level : impl->levels_) {
+        ReadNCCLevelModel(reader, level);
+    }
+
+    // Rotated templates - coarse
+    uint64_t numCoarseLevels = reader.Read<uint64_t>();
+    impl->rotatedTemplatesCoarse_.resize(static_cast<size_t>(numCoarseLevels));
+    for (auto& levelTemplates : impl->rotatedTemplatesCoarse_) {
+        ReadRotatedTemplatesLevel(reader, levelTemplates);
+    }
+
+    // Rotated templates - fine
+    uint64_t numFineLevels = reader.Read<uint64_t>();
+    impl->rotatedTemplatesFine_.resize(static_cast<size_t>(numFineLevels));
+    for (auto& levelTemplates : impl->rotatedTemplatesFine_) {
+        ReadRotatedTemplatesLevel(reader, levelTemplates);
+    }
+
+    reader.Close();
 }
 
 void ClearNCCModel(

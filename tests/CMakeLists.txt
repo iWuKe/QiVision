@@ -8,8 +8,14 @@ add_executable(test_scale_simple
     test_scale_simple.cpp
 )
 
+add_executable(test_ncc_serialization
+    test_ncc_serialization.cpp
+)
+
 target_link_libraries(unit_test PRIVATE QiVision)
 target_link_libraries(test_scale_simple PRIVATE QiVision)
+target_link_libraries(test_ncc_serialization PRIVATE QiVision)
 
 target_include_directories(unit_test PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(test_scale_simple PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(test_ncc_serialization PRIVATE ${CMAKE_SOURCE_DIR}/include)

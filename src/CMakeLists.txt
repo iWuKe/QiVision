@@ -117,6 +117,8 @@ set(QIVISION_SOURCES
     Texture/Texture.cpp
     # Barcode (Feature Layer - requires ZXing-cpp)
     $<$<BOOL:${QIVISION_BUILD_BARCODE}>:Barcode/Barcode.cpp>
+    # OCR (Feature Layer - requires ONNXRuntime)
+    $<$<BOOL:${QIVISION_BUILD_OCR}>:OCR/OCR.cpp>
 )
 
 set(QIVISION_HEADERS
@@ -240,6 +242,8 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Texture/Texture.h
     # Barcode (Feature Layer)
     $<$<BOOL:${QIVISION_BUILD_BARCODE}>:${CMAKE_SOURCE_DIR}/include/QiVision/Barcode/Barcode.h>
+    # OCR (Feature Layer)
+    $<$<BOOL:${QIVISION_BUILD_OCR}>:${CMAKE_SOURCE_DIR}/include/QiVision/OCR/OCR.h>
 )
 
 # Create library
@@ -283,6 +287,13 @@ endif()
 if(QIVISION_BUILD_BARCODE)
     target_link_libraries(QiVision PRIVATE ZXing::ZXing)
     target_compile_definitions(QiVision PRIVATE QIVISION_HAS_BARCODE)
+endif()
+
+# ONNXRuntime for OCR support
+if(QIVISION_BUILD_OCR AND QIVISION_HAS_ONNXRUNTIME)
+    target_include_directories(QiVision PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(QiVision PRIVATE ${ONNXRUNTIME_LIBRARY})
+    target_compile_definitions(QiVision PRIVATE QIVISION_HAS_ONNXRUNTIME)
 endif()
 
 # =============================================================================

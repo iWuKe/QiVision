@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-02 (Barcode 模块集成)
+> 最后更新: 2026-02-02 (OCR 模块集成)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -194,7 +194,7 @@ Tests    █████████████████░░░ 87%
 | **Morphology/Morphology.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 形态学 (二值+灰度, SE创建) |
 | **Hough/Hough.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 霍夫变换 (直线/圆检测, 公开 API) |
 | **Contour/Contour.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | XLD轮廓操作 (公开 API，封装 Internal) |
-| **OCR/*** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | **P1** | 字符识别/验证 |
+| **OCR/OCR.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 字符识别 (ONNXRuntime + PaddleOCR v4) |
 | **Barcode/Barcode.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 条形码/二维码 (ZXing-cpp 封装) |
 | **Defect/VariationModel.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P1** | 变差模型缺陷检测 (Halcon 风格) |
 | **Texture/Texture.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 纹理分析 (LBP/GLCM/Gabor) |
@@ -255,6 +255,40 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-02 (OCR 模块集成)
+
+- **OCR/OCR.h 模块** (新增，ONNXRuntime + PaddleOCR v4)
+  - 新增 `include/QiVision/OCR/OCR.h`: OCR API 头文件
+  - 新增 `src/OCR/OCR.cpp`: ONNXRuntime 实现
+  - **设计特点**:
+    - 只依赖 ONNXRuntime，**不需要 OpenCV**
+    - 预处理完全使用 QiVision 原生 API（QImage、Color、Segment、Blob）
+    - 支持 PaddleOCR v4 ONNX 模型
+  - **主要 API**:
+    - `OCRModel::Init()`: 初始化模型
+    - `OCRModel::Recognize()`: 识别图像中的文字
+    - `InitOCR()/ReleaseOCR()`: 全局模型管理
+    - `RecognizeText()`: 使用全局模型识别
+    - `ReadText()`: 简单文本读取
+  - **OCRParams 参数**:
+    - `maxSideLen`: 最大边长（控制 resize）
+    - `boxThresh/boxScoreThresh`: 检测阈值
+    - `doAngleClassify`: 角度分类
+    - 预设: `Default()`, `Fast()`, `Accurate()`
+  - **OCRResult 结果**:
+    - `textBlocks`: 检测到的文本块列表
+    - `fullText`: 拼接后的完整文本
+    - `detectTime/recognizeTime/totalTime`: 计时
+  - **TextBlock 结构**:
+    - `text`: 识别的文字
+    - `confidence`: 置信度
+    - `corners`: 四角点坐标
+  - **CMake 集成**:
+    - `QIVISION_BUILD_OCR` 选项（默认 OFF）
+    - 支持 `ONNXRUNTIME_ROOT` 环境变量
+    - 自动查找系统安装的 ONNXRuntime
+  - 新增 `samples/ocr/ocr_demo.cpp`: 示例程序
 
 ### 2026-02-02 (Barcode 模块集成)
 

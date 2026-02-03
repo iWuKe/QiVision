@@ -31,6 +31,7 @@ endif()
 option(QIVISION_BUILD_GUI "Build GUI module" ${QIVISION_BUILD_GUI_DEFAULT})
 option(QIVISION_BUILD_DISPLAY "Build Display module" ${QIVISION_BUILD_DISPLAY_DEFAULT})
 option(QIVISION_BUILD_BARCODE "Build Barcode module (requires ZXing-cpp)" ON)
+option(QIVISION_BUILD_OCR "Build OCR module (requires ONNXRuntime)" OFF)
 
 # =============================================================================
 # Generated Configuration Header
@@ -107,6 +108,46 @@ if(QIVISION_BUILD_BARCODE)
 endif()
 
 # =============================================================================
+# ONNXRuntime for OCR Support
+# =============================================================================
+if(QIVISION_BUILD_OCR)
+    # Try to find ONNXRuntime
+    # Users can set ONNXRUNTIME_ROOT to specify the installation path
+    find_path(ONNXRUNTIME_INCLUDE_DIR
+        NAMES onnxruntime_cxx_api.h
+        PATHS
+            ${ONNXRUNTIME_ROOT}/include
+            /usr/include/onnxruntime
+            /usr/local/include/onnxruntime
+            $ENV{ONNXRUNTIME_ROOT}/include
+    )
+
+    find_library(ONNXRUNTIME_LIBRARY
+        NAMES onnxruntime
+        PATHS
+            ${ONNXRUNTIME_ROOT}/lib
+            /usr/lib
+            /usr/local/lib
+            /usr/lib/x86_64-linux-gnu
+            $ENV{ONNXRUNTIME_ROOT}/lib
+    )
+
+    if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
+        message(STATUS "ONNXRuntime found:")
+        message(STATUS "  Include: ${ONNXRUNTIME_INCLUDE_DIR}")
+        message(STATUS "  Library: ${ONNXRUNTIME_LIBRARY}")
+        set(QIVISION_HAS_ONNXRUNTIME TRUE)
+    else()
+        message(WARNING "ONNXRuntime not found. OCR module will be disabled.")
+        message(STATUS "  To enable OCR, install ONNXRuntime or set ONNXRUNTIME_ROOT")
+        message(STATUS "  Ubuntu: sudo apt install libonnxruntime-dev")
+        message(STATUS "  Or download from: https://github.com/microsoft/onnxruntime/releases")
+        set(QIVISION_BUILD_OCR OFF)
+        set(QIVISION_HAS_ONNXRUNTIME FALSE)
+    endif()
+endif()
+
+# =============================================================================
 # Output Directories
 # =============================================================================
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -163,6 +204,7 @@ message(STATUS "  Build type:    ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "  SIMD:          ${QIVISION_ENABLE_SIMD}")
 message(STATUS "  Barcode:       ${QIVISION_BUILD_BARCODE}")
+message(STATUS "  OCR:           ${QIVISION_BUILD_OCR}")
 message(STATUS "  Samples:       ${QIVISION_BUILD_SAMPLES}")
 message(STATUS "  Tests:         ${QIVISION_BUILD_TESTS}")
 message(STATUS "")

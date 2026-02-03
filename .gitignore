@@ -50,3 +50,13 @@ tests/data/matching/image2_result/
 
 # Test result images
 tests/data/matching/*/result_*.bmp
+
+# Temporary test files
+test_gpu
+test_gpu.cpp
+
+# Generated API documentation (Doxygen)
+docs/api/
+
+# Test output images
+tests/output/

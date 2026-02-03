@@ -34,6 +34,11 @@ if(QIVISION_BUILD_BARCODE)
     add_sample(barcode_read barcode/barcode_read.cpp)
 endif()
 
+# OCR - Text recognition (requires ONNXRuntime)
+if(QIVISION_BUILD_OCR)
+    add_sample(ocr_demo ocr/ocr_demo.cpp)
+endif()
+
 # Build all samples
 set(SAMPLE_TARGETS
     matching_shape_match
@@ -48,5 +53,8 @@ set(SAMPLE_TARGETS
 )
 if(QIVISION_BUILD_BARCODE)
     list(APPEND SAMPLE_TARGETS barcode_read)
+endif()
+if(QIVISION_BUILD_OCR)
+    list(APPEND SAMPLE_TARGETS ocr_demo)
 endif()
 add_custom_target(samples DEPENDS ${SAMPLE_TARGETS})

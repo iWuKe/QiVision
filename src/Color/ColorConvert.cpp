@@ -1534,6 +1534,108 @@ void MinMaxGray(const QImage& image, double& minGray, double& maxGray, double& r
     range = maxGray - minGray;
 }
 
+namespace {
+
+bool RequireGrayStatsImage(const QImage& image, const char* funcName) {
+    if (image.Empty()) {
+        return false;
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException(std::string(funcName) + ": invalid image");
+    }
+    if (image.Channels() != 1) {
+        throw InvalidArgumentException(std::string(funcName) + ": expected 1 channel(s), got " +
+                                       std::to_string(image.Channels()));
+    }
+    if (image.Type() != PixelType::UInt8 &&
+        image.Type() != PixelType::UInt16 &&
+        image.Type() != PixelType::Float32) {
+        throw UnsupportedException(std::string(funcName) +
+                                   " only supports UInt8/UInt16/Float32 images");
+    }
+    return true;
+}
+
+template <typename T>
+void AccumulateRegionStats(const QImage& image, const QRegion& region,
+                           double& minGray, double& maxGray,
+                           double& sum, double& sumSq, int64_t& count) {
+    const int32_t width = image.Width();
+    const int32_t height = image.Height();
+
+    for (const auto& run : region.Runs()) {
+        if (run.row < 0 || run.row >= height) continue;
+        int32_t xStart = std::max(0, run.colBegin);
+        int32_t xEnd = std::min(width, run.colEnd);
+        if (xStart >= xEnd) continue;
+
+        const T* row = static_cast<const T*>(image.RowPtr(run.row));
+        for (int32_t x = xStart; x < xEnd; ++x) {
+            double val = static_cast<double>(row[x]);
+            minGray = std::min(minGray, val);
+            maxGray = std::max(maxGray, val);
+            sum += val;
+            sumSq += val * val;
+            count++;
+        }
+    }
+}
+
+} // namespace
+
+void IntensityStats(const QImage& image, const QRegion& region,
+                    double& minGray, double& maxGray,
+                    double& mean, double& deviation) {
+    minGray = 0.0;
+    maxGray = 0.0;
+    mean = 0.0;
+    deviation = 0.0;
+
+    if (!RequireGrayStatsImage(image, "IntensityStats")) {
+        return;
+    }
+    if (region.Empty()) {
+        return;
+    }
+
+    minGray = std::numeric_limits<double>::infinity();
+    maxGray = -std::numeric_limits<double>::infinity();
+    double sum = 0.0;
+    double sumSq = 0.0;
+    int64_t count = 0;
+
+    if (image.Type() == PixelType::UInt8) {
+        AccumulateRegionStats<uint8_t>(image, region, minGray, maxGray, sum, sumSq, count);
+    } else if (image.Type() == PixelType::UInt16) {
+        AccumulateRegionStats<uint16_t>(image, region, minGray, maxGray, sum, sumSq, count);
+    } else {
+        AccumulateRegionStats<float>(image, region, minGray, maxGray, sum, sumSq, count);
+    }
+
+    if (count == 0) {
+        minGray = 0.0;
+        maxGray = 0.0;
+        return;
+    }
+
+    mean = sum / static_cast<double>(count);
+    double variance = sumSq / static_cast<double>(count) - mean * mean;
+    if (variance < 0.0) variance = 0.0;
+    deviation = std::sqrt(variance);
+}
+
+double MeanGray(const QImage& image, const QRegion& region) {
+    double minGray, maxGray, mean, deviation;
+    IntensityStats(image, region, minGray, maxGray, mean, deviation);
+    return mean;
+}
+
+double StdDevGray(const QImage& image, const QRegion& region) {
+    double minGray, maxGray, mean, deviation;
+    IntensityStats(image, region, minGray, maxGray, mean, deviation);
+    return deviation;
+}
+
 void Intensity(const QImage& image, double& mean, double& deviation) {
     mean = 0.0;
     deviation = 0.0;

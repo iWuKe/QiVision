@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-03 (Inference 模块 + OCR 重构)
+> 最后更新: 2026-02-04 (Defect 局部自适应检测)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -255,6 +255,20 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-04 (Defect 局部自适应检测)
+
+- **Defect/VariationModel.h / VariationModel.cpp** (新增功能)
+  - 新增 `LightDark` 枚举: Light/Dark/NotEqual 检测模式
+  - 新增 `LocalAdaptiveCompare()`: 局部自适应缺陷检测
+    - 计算 diff = |test - golden|
+    - 计算 diff 的局部均值和标准差
+    - 标记 diff > localMean + k * localStdDev 的区域
+    - 对光照不均场景更鲁棒
+  - 新增 `DynThresholdDefect()`: 动态阈值缺陷检测 (Halcon dyn_threshold 风格)
+    - 使用均值滤波生成平滑参考图
+    - 支持 Light/Dark/NotEqual 检测模式
+  - 更新 `docs/API_Reference.md`: 添加新函数文档
 
 ### 2026-02-03 (Inference 模块 + OCR 重构)
 

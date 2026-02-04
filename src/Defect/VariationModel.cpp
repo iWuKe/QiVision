@@ -754,4 +754,271 @@ void AbsDiffImage(
     }
 }
 
+// =============================================================================
+// Local adaptive defect detection
+// =============================================================================
+
+QRegion LocalAdaptiveCompare(
+    const QImage& golden,
+    const QImage& test,
+    int32_t blockSize,
+    double k,
+    LightDark lightDark
+) {
+    QImage diffImage;
+    return LocalAdaptiveCompare(golden, test, diffImage, blockSize, k, lightDark);
+}
+
+QRegion LocalAdaptiveCompare(
+    const QImage& golden,
+    const QImage& test,
+    QImage& diffImage,
+    int32_t blockSize,
+    double k,
+    LightDark lightDark
+) {
+    // Validate inputs
+    if (golden.Empty() || test.Empty()) {
+        return QRegion();
+    }
+    if (!golden.IsValid() || !test.IsValid()) {
+        throw InvalidArgumentException("LocalAdaptiveCompare: invalid image");
+    }
+    if (golden.Width() != test.Width() || golden.Height() != test.Height()) {
+        throw InvalidArgumentException("LocalAdaptiveCompare: image size mismatch");
+    }
+    if (blockSize < 3 || blockSize % 2 == 0) {
+        throw InvalidArgumentException("LocalAdaptiveCompare: blockSize must be odd and >= 3");
+    }
+    if (k <= 0.0 || !std::isfinite(k)) {
+        throw InvalidArgumentException("LocalAdaptiveCompare: k must be > 0");
+    }
+    if (golden.Type() != PixelType::UInt8 || test.Type() != PixelType::UInt8) {
+        throw UnsupportedException("LocalAdaptiveCompare: only UInt8 images are supported");
+    }
+
+    int32_t width = golden.Width();
+    int32_t height = golden.Height();
+
+    // Step 1: Compute absolute difference image
+    AbsDiffImage(golden, test, diffImage);
+
+    // Step 2: Compute local mean and stddev of the diff image
+    // Convert diff to float for statistics
+    QImage diffFloat(width, height, PixelType::Float32);
+    const uint8_t* diffPtr = static_cast<const uint8_t*>(diffImage.Data());
+    float* floatPtr = static_cast<float*>(diffFloat.Data());
+    int32_t diffStride = diffImage.Stride();
+    int32_t floatStride = diffFloat.Stride() / sizeof(float);
+
+    for (int32_t y = 0; y < height; ++y) {
+        for (int32_t x = 0; x < width; ++x) {
+            floatPtr[y * floatStride + x] = static_cast<float>(diffPtr[y * diffStride + x]);
+        }
+    }
+
+    // Compute local mean and stddev using Filter module
+    QImage localMean, localStd;
+    Filter::MeanImage(diffFloat, localMean, blockSize, blockSize);
+    Filter::StdDevImage(diffFloat, localStd, blockSize, blockSize);
+
+    // Step 3: Build defect region where diff > localMean + k * localStd
+    const float* meanPtr = static_cast<const float*>(localMean.Data());
+    const float* stdPtr = static_cast<const float*>(localStd.Data());
+    int32_t meanStride = localMean.Stride() / sizeof(float);
+    int32_t stdStride = localStd.Stride() / sizeof(float);
+
+    std::vector<Run> runs;
+    float kf = static_cast<float>(k);
+
+    // For Light/Dark mode, we need to check the signed difference
+    // golden - test: positive = test is darker, negative = test is brighter
+    const uint8_t* goldenPtr = nullptr;
+    const uint8_t* testPtr = nullptr;
+    int32_t goldenStride = 0;
+    int32_t testStride = 0;
+
+    if (lightDark != LightDark::NotEqual) {
+        if (golden.Type() != PixelType::UInt8 || test.Type() != PixelType::UInt8) {
+            throw UnsupportedException("LocalAdaptiveCompare: Light/Dark mode only supports UInt8 images");
+        }
+        goldenPtr = static_cast<const uint8_t*>(golden.Data());
+        testPtr = static_cast<const uint8_t*>(test.Data());
+        goldenStride = golden.Stride();
+        testStride = test.Stride();
+    }
+
+    for (int32_t y = 0; y < height; ++y) {
+        int32_t runStart = -1;
+
+        for (int32_t x = 0; x < width; ++x) {
+            float diff = floatPtr[y * floatStride + x];
+            float localM = meanPtr[y * meanStride + x];
+            float localS = stdPtr[y * stdStride + x];
+            float threshold = localM + kf * localS;
+
+            bool isDefect = false;
+
+            switch (lightDark) {
+                case LightDark::NotEqual:
+                    isDefect = (diff > threshold);
+                    break;
+                case LightDark::Light: {
+                    // test is brighter than golden
+                    int32_t signedDiff = static_cast<int32_t>(testPtr[y * testStride + x]) -
+                                         static_cast<int32_t>(goldenPtr[y * goldenStride + x]);
+                    isDefect = (signedDiff > 0) && (diff > threshold);
+                    break;
+                }
+                case LightDark::Dark: {
+                    // test is darker than golden
+                    int32_t signedDiff = static_cast<int32_t>(testPtr[y * testStride + x]) -
+                                         static_cast<int32_t>(goldenPtr[y * goldenStride + x]);
+                    isDefect = (signedDiff < 0) && (diff > threshold);
+                    break;
+                }
+                case LightDark::Equal:
+                    throw UnsupportedException("LocalAdaptiveCompare: LightDark::Equal is not supported for defect detection");
+            }
+
+            if (isDefect) {
+                if (runStart < 0) runStart = x;
+            } else {
+                if (runStart >= 0) {
+                    runs.push_back({y, runStart, x});
+                    runStart = -1;
+                }
+            }
+        }
+        if (runStart >= 0) {
+            runs.push_back({y, runStart, width});
+        }
+    }
+
+    return QRegion(std::move(runs));
+}
+
+QRegion DynThresholdDefect(
+    const QImage& image,
+    int32_t filterSize,
+    double offset,
+    LightDark lightDark
+) {
+    if (image.Empty()) {
+        return QRegion();
+    }
+    if (!image.IsValid()) {
+        throw InvalidArgumentException("DynThresholdDefect: invalid image");
+    }
+    if (filterSize < 3 || filterSize % 2 == 0) {
+        throw InvalidArgumentException("DynThresholdDefect: filterSize must be odd and >= 3");
+    }
+    if (!std::isfinite(offset) || offset < 0.0) {
+        throw InvalidArgumentException("DynThresholdDefect: offset must be >= 0");
+    }
+
+    int32_t width = image.Width();
+    int32_t height = image.Height();
+
+    // Generate smoothed reference using mean filter
+    QImage reference;
+    Filter::MeanImage(image, reference, filterSize, filterSize);
+
+    // Compare image with smoothed reference
+    std::vector<Run> runs;
+    float off = static_cast<float>(offset);
+
+    if (image.Type() == PixelType::UInt8) {
+        const uint8_t* imgPtr = static_cast<const uint8_t*>(image.Data());
+        int32_t imgStride = image.Stride();
+
+        // Reference might be float, handle both cases
+        if (reference.Type() == PixelType::Float32) {
+            const float* refPtr = static_cast<const float*>(reference.Data());
+            int32_t refStride = reference.Stride() / sizeof(float);
+
+            for (int32_t y = 0; y < height; ++y) {
+                int32_t runStart = -1;
+
+                for (int32_t x = 0; x < width; ++x) {
+                    float img = static_cast<float>(imgPtr[y * imgStride + x]);
+                    float ref = refPtr[y * refStride + x];
+                    float diff = img - ref;
+
+                    bool isDefect = false;
+                    switch (lightDark) {
+                        case LightDark::Light:
+                            isDefect = (diff > off);
+                            break;
+                        case LightDark::Dark:
+                            isDefect = (diff < -off);
+                            break;
+                        case LightDark::NotEqual:
+                            isDefect = (std::abs(diff) > off);
+                            break;
+                        case LightDark::Equal:
+                            throw UnsupportedException("DynThresholdDefect: LightDark::Equal is not supported for defect detection");
+                    }
+
+                    if (isDefect) {
+                        if (runStart < 0) runStart = x;
+                    } else {
+                        if (runStart >= 0) {
+                            runs.push_back({y, runStart, x});
+                            runStart = -1;
+                        }
+                    }
+                }
+                if (runStart >= 0) {
+                    runs.push_back({y, runStart, width});
+                }
+            }
+        } else if (reference.Type() == PixelType::UInt8) {
+            const uint8_t* refPtr = static_cast<const uint8_t*>(reference.Data());
+            int32_t refStride = reference.Stride();
+
+            for (int32_t y = 0; y < height; ++y) {
+                int32_t runStart = -1;
+
+                for (int32_t x = 0; x < width; ++x) {
+                    float img = static_cast<float>(imgPtr[y * imgStride + x]);
+                    float ref = static_cast<float>(refPtr[y * refStride + x]);
+                    float diff = img - ref;
+
+                    bool isDefect = false;
+                    switch (lightDark) {
+                        case LightDark::Light:
+                            isDefect = (diff > off);
+                            break;
+                        case LightDark::Dark:
+                            isDefect = (diff < -off);
+                            break;
+                        case LightDark::NotEqual:
+                            isDefect = (std::abs(diff) > off);
+                            break;
+                        case LightDark::Equal:
+                            throw UnsupportedException("DynThresholdDefect: LightDark::Equal is not supported for defect detection");
+                    }
+
+                    if (isDefect) {
+                        if (runStart < 0) runStart = x;
+                    } else {
+                        if (runStart >= 0) {
+                            runs.push_back({y, runStart, x});
+                            runStart = -1;
+                        }
+                    }
+                }
+                if (runStart >= 0) {
+                    runs.push_back({y, runStart, width});
+                }
+            }
+        }
+    } else {
+        throw UnsupportedException("DynThresholdDefect only supports UInt8 images currently");
+    }
+
+    return QRegion(std::move(runs));
+}
+
 } // namespace Qi::Vision::Defect

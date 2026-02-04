@@ -23,6 +23,7 @@
  */
 
 #include <QiVision/Core/QImage.h>
+#include <QiVision/Core/QRegion.h>
 #include <QiVision/Core/Types.h>
 
 #include <cstdint>
@@ -436,6 +437,40 @@ QIVISION_API std::vector<int64_t> GrayHistoAbs(const QImage& image);
  * @param[out] range Gray value range (max - min)
  */
 QIVISION_API void MinMaxGray(const QImage& image, double& minGray, double& maxGray, double& range);
+
+/**
+ * @brief Compute gray value statistics within a region
+ *
+ * Equivalent to Halcon's intensity with ROI.
+ *
+ * @param image Input grayscale image (UInt8/UInt16/Float32)
+ * @param region Region of interest
+ * @param[out] minGray Minimum gray value in region
+ * @param[out] maxGray Maximum gray value in region
+ * @param[out] mean Mean gray value in region
+ * @param[out] deviation Standard deviation in region
+ */
+QIVISION_API void IntensityStats(const QImage& image, const QRegion& region,
+                                 double& minGray, double& maxGray,
+                                 double& mean, double& deviation);
+
+/**
+ * @brief Compute mean gray value within a region
+ *
+ * @param image Input grayscale image (UInt8/UInt16/Float32)
+ * @param region Region of interest
+ * @return Mean gray value (0 if region is empty)
+ */
+QIVISION_API double MeanGray(const QImage& image, const QRegion& region);
+
+/**
+ * @brief Compute gray value standard deviation within a region
+ *
+ * @param image Input grayscale image (UInt8/UInt16/Float32)
+ * @param region Region of interest
+ * @return Standard deviation (0 if region is empty)
+ */
+QIVISION_API double StdDevGray(const QImage& image, const QRegion& region);
 
 /**
  * @brief Compute gray value intensity statistics

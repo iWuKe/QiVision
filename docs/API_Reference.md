@@ -1236,6 +1236,40 @@ void MergeChannels(const std::vector<QImage>& channels, QImage& output);
 
 ---
 
+### Histogram & Intensity
+
+Gray histogram and intensity statistics.
+
+```cpp
+void GrayHisto(const QImage& image,
+               std::vector<int64_t>& absoluteHisto,
+               std::vector<double>& relativeHisto);
+
+std::vector<int64_t> GrayHistoAbs(const QImage& image);
+
+void MinMaxGray(const QImage& image, double& minGray, double& maxGray, double& range);
+
+void Intensity(const QImage& image, double& mean, double& deviation);
+
+double EntropyGray(const QImage& image);
+
+double GrayHistoPercentile(const QImage& image, double percentile);
+
+void IntensityStats(const QImage& image, const QRegion& region,
+                    double& minGray, double& maxGray,
+                    double& mean, double& deviation);
+
+double MeanGray(const QImage& image, const QRegion& region);
+
+double StdDevGray(const QImage& image, const QRegion& region);
+```
+
+**Notes**
+- `IntensityStats/MeanGray/StdDevGray` require grayscale images (UInt8/UInt16/Float32).
+- If the region is empty, outputs are zero.
+
+---
+
 ### AdjustBrightness / AdjustContrast / AdjustGamma
 
 Color adjustment functions.
@@ -5143,6 +5177,74 @@ Compute absolute difference image.
 void AbsDiffImage(const QImage& image1, const QImage& image2,
                   QImage& diffImage);
 ```
+
+---
+
+### Local Adaptive Detection
+
+Local adaptive methods for non-uniform illumination scenarios.
+
+Uses `Segment::LightDark` enum (see Segment module for definition).
+
+---
+
+#### LocalAdaptiveCompare
+
+Local adaptive defect detection using local statistics on the **difference image**. More robust to non-uniform illumination.
+
+```cpp
+// Basic version
+QRegion LocalAdaptiveCompare(const QImage& golden, const QImage& test,
+                             int32_t blockSize = 21,
+                             double k = 3.0,
+                             LightDark lightDark = LightDark::NotEqual);
+
+// With diff image output
+QRegion LocalAdaptiveCompare(const QImage& golden, const QImage& test,
+                             QImage& diffImage,
+                             int32_t blockSize = 21,
+                             double k = 3.0,
+                             LightDark lightDark = LightDark::NotEqual);
+```
+
+**Algorithm**:
+1. Compute `diff = |test - golden|`
+2. Compute local mean and stddev of **diff** within blockSize × blockSize window
+3. Mark pixels where `diff > localMean + k * localStdDev` as defects
+
+**Design note**: Local statistics are computed on the difference image (not on the original images). This approach better suppresses texture/noise but may reduce sensitivity to small stable defects. For higher sensitivity scenarios, use `VariationModel` with trained statistics.
+
+**Parameters**:
+- `golden` - Reference (golden) image (**UInt8 only**)
+- `test` - Test image (**UInt8 only**)
+- `blockSize` - Window size for local statistics (must be odd, default 21)
+- `k` - Threshold multiplier in standard deviations (default 3.0)
+- `lightDark` - Detection mode (Light/Dark/NotEqual; **Equal not supported**)
+
+---
+
+#### DynThresholdDefect
+
+Dynamic threshold defect detection (Halcon dyn_threshold style). Uses smoothed image as reference.
+
+```cpp
+QRegion DynThresholdDefect(const QImage& image,
+                           int32_t filterSize,
+                           double offset,
+                           LightDark lightDark = LightDark::NotEqual);
+```
+
+**Algorithm**:
+- Generates smoothed reference using mean filter
+- Light: returns pixels where `image > smoothed + offset`
+- Dark: returns pixels where `image < smoothed - offset`
+- NotEqual: returns pixels where `|image - smoothed| > offset`
+
+**Parameters**:
+- `image` - Input image (**UInt8 only**)
+- `filterSize` - Size for smoothing filter (must be odd)
+- `offset` - Threshold offset
+- `lightDark` - Detection mode (Light/Dark/NotEqual; **Equal not supported**)
 
 ---
 

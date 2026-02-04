@@ -17,10 +17,14 @@
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/QRegion.h>
 #include <QiVision/Core/Export.h>
+#include <QiVision/Segment/Segment.h>  // For LightDark enum
 #include <string>
 #include <memory>
 
 namespace Qi::Vision::Defect {
+
+// Reuse LightDark enum from Segment module
+using Segment::LightDark;
 
 /**
  * @brief Variation Model for defect detection
@@ -267,6 +271,85 @@ QIVISION_API void AbsDiffImage(
     const QImage& image1,
     const QImage& image2,
     QImage& diffImage
+);
+
+// =============================================================================
+// Local adaptive defect detection
+// =============================================================================
+
+/**
+ * @brief Local adaptive defect detection using local statistics on diff image
+ * @param golden Reference (golden) image (UInt8 only)
+ * @param test Test image (UInt8 only)
+ * @param blockSize Window size for local statistics (must be odd, default 21)
+ * @param k Threshold multiplier in standard deviations (default 3.0)
+ * @param lightDark Detection mode (Light/Dark/NotEqual; Equal not supported)
+ * @return Region containing defect pixels
+ *
+ * Algorithm:
+ * 1. Compute diff = |test - golden|
+ * 2. Compute local mean and stddev of diff within blockSize x blockSize window
+ * 3. Mark pixels where diff > localMean + k * localStdDev as defects
+ *
+ * @note Local statistics are computed on the **difference image**, not on
+ * the original images. This approach better suppresses texture/noise but
+ * may reduce sensitivity to small stable defects. For scenarios requiring
+ * higher sensitivity, consider using VariationModel with trained statistics.
+ *
+ * @note Only UInt8 images are supported. LightDark::Equal is not supported
+ * (throws UnsupportedException).
+ *
+ * This is more robust to non-uniform illumination compared to global thresholding.
+ * The local statistics adapt to the local noise/texture level.
+ */
+QIVISION_API QRegion LocalAdaptiveCompare(
+    const QImage& golden,
+    const QImage& test,
+    int32_t blockSize = 21,
+    double k = 3.0,
+    LightDark lightDark = LightDark::NotEqual
+);
+
+/**
+ * @brief Local adaptive defect detection with separate diff image output
+ * @param golden Reference (golden) image
+ * @param test Test image
+ * @param diffImage Output: absolute difference image
+ * @param blockSize Window size for local statistics (must be odd, default 21)
+ * @param k Threshold multiplier in standard deviations (default 3.0)
+ * @param lightDark Detection mode (default NotEqual = both bright and dark)
+ * @return Region containing defect pixels
+ */
+QIVISION_API QRegion LocalAdaptiveCompare(
+    const QImage& golden,
+    const QImage& test,
+    QImage& diffImage,
+    int32_t blockSize = 21,
+    double k = 3.0,
+    LightDark lightDark = LightDark::NotEqual
+);
+
+/**
+ * @brief Dynamic threshold defect detection (Halcon dyn_threshold style)
+ * @param image Original image (UInt8 only)
+ * @param filterSize Size for smoothing filter to generate reference (must be odd)
+ * @param offset Threshold offset
+ * @param lightDark Detection mode (Light/Dark/NotEqual; Equal not supported)
+ * @return Region containing defect pixels
+ *
+ * Uses a smoothed version of the image as reference:
+ * - Light: returns pixels where image > smoothed + offset
+ * - Dark: returns pixels where image < smoothed - offset
+ * - NotEqual: returns pixels where |image - smoothed| > offset
+ *
+ * @note Only UInt8 images are supported. LightDark::Equal is not supported
+ * (throws UnsupportedException).
+ */
+QIVISION_API QRegion DynThresholdDefect(
+    const QImage& image,
+    int32_t filterSize,
+    double offset,
+    LightDark lightDark = LightDark::NotEqual
 );
 
 } // namespace Qi::Vision::Defect

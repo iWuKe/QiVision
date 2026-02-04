@@ -87,29 +87,39 @@
 Platform ████████████████░░░░ 86%   (Memory, SIMD, Thread, Timer, FileIO, Random)
 Core     ████████████████████ 100%  (QImage, QRegion, QContour, QMatrix)
 Internal ████████████████████ 100%  (Gradient, Pyramid, Fitting, Steger, Hessian...)
-Feature  █████░░░░░░░░░░░░░░░ 25%   (Matching, Measure, IO, Color, Filter)
-Tests    █████████████████░░░ 87%   (2616/2626 通过)
+Feature  ███████████░░░░░░░░░ 55%   (20+ 模块已完成)
+Tests    █████████████████░░░ 87%
 ```
 
 ### 已完成模块
 
-| 模块 | 状态 | 说明 |
-|------|:----:|------|
-| **Matching** | ✅ | ShapeModel (形状匹配) + NCCModel (灰度匹配)，支持旋转、缩放 |
-| **Measure** | ✅ | 卡尺测量，矩形/弧形句柄，< 0.03px 精度 |
-| **IO** | ✅ | 图像读写，PNG/JPEG/BMP/RAW，16位支持 |
-| **Color** | ✅ | 颜色转换（HSV/Lab/YCrCb）、Bayer 去马赛克、PCA |
-| **Filter** | ✅ | 高斯/中值/双边滤波、边缘检测、图像增强 |
+| 模块 | 说明 |
+|------|------|
+| **Matching** | ShapeModel (形状匹配) + NCCModel (灰度匹配)，支持旋转、缩放 |
+| **Measure** | 卡尺测量 (Caliper/CaliperArray) + 计量模型 (Metrology)，< 0.03px 精度 |
+| **IO** | 图像读写，PNG/JPEG/BMP/RAW，16位支持 |
+| **Color** | 颜色转换 (HSV/Lab/YCrCb)、Bayer 去马赛克、ROI 统计 |
+| **Filter** | 高斯/中值/双边滤波、Sobel/Scharr 边缘、CLAHE 增强 |
+| **Segment** | 阈值分割 (全局/自适应/Otsu/动态)、K-Means、Watershed、GMM |
+| **Blob** | 连通域分析、形状筛选、内接圆、孔洞检测 |
+| **Edge** | Canny 边缘检测、Steger 亚像素边缘 |
+| **Morphology** | 二值/灰度形态学、结构元素创建 |
+| **Contour** | XLD 轮廓操作、平滑/简化/分割/拟合 |
+| **Transform** | 仿射变换、透视变换、极坐标变换 |
+| **Hough** | 霍夫变换 (直线/圆检测) |
+| **Defect** | VariationModel 变差模型、局部自适应检测、动态阈值检测 |
+| **Texture** | 纹理分析 (LBP/GLCM/Gabor) |
+| **Display/GUI** | 图像显示、绘制、窗口调试 (Win32/X11) |
+| **OCR** | 字符识别 (ONNXRuntime + PaddleOCR) |
+| **Barcode** | 条形码/二维码 (ZXing-cpp 封装) |
 
 ### 计划中
 
 | 模块 | 优先级 | 状态 |
 |------|:------:|:----:|
 | ComponentModel | P1 | 设计中 |
-| Blob 分析 | P1 | 进行中 |
-| OCR | P1 | 计划中 |
-| Barcode | P1 | 计划中 |
-| 相机标定 | P2 | 计划中 |
+| DeformableModel | P2 | 计划中 |
+| 相机标定 | P2 | 部分完成 |
 
 ---
 
@@ -303,12 +313,15 @@ target_link_libraries(your_app PRIVATE QiVision)
 │   QImage (Domain), QRegion (RLE), QContour (XLD), QMatrix       │
 ├─────────────────────────────────────────────────────────────────┤
 │ Feature Layer                                                    │
-│   Matching: ShapeModel ✓, NCCModel ✓, ComponentModel            │
-│   Measure:  Caliper ✓, CaliperArray ✓, Metrology                │
-│   IO:       ReadImage ✓, WriteImage ✓, Sequence ✓               │
-│   Color:    ColorConvert ✓, Decompose ✓, CfaToRgb ✓             │
-│   Filter:   Gauss ✓, Median ✓, Bilateral ✓, Sobel ✓             │
-│   Analysis: Blob, OCR, Barcode, Defect                          │
+│   Matching:   ShapeModel ✓, NCCModel ✓, ComponentModel          │
+│   Measure:    Caliper ✓, CaliperArray ✓, Metrology ✓            │
+│   Segment:    Threshold ✓, Otsu ✓, Adaptive ✓, DynThreshold ✓   │
+│   Blob:       Connection ✓, SelectShape ✓, Features ✓           │
+│   Edge:       Canny ✓, Steger ✓                                  │
+│   Defect:     VariationModel ✓, LocalAdaptive ✓, DynThreshold ✓ │
+│   Transform:  Affine ✓, Perspective ✓, Polar ✓                  │
+│   Morphology: Binary ✓, Gray ✓                                   │
+│   IO/Color/Filter/Contour/Hough/Display/GUI/OCR/Barcode ✓       │
 ├─────────────────────────────────────────────────────────────────┤
 │ Internal Layer (不导出)                                          │
 │   Math:     Gaussian, Matrix, Solver, Eigen                     │

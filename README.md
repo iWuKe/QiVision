@@ -54,6 +54,33 @@
 
 ---
 
+## 示例程序
+
+| 模块 | 示例 | 说明 |
+|------|------|------|
+| **Matching** | `shape_match.cpp` | 形状模板匹配 |
+| | `ncc_match.cpp` | NCC 灰度匹配 |
+| | `test_scaled_match.cpp` | 多尺度匹配测试 |
+| | `test_create_model.cpp` | 模板创建测试 |
+| **Measure** | `caliper_pairs.cpp` | 卡尺边缘对测量 |
+| | `caliper_circle_manual.cpp` | 手动圆形卡尺 |
+| | `circle_metrology.cpp` | 圆形计量测量 |
+| | `line_metrology.cpp` | 直线计量测量 |
+| **Blob** | `blob_analysis.cpp` | Blob 连通域分析 |
+| **Barcode** | `barcode_read.cpp` | 条码识别 |
+| **OCR** | `ocr_demo.cpp` | OCR 文字识别 |
+| **Calib** | `polar_transform_test.cpp` | 极坐标变换 |
+
+```bash
+# 运行示例 (Linux)
+./build/bin/samples/matching_shape_match
+
+# 运行示例 (Windows)
+.\build\bin\Release\samples\matching_shape_match.exe
+```
+
+---
+
 ## 开发进度
 
 ```

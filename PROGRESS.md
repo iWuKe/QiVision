@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-04 (Defect 局部自适应检测)
+> 最后更新: 2026-02-05 (进度状态更正)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -155,7 +155,7 @@ Tests    █████████████████░░░ 87%
 | MatchTypes.h | ✅ | ✅ | - | - | ⬜ | 参数和结果结构体 |
 | ShapeModel.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 形状匹配（P0，梯度方向特征） |
 | NCCModel.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | NCC 匹配（P1，归一化互相关） |
-| ComponentModel.h | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | 组件匹配（P1，多部件关系约束） |
+| ComponentModel.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 组件匹配（P1，多部件关系约束） |
 | DeformableModel.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 变形匹配（P2） |
 | Internal/AnglePyramid.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 角度预计算模型（新增依赖） |
 | Internal/IntegralImage.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 积分图（NCCModel依赖） |
@@ -202,6 +202,9 @@ Tests    █████████████████░░░ 87%
 | **Calib/Undistort.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 畸变校正 |
 | **Calib/CalibBoard.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 标定板检测 |
 | **Calib/CameraCalib.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 相机标定（张正友法） |
+| **Calib/FisheyeModel.h** | ✅ | ✅ | ⬜ | ⬜ | ⬜ | **P2** | 鱼眼相机模型（Kannala-Brandt） |
+| **Calib/FisheyeUndistort.h** | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | **P2** | 鱼眼去畸变 |
+| **Calib/FisheyeCalib.h** | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | **P2** | 鱼眼标定 |
 
 ---
 
@@ -214,7 +217,7 @@ Tests    █████████████████░░░ 87%
 | 模块 | 设计 | 实现 | 单测 | 审查 | 备注 |
 |------|:----:|:----:|:----:|:----:|------|
 | QPose.h | ⬜ | ⬜ | ⬜ | ⬜ | 6DOF 位姿，欧拉角 ZYX |
-| QHomMat2d.h | ⬜ | ⬜ | ⬜ | ⬜ | 2D 齐次变换矩阵 |
+| QHomMat2d.h | ✅ | ✅ | ✅ | ⬜ | 2D 齐次变换矩阵 (已实现为 QMatrix 别名，含完整功能) |
 | QHomMat3d.h | ⬜ | ⬜ | ⬜ | ⬜ | 3D 齐次变换矩阵 |
 | CameraModel.h | ✅ | ✅ | ⬜ | ⬜ | 相机内外参 + 畸变 (Brown-Conrady模型) |
 
@@ -225,6 +228,9 @@ Tests    █████████████████░░░ 87%
 | CalibBoard.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 标定板检测 (棋盘格角点) |
 | CameraCalib.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 相机内参标定 (张正友法) |
 | Undistort.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 畸变校正 (Undistort/Remap/UndistortMap) |
+| FisheyeModel.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 鱼眼模型 (Kannala-Brandt) |
+| FisheyeUndistort.h | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | 鱼眼去畸变 |
+| FisheyeCalib.h | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | 鱼眼标定 |
 | HandEyeCalib.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 手眼标定 |
 | StereoCalib.h | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | 双目标定 |
 
@@ -255,6 +261,27 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-06 (Fisheye 模型接入与健壮性修复)
+
+- **Calib/FisheyeModel 模块** (新增/接入构建)
+  - 新增头文件: `include/QiVision/Calib/FisheyeModel.h`
+  - 新增实现: `src/Calib/FisheyeModel.cpp`
+  - **FOV 计算修正**: 考虑非中心主点
+  - **健壮性**: `UnprojectPixel` 校验内参，`ProjectPoint` 对 `z<=0` 返回 NaN
+- **Fisheye 相关 API 预留**:
+  - `include/QiVision/Calib/FisheyeUndistort.h`
+  - `include/QiVision/Calib/FisheyeCalib.h`
+
+### 2026-02-05 (进度状态更正)
+
+- **PROGRESS.md** (状态更正)
+  - QHomMat2d.h: ⬜→✅ 已实现为 `QMatrix` 别名 (Core/QMatrix.h:180)
+  - 包含完整功能: 平移、旋转、缩放、剪切、点变换、矩阵求逆、分解等
+
+- **CLAUDE.md** (文档改进)
+  - 新增 "Source Code Structure" 部分: 说明 include/src/tests/samples 目录结构
+  - 新增 "Quick References" 部分: 添加新 API/Internal/测试/示例的快速指引
 
 ### 2026-02-04 (Defect 局部自适应检测)
 

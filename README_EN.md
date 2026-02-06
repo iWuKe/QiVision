@@ -67,7 +67,7 @@ Tests    █████████████████░░░ 87%   (261
 | Module | Priority | Status |
 |--------|:--------:|:------:|
 | NCCModel | P1 | 🟡 Designing |
-| ComponentModel | P1 | 🟡 Designing |
+| ComponentModel | P1 | ✅ Implemented |
 | Blob Analysis | P1 | ⬜ Planned |
 | OCR | P1 | ⬜ Planned |
 | Barcode | P1 | ⬜ Planned |
@@ -136,7 +136,7 @@ target_link_libraries(your_app PRIVATE QiVision)
 │   QImage (Domain), QRegion (RLE), QContour (XLD), QMatrix       │
 ├─────────────────────────────────────────────────────────────────┤
 │ Feature Layer                                                    │
-│   Matching: ShapeModel ✓, NCCModel, ComponentModel              │
+│   Matching: ShapeModel ✓, NCCModel ✓, ComponentModel ✓          │
 │   Measure:  Caliper ✓, CaliperArray ✓, Metrology                │
 │   Analysis: Blob, OCR, Barcode, Defect                          │
 ├─────────────────────────────────────────────────────────────────┤

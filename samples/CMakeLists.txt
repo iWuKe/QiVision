@@ -17,6 +17,7 @@ add_sample(matching_shape_match matching/shape_match.cpp)
 add_sample(matching_test_create_model matching/test_create_model.cpp)
 add_sample(matching_test_scaled_match matching/test_scaled_match.cpp)
 add_sample(matching_ncc_match matching/ncc_match.cpp)
+add_sample(matching_component_model matching/component_model_demo.cpp)
 
 # Measure - Metrology & Caliper
 add_sample(measure_circle_metrology measure/circle_metrology.cpp)
@@ -46,6 +47,7 @@ set(SAMPLE_TARGETS
     matching_test_create_model
     matching_test_scaled_match
     matching_ncc_match
+    matching_component_model
     measure_circle_metrology
     measure_line_metrology
     measure_caliper_pairs

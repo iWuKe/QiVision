@@ -117,7 +117,7 @@ Tests    █████████████████░░░ 87%
 
 | 模块 | 优先级 | 状态 |
 |------|:------:|:----:|
-| ComponentModel | P1 | 设计中 |
+| ComponentModel | P1 | 已实现 |
 | DeformableModel | P2 | 计划中 |
 | 相机标定 | P2 | 部分完成 |
 
@@ -313,7 +313,7 @@ target_link_libraries(your_app PRIVATE QiVision)
 │   QImage (Domain), QRegion (RLE), QContour (XLD), QMatrix       │
 ├─────────────────────────────────────────────────────────────────┤
 │ Feature Layer                                                    │
-│   Matching:   ShapeModel ✓, NCCModel ✓, ComponentModel          │
+│   Matching:   ShapeModel ✓, NCCModel ✓, ComponentModel ✓        │
 │   Measure:    Caliper ✓, CaliperArray ✓, Metrology ✓            │
 │   Segment:    Threshold ✓, Otsu ✓, Adaptive ✓, DynThreshold ✓   │
 │   Blob:       Connection ✓, SelectShape ✓, Features ✓           │

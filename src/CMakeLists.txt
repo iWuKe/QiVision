@@ -74,6 +74,7 @@ set(QIVISION_SOURCES
     Matching/NCCModelCreate.cpp
     Matching/NCCModelSearch.cpp
     Matching/NCCModelScore.cpp
+    Matching/ComponentModel.cpp
     # Measure (Feature Layer)
     Measure/MeasureHandle.cpp
     Measure/Caliper.cpp
@@ -101,6 +102,7 @@ set(QIVISION_SOURCES
     Calib/Undistort.cpp
     Calib/CalibBoard.cpp
     Calib/CameraCalib.cpp
+    Calib/FisheyeModel.cpp
     # Transform (Feature Layer)
     Transform/PolarTransform.cpp
     Transform/AffineTransform.cpp
@@ -197,9 +199,11 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/MatchTypes.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/ShapeModel.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/NCCModel.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/ComponentModel.h
     # Matching internal headers (in src/)
     ${CMAKE_SOURCE_DIR}/src/Matching/ShapeModelImpl.h
     ${CMAKE_SOURCE_DIR}/src/Matching/NCCModelImpl.h
+    ${CMAKE_SOURCE_DIR}/src/Matching/ComponentModelImpl.h
     # Measure (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/MeasureTypes.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Measure/MeasureHandle.h
@@ -228,6 +232,9 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/Undistort.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/CalibBoard.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/CameraCalib.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/FisheyeModel.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/FisheyeUndistort.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/FisheyeCalib.h
     # Transform (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Transform/PolarTransform.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Transform/AffineTransform.h

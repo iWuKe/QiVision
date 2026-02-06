@@ -103,6 +103,16 @@ set(QIVISION_SOURCES
     Calib/CalibBoard.cpp
     Calib/CameraCalib.cpp
     Calib/FisheyeModel.cpp
+    Calib/FisheyeUndistort.cpp
+    Calib/FisheyeCalib.cpp
+    Calib/StereoCalib.cpp
+    Calib/HandEyeCalib.cpp
+    Calib/QPose.cpp
+    Calib/QHomMat3d.cpp
+    Calib/CoordTransform2d.cpp
+    Calib/CoordTransform3d.cpp
+    Calib/MatchTransform.cpp
+    Calib/RobotTransform.cpp
     # Transform (Feature Layer)
     Transform/PolarTransform.cpp
     Transform/AffineTransform.cpp
@@ -235,6 +245,15 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/FisheyeModel.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/FisheyeUndistort.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/FisheyeCalib.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/StereoCalib.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/HandEyeCalib.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/QPose.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/QHomMat2d.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/QHomMat3d.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/CoordTransform2d.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/CoordTransform3d.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/MatchTransform.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Calib/RobotTransform.h
     # Transform (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Transform/PolarTransform.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Transform/AffineTransform.h

@@ -1,6 +1,6 @@
 /**
  * @file CalibBoard.cpp
- * @brief Chessboard corner detection implementation
+ * @brief Calibration board detection implementation
  *
  * Algorithm overview:
  * 1. Preprocess image (normalize, blur)
@@ -11,7 +11,7 @@
  * 6. Organize corners into a regular grid
  * 7. Refine corners to subpixel accuracy
  *
- * Reference: OpenCV's chessboard detection algorithm
+ * Reference: OpenCV chessboard / circle grid detection
  */
 
 #include <QiVision/Calib/CalibBoard.h>
@@ -52,6 +52,11 @@ constexpr int MIN_QUADS = 1;
 /// Angle tolerance for quad corners (degrees)
 constexpr double QUAD_ANGLE_TOLERANCE = 30.0;
 
+/// Circle grid detection thresholds
+constexpr double MIN_CIRCLE_FILL_RATIO = 0.55;
+constexpr double MAX_CIRCLE_FILL_RATIO = 0.95;
+constexpr double MAX_ASPECT_RATIO = 1.6;
+
 // =============================================================================
 // Helper Structures
 // =============================================================================
@@ -77,6 +82,12 @@ struct CornerCandidate {
 
     CornerCandidate() : count(0), response(0) {}
     CornerCandidate(const Point2d& pos) : position(pos), count(1), response(0) {}
+};
+
+struct CircleCandidate {
+    Point2d center;
+    double area = 0.0;
+    Rect2i box;
 };
 
 // =============================================================================
@@ -521,6 +532,105 @@ bool OrganizeGrid(std::vector<Point2d>& corners, int32_t patternCols, int32_t pa
     return true;
 }
 
+std::vector<CircleCandidate> ExtractCircleCandidates(const QImage& binary) {
+    std::vector<CircleCandidate> candidates;
+    int32_t numLabels = 0;
+    QImage labels = Internal::LabelConnectedComponents(binary, Connectivity::Eight, numLabels);
+    if (numLabels <= 0) {
+        return candidates;
+    }
+
+    auto stats = Internal::GetComponentStats(labels, numLabels);
+    if (stats.empty()) {
+        return candidates;
+    }
+
+    std::vector<double> areas;
+    areas.reserve(stats.size());
+    for (const auto& s : stats) {
+        if (s.area <= 0) continue;
+        areas.push_back(static_cast<double>(s.area));
+    }
+    if (areas.empty()) {
+        return candidates;
+    }
+
+    std::nth_element(areas.begin(), areas.begin() + areas.size() / 2, areas.end());
+    double medianArea = areas[areas.size() / 2];
+    double minArea = medianArea * 0.3;
+    double maxArea = medianArea * 3.0;
+
+    for (const auto& s : stats) {
+        double area = static_cast<double>(s.area);
+        if (area < minArea || area > maxArea) continue;
+
+        int32_t w = s.boundingBox.width;
+        int32_t h = s.boundingBox.height;
+        if (w <= 1 || h <= 1) continue;
+
+        double aspect = (w > h) ? static_cast<double>(w) / h : static_cast<double>(h) / w;
+        if (aspect > MAX_ASPECT_RATIO) continue;
+
+        double fill = area / (static_cast<double>(w) * h);
+        if (fill < MIN_CIRCLE_FILL_RATIO || fill > MAX_CIRCLE_FILL_RATIO) continue;
+
+        CircleCandidate c;
+        c.center = Point2d(s.centroidX, s.centroidY);
+        c.area = area;
+        c.box = s.boundingBox;
+        candidates.push_back(c);
+    }
+
+    return candidates;
+}
+
+bool ComputePCAAxes(const std::vector<Point2d>& points, Point2d& axisU, Point2d& axisV) {
+    if (points.size() < 2) {
+        return false;
+    }
+    double meanX = 0.0, meanY = 0.0;
+    for (const auto& p : points) {
+        meanX += p.x;
+        meanY += p.y;
+    }
+    meanX /= points.size();
+    meanY /= points.size();
+
+    double xx = 0.0, xy = 0.0, yy = 0.0;
+    for (const auto& p : points) {
+        double dx = p.x - meanX;
+        double dy = p.y - meanY;
+        xx += dx * dx;
+        xy += dx * dy;
+        yy += dy * dy;
+    }
+
+    double trace = xx + yy;
+    double det = xx * yy - xy * xy;
+    double disc = std::sqrt(std::max(0.0, trace * trace * 0.25 - det));
+    double lambda1 = trace * 0.5 + disc;
+
+    Point2d u;
+    if (std::abs(xy) > 1e-12) {
+        u.x = lambda1 - yy;
+        u.y = xy;
+    } else {
+        u.x = (xx >= yy) ? 1.0 : 0.0;
+        u.y = (xx >= yy) ? 0.0 : 1.0;
+    }
+    double norm = std::sqrt(u.x * u.x + u.y * u.y);
+    if (norm < 1e-12) {
+        return false;
+    }
+    u.x /= norm;
+    u.y /= norm;
+
+    Point2d v{-u.y, u.x};
+    axisU = u;
+    axisV = v;
+    return true;
+}
+
 } // anonymous namespace
 
 // =============================================================================
@@ -719,6 +829,147 @@ CornerGrid FindChessboardCorners(
     return result;
 }
 
+CircleGrid FindCircleGrid(
+    const QImage& image,
+    int32_t patternCols,
+    int32_t patternRows,
+    CircleGridType type)
+{
+    CircleGrid grid;
+    grid.rows = patternRows;
+    grid.cols = patternCols;
+    grid.found = false;
+
+    if (!Validate::RequireImageU8Gray(image, "FindCircleGrid")) {
+        return grid;
+    }
+    if (patternCols <= 0 || patternRows <= 0) {
+        throw InvalidArgumentException("FindCircleGrid: invalid pattern size");
+    }
+
+    QImage bin;
+    Internal::ThresholdOtsu(image, bin, 255.0, nullptr);
+
+    auto candidates = ExtractCircleCandidates(bin);
+    if (candidates.size() < static_cast<size_t>(patternCols * patternRows)) {
+        // Try inverted binary if dark circles
+        QImage binInv = bin.Clone();
+        uint8_t* data = static_cast<uint8_t*>(binInv.Data());
+        const int32_t total = binInv.Width() * binInv.Height();
+        for (int32_t i = 0; i < total; ++i) {
+            data[i] = static_cast<uint8_t>(255 - data[i]);
+        }
+        candidates = ExtractCircleCandidates(binInv);
+    }
+
+    if (candidates.size() < static_cast<size_t>(patternCols * patternRows)) {
+        return grid;
+    }
+
+    std::vector<Point2d> centers;
+    centers.reserve(candidates.size());
+    for (const auto& c : candidates) {
+        centers.push_back(c.center);
+    }
+
+    Point2d axisU, axisV;
+    if (!ComputePCAAxes(centers, axisU, axisV)) {
+        return grid;
+    }
+
+    // Project points to PCA axes
+    struct ProjPoint {
+        Point2d p;
+        double u;
+        double v;
+    };
+    std::vector<ProjPoint> proj;
+    proj.reserve(centers.size());
+
+    double meanX = 0.0, meanY = 0.0;
+    for (const auto& p : centers) {
+        meanX += p.x;
+        meanY += p.y;
+    }
+    meanX /= centers.size();
+    meanY /= centers.size();
+
+    for (const auto& p : centers) {
+        double dx = p.x - meanX;
+        double dy = p.y - meanY;
+        ProjPoint pp;
+        pp.p = p;
+        pp.u = dx * axisU.x + dy * axisU.y;
+        pp.v = dx * axisV.x + dy * axisV.y;
+        proj.push_back(pp);
+    }
+
+    // Estimate row spacing from v diffs
+    std::sort(proj.begin(), proj.end(), [](const ProjPoint& a, const ProjPoint& b) { return a.v < b.v; });
+    std::vector<double> vDiffs;
+    for (size_t i = 1; i < proj.size(); ++i) {
+        double d = proj[i].v - proj[i - 1].v;
+        if (d > 1e-3) vDiffs.push_back(d);
+    }
+    if (vDiffs.empty()) {
+        return grid;
+    }
+    std::nth_element(vDiffs.begin(), vDiffs.begin() + vDiffs.size() / 2, vDiffs.end());
+    double rowSpacing = vDiffs[vDiffs.size() / 2];
+
+    struct RowGroup {
+        double meanV = 0.0;
+        std::vector<ProjPoint> points;
+    };
+    std::vector<RowGroup> rows;
+    for (const auto& p : proj) {
+        bool assigned = false;
+        for (auto& row : rows) {
+            if (std::abs(p.v - row.meanV) <= rowSpacing * 0.5) {
+                row.points.push_back(p);
+                row.meanV = 0.0;
+                for (const auto& rp : row.points) row.meanV += rp.v;
+                row.meanV /= row.points.size();
+                assigned = true;
+                break;
+            }
+        }
+        if (!assigned) {
+            RowGroup row;
+            row.meanV = p.v;
+            row.points.push_back(p);
+            rows.push_back(row);
+        }
+    }
+
+    if (static_cast<int32_t>(rows.size()) != patternRows) {
+        return grid;
+    }
+
+    // Sort rows by meanV
+    std::sort(rows.begin(), rows.end(), [](const RowGroup& a, const RowGroup& b) { return a.meanV < b.meanV; });
+
+    std::vector<Point2d> ordered;
+    ordered.reserve(patternCols * patternRows);
+    for (auto& row : rows) {
+        if (static_cast<int32_t>(row.points.size()) != patternCols) {
+            return grid;
+        }
+        std::sort(row.points.begin(), row.points.end(),
+                  [](const ProjPoint& a, const ProjPoint& b) { return a.u < b.u; });
+        for (const auto& p : row.points) {
+            ordered.push_back(p.p);
+        }
+    }
+
+    // For asymmetric grid, ordering is still row-major; geometry differs in object points
+    (void)type;
+
+    grid.centers = ordered;
+    grid.found = true;
+    return grid;
+}
+
 void CornerSubPix(
     const QImage& image,
     std::vector<Point2d>& corners,
@@ -769,6 +1020,28 @@ std::vector<Point3d> GenerateChessboardPoints(
         }
     }
 
+    return points;
+}
+
+std::vector<Point3d> GenerateCircleGridPoints(
+    int32_t patternCols,
+    int32_t patternRows,
+    double spacing,
+    CircleGridType type)
+{
+    std::vector<Point3d> points;
+    points.reserve(static_cast<size_t>(patternCols * patternRows));
+
+    for (int32_t r = 0; r < patternRows; ++r) {
+        for (int32_t c = 0; c < patternCols; ++c) {
+            double x = static_cast<double>(c) * spacing;
+            double y = static_cast<double>(r) * spacing;
+            if (type == CircleGridType::Asymmetric) {
+                x = static_cast<double>(2 * c + (r % 2)) * spacing;
+            }
+            points.emplace_back(x, y, 0.0);
+        }
+    }
     return points;
 }
 
@@ -847,6 +1120,62 @@ void DrawChessboardCorners(
         DispCross(colorImg, p.x, p.y, 5, 0.0, color, 1);
 
         // Draw small circle
+        DispCircle(colorImg, p.x, p.y, 3, color, 1);
+    }
+
+    image = colorImg;
+}
+
+void DrawCircleGrid(
+    QImage& image,
+    const CircleGrid& grid,
+    bool drawOrder)
+{
+    if (!grid.IsValid() || image.Empty()) {
+        return;
+    }
+
+    QImage colorImg = image;
+    if (image.Channels() == 1) {
+        colorImg = QImage(image.Width(), image.Height(), PixelType::UInt8, ChannelType::RGB);
+        for (int y = 0; y < image.Height(); ++y) {
+            const uint8_t* src = static_cast<const uint8_t*>(image.RowPtr(y));
+            uint8_t* dst = static_cast<uint8_t*>(colorImg.RowPtr(y));
+            for (int x = 0; x < image.Width(); ++x) {
+                uint8_t v = src[x];
+                dst[x * 3 + 0] = v;
+                dst[x * 3 + 1] = v;
+                dst[x * 3 + 2] = v;
+            }
+        }
+    }
+
+    if (drawOrder) {
+        for (int32_t row = 0; row < grid.rows; ++row) {
+            for (int32_t col = 0; col < grid.cols; ++col) {
+                int idx = row * grid.cols + col;
+                const Point2d& p = grid.centers[idx];
+
+                if (col + 1 < grid.cols) {
+                    const Point2d& q = grid.centers[idx + 1];
+                    DispLine(colorImg, p.x, p.y, q.x, q.y, Scalar::Green(), 1);
+                }
+                if (row + 1 < grid.rows) {
+                    const Point2d& q = grid.centers[idx + grid.cols];
+                    DispLine(colorImg, p.x, p.y, q.x, q.y, Scalar::Green(), 1);
+                }
+            }
+        }
+    }
+
+    for (size_t i = 0; i < grid.centers.size(); ++i) {
+        const Point2d& p = grid.centers[i];
+        double t = static_cast<double>(i) / std::max(1.0, static_cast<double>(grid.centers.size() - 1));
+        uint8_t r = static_cast<uint8_t>(255 * (1 - t));
+        uint8_t g = 0;
+        uint8_t b = static_cast<uint8_t>(255 * t);
+        Scalar color(r, g, b);
+        DispCross(colorImg, p.x, p.y, 5, 0.0, color, 1);
         DispCircle(colorImg, p.x, p.y, 3, color, 1);
     }
 

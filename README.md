@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">QiVision</h1>
   <p align="center">
-    <strong>工业级机器视觉算法库（C++17）- Halcon 风格 API，亚像素精度</strong>
+    <strong>工业级机器视觉算法库（C++17）- 亚像素精度</strong>
   </p>
 </p>
 
@@ -21,7 +21,7 @@
 
 ## 项目定位
 
-QiVision 面向工业视觉场景，提供 Halcon 风格 API、Domain/XLD/ROI 语义、亚像素精度测量与高性能匹配能力。适用于产线定位、缺陷检测、几何测量、条码/OCR 等任务。
+QiVision 面向工业视觉场景，提供亚像素精度测量与高性能匹配能力。适用于产线定位、缺陷检测、几何测量、条码/OCR 等任务。
 
 ---
 
@@ -99,7 +99,6 @@ cmake -B build -DQIVISION_BUILD_OCR=ON -DQIVISION_BUILD_BARCODE=ON
 - 开发进度：[PROGRESS.md](PROGRESS.md)
 - API 参考：[docs/API_Reference.md](docs/API_Reference.md)
 - Troubleshooting：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
-- 代码规范：[docs/CODING_STYLE.md](docs/CODING_STYLE.md)
 - 示例代码：[samples/](samples/)
 
 ---

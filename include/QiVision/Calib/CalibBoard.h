@@ -6,6 +6,7 @@
  *
  * Provides:
  * - Chessboard corner detection
+ * - Circle grid detection
  * - Subpixel corner refinement
  *
  * Reference: OpenCV findChessboardCorners, cornerSubPix
@@ -41,6 +42,34 @@ struct QIVISION_API CornerGrid {
 
     /// Check if grid is valid
     bool IsValid() const { return found && corners.size() == static_cast<size_t>(rows * cols); }
+};
+
+/**
+ * @brief Result of circle grid detection
+ */
+struct QIVISION_API CircleGrid {
+    std::vector<Point2d> centers;   ///< Detected circle centers in row-major order
+    int32_t rows = 0;               ///< Pattern rows
+    int32_t cols = 0;               ///< Pattern columns
+    bool found = false;             ///< Whether pattern was fully detected
+
+    Point2d At(int32_t row, int32_t col) const {
+        if (row < 0 || row >= rows || col < 0 || col >= cols) {
+            return Point2d();
+        }
+        return centers[row * cols + col];
+    }
+
+    size_t Count() const { return centers.size(); }
+    bool IsValid() const { return found && centers.size() == static_cast<size_t>(rows * cols); }
+};
+
+/**
+ * @brief Circle grid type
+ */
+enum class CircleGridType {
+    Symmetric,   ///< Symmetric circle grid
+    Asymmetric   ///< Asymmetric circle grid (offset every other row)
 };
 
 /**
@@ -89,6 +118,25 @@ QIVISION_API CornerGrid FindChessboardCorners(
 );
 
 /**
+ * @brief Find circle grid centers in image
+ *
+ * Detects circle centers in a regular grid pattern.
+ * Pattern size is (patternCols x patternRows) centers.
+ *
+ * @param image Input grayscale image
+ * @param patternCols Number of centers per row
+ * @param patternRows Number of centers per column
+ * @param type Symmetric or asymmetric grid
+ * @return CircleGrid with detected centers (empty if not found)
+ */
+QIVISION_API CircleGrid FindCircleGrid(
+    const QImage& image,
+    int32_t patternCols,
+    int32_t patternRows,
+    CircleGridType type = CircleGridType::Symmetric
+);
+
+/**
  * @brief Refine corner positions to subpixel accuracy
  *
  * Uses gradient-based corner refinement within a local window.
@@ -126,6 +174,19 @@ QIVISION_API std::vector<Point3d> GenerateChessboardPoints(
 );
 
 /**
+ * @brief Generate ideal circle grid positions in object space
+ *
+ * For symmetric grid: (c*spacing, r*spacing, 0)\n
+ * For asymmetric grid: ((2*c + (r%2))*spacing, r*spacing, 0)
+ */
+QIVISION_API std::vector<Point3d> GenerateCircleGridPoints(
+    int32_t patternCols,
+    int32_t patternRows,
+    double spacing = 1.0,
+    CircleGridType type = CircleGridType::Symmetric
+);
+
+/**
  * @brief Draw detected chessboard corners on image
  *
  * Draws crosses at each corner location. If drawOrder is true,
@@ -139,6 +200,15 @@ QIVISION_API std::vector<Point3d> GenerateChessboardPoints(
 QIVISION_API void DrawChessboardCorners(
     QImage& image,
     const CornerGrid& grid,
+    bool drawOrder = true
+);
+
+/**
+ * @brief Draw detected circle grid centers on image
+ */
+QIVISION_API void DrawCircleGrid(
+    QImage& image,
+    const CircleGrid& grid,
     bool drawOrder = true
 );
 

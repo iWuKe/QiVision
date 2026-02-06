@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">QiVision</h1>
   <p align="center">
-    <strong>Industrial machine vision library (C++17) with Halcon‑style API and sub‑pixel accuracy</strong>
+    <strong>Industrial machine vision library (C++17) with sub‑pixel accuracy</strong>
   </p>
 </p>
 
@@ -21,7 +21,7 @@
 
 ## Positioning
 
-QiVision targets industrial vision workflows with Halcon‑style APIs, Domain/XLD/ROI semantics, sub‑pixel measurement, and high‑performance matching. It is suitable for production alignment, inspection, metrology, barcode/OCR, and geometric analysis.
+QiVision targets industrial vision workflows with sub‑pixel measurement and high‑performance matching. It is suitable for production alignment, inspection, metrology, barcode/OCR, and geometric analysis.
 
 ---
 
@@ -99,7 +99,6 @@ Runtime notes:
 - Progress: [PROGRESS.md](PROGRESS.md)
 - API reference: [docs/API_Reference.md](docs/API_Reference.md)
 - Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
-- Coding style: [docs/CODING_STYLE.md](docs/CODING_STYLE.md)
 - Samples: [samples/](samples/)
 
 ---

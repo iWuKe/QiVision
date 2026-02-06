@@ -59,6 +59,7 @@ enum class PolarInterpolation {
  * @param dstHeight Output height (radial resolution). 0 = auto
  * @param mode Mapping mode (Linear or SemiLog)
  * @param interp Interpolation method
+ * @param flipRadius If true, flip radius direction so outer ring is at top
  */
 QIVISION_API void CartesianToPolar(
     const QImage& src,
@@ -68,7 +69,8 @@ QIVISION_API void CartesianToPolar(
     int32_t dstWidth = 0,
     int32_t dstHeight = 0,
     PolarMode mode = PolarMode::Linear,
-    PolarInterpolation interp = PolarInterpolation::Bilinear
+    PolarInterpolation interp = PolarInterpolation::Bilinear,
+    bool flipRadius = false
 );
 
 /**
@@ -84,6 +86,7 @@ QIVISION_API void CartesianToPolar(
  * @param dstHeight Output height. 0 = 2 * maxRadius
  * @param mode Mapping mode (must match forward transform)
  * @param interp Interpolation method
+ * @param flipRadius If true, input polar image is flipped (outer ring at top)
  */
 QIVISION_API void PolarToCartesian(
     const QImage& src,
@@ -93,7 +96,8 @@ QIVISION_API void PolarToCartesian(
     int32_t dstWidth = 0,
     int32_t dstHeight = 0,
     PolarMode mode = PolarMode::Linear,
-    PolarInterpolation interp = PolarInterpolation::Bilinear
+    PolarInterpolation interp = PolarInterpolation::Bilinear,
+    bool flipRadius = false
 );
 
 /**
@@ -110,6 +114,7 @@ QIVISION_API void PolarToCartesian(
  * @param mode Mapping mode
  * @param inverse If true, transform Polar->Cartesian; if false, Cartesian->Polar
  * @param interp Interpolation method
+ * @param flipRadius If true, flip radius direction (outer ring at top)
  */
 QIVISION_API void WarpPolar(
     const QImage& src,
@@ -120,7 +125,8 @@ QIVISION_API void WarpPolar(
     int32_t dstHeight = 0,
     PolarMode mode = PolarMode::Linear,
     bool inverse = false,
-    PolarInterpolation interp = PolarInterpolation::Bilinear
+    PolarInterpolation interp = PolarInterpolation::Bilinear,
+    bool flipRadius = false
 );
 
 /**

@@ -11,64 +11,6 @@
 
 namespace Qi::Vision::Calib {
 
-namespace {
-
-constexpr double EPS = 1e-10;
-
-Internal::Mat33 RodriguesToMatrix(const Internal::Vec3& rvec) {
-    double theta = rvec.Norm();
-    if (theta < EPS) {
-        Internal::Mat33 R = Internal::Mat33::Identity();
-        R(0, 1) = -rvec[2];
-        R(0, 2) = rvec[1];
-        R(1, 0) = rvec[2];
-        R(1, 2) = -rvec[0];
-        R(2, 0) = -rvec[1];
-        R(2, 1) = rvec[0];
-        return R;
-    }
-
-    Internal::Vec3 axis = rvec / theta;
-    double kx = axis[0], ky = axis[1], kz = axis[2];
-
-    Internal::Mat33 K;
-    K(0, 0) = 0;    K(0, 1) = -kz; K(0, 2) = ky;
-    K(1, 0) = kz;   K(1, 1) = 0;   K(1, 2) = -kx;
-    K(2, 0) = -ky;  K(2, 1) = kx;  K(2, 2) = 0;
-
-    Internal::Mat33 K2 = K * K;
-    double c = std::cos(theta);
-    double s = std::sin(theta);
-
-    Internal::Mat33 R = Internal::Mat33::Identity();
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            R(i, j) = R(i, j) + s * K(i, j) + (1.0 - c) * K2(i, j);
-        }
-    }
-    return R;
-}
-
-Internal::Vec3 MatrixToRodrigues(const Internal::Mat33& R) {
-    double trace = R(0, 0) + R(1, 1) + R(2, 2);
-    double cosTheta = (trace - 1.0) * 0.5;
-    cosTheta = std::clamp(cosTheta, -1.0, 1.0);
-    double theta = std::acos(cosTheta);
-
-    if (theta < EPS) {
-        return Internal::Vec3{0.0, 0.0, 0.0};
-    }
-
-    double sinTheta = std::sin(theta);
-    Internal::Vec3 rvec;
-    rvec[0] = (R(2, 1) - R(1, 2)) / (2.0 * sinTheta);
-    rvec[1] = (R(0, 2) - R(2, 0)) / (2.0 * sinTheta);
-    rvec[2] = (R(1, 0) - R(0, 1)) / (2.0 * sinTheta);
-    rvec *= theta;
-    return rvec;
-}
-
-} // namespace
 
 StereoCalibrationResult CalibrateStereo(
     const std::vector<std::vector<Point2d>>& leftImagePoints,

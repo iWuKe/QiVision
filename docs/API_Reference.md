@@ -3737,7 +3737,8 @@ void CartesianToPolar(
     int32_t dstWidth = 0,
     int32_t dstHeight = 0,
     PolarMode mode = PolarMode::Linear,
-    PolarInterpolation interp = PolarInterpolation::Bilinear
+    PolarInterpolation interp = PolarInterpolation::Bilinear,
+    bool flipRadius = false
 );
 ```
 
@@ -3752,6 +3753,7 @@ void CartesianToPolar(
 | dstHeight | int32_t | Output height (radial resolution), 0 = auto |
 | mode | PolarMode | Mapping mode (Linear or SemiLog) |
 | interp | PolarInterpolation | Interpolation method |
+| flipRadius | bool | If true, flip radius direction so outer ring is at top |
 
 **Use Cases**
 - Inspecting circular objects (defects become horizontal lines)
@@ -3775,7 +3777,8 @@ void PolarToCartesian(
     int32_t dstWidth = 0,
     int32_t dstHeight = 0,
     PolarMode mode = PolarMode::Linear,
-    PolarInterpolation interp = PolarInterpolation::Bilinear
+    PolarInterpolation interp = PolarInterpolation::Bilinear,
+    bool flipRadius = false
 );
 ```
 
@@ -3790,6 +3793,7 @@ void PolarToCartesian(
 | dstHeight | int32_t | Output height, 0 = 2 * maxRadius |
 | mode | PolarMode | Mapping mode (must match forward transform) |
 | interp | PolarInterpolation | Interpolation method |
+| flipRadius | bool | If true, input polar image is flipped (outer ring at top) |
 
 ---
 
@@ -3807,7 +3811,8 @@ void WarpPolar(
     int32_t dstHeight = 0,
     PolarMode mode = PolarMode::Linear,
     bool inverse = false,
-    PolarInterpolation interp = PolarInterpolation::Bilinear
+    PolarInterpolation interp = PolarInterpolation::Bilinear,
+    bool flipRadius = false
 );
 ```
 
@@ -3823,6 +3828,7 @@ void WarpPolar(
 | mode | PolarMode | Mapping mode |
 | inverse | bool | If true, Polar->Cartesian; if false, Cartesian->Polar |
 | interp | PolarInterpolation | Interpolation method |
+| flipRadius | bool | If true, flip radius direction (outer ring at top) |
 
 ---
 

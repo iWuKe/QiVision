@@ -9,6 +9,7 @@
 #include <QiVision/Core/Validate.h>
 
 #include <cmath>
+#include <cstring>
 
 namespace Qi::Vision::Transform {
 
@@ -53,6 +54,21 @@ Internal::InterpolationMethod ToInternalInterp(PolarInterpolation interp) {
     }
 }
 
+QImage FlipVertical(const QImage& src) {
+    if (src.Empty()) {
+        return QImage();
+    }
+    QImage dst(src.Width(), src.Height(), src.Type(), src.GetChannelType());
+    int32_t h = src.Height();
+    size_t stride = src.Stride();
+    for (int32_t y = 0; y < h; ++y) {
+        const void* srcRow = src.RowPtr(h - 1 - y);
+        void* dstRow = dst.RowPtr(y);
+        std::memcpy(dstRow, srcRow, stride);
+    }
+    return dst;
+}
+
 } // anonymous namespace
 
 void CartesianToPolar(
@@ -63,7 +79,8 @@ void CartesianToPolar(
     int32_t dstWidth,
     int32_t dstHeight,
     PolarMode mode,
-    PolarInterpolation interp)
+    PolarInterpolation interp,
+    bool flipRadius)
 {
     if (!RequireImageU8(src, dst, "CartesianToPolar")) {
         return;
@@ -72,7 +89,7 @@ void CartesianToPolar(
     RequirePositiveFinite(maxRadius, "maxRadius", "CartesianToPolar");
     Validate::RequireNonNegative(dstWidth, "dstWidth", "CartesianToPolar");
     Validate::RequireNonNegative(dstHeight, "dstHeight", "CartesianToPolar");
-    dst = Internal::WarpPolar(
+    QImage polar = Internal::WarpPolar(
         src, center, maxRadius,
         dstWidth, dstHeight,
         ToInternalMode(mode),
@@ -81,6 +98,7 @@ void CartesianToPolar(
         Internal::BorderMode::Constant,
         0.0
     );
+    dst = flipRadius ? FlipVertical(polar) : std::move(polar);
 }
 
 void PolarToCartesian(
@@ -91,7 +109,8 @@ void PolarToCartesian(
     int32_t dstWidth,
     int32_t dstHeight,
     PolarMode mode,
-    PolarInterpolation interp)
+    PolarInterpolation interp,
+    bool flipRadius)
 {
     if (!RequireImageU8(src, dst, "PolarToCartesian")) {
         return;
@@ -104,8 +123,9 @@ void PolarToCartesian(
     if (dstWidth == 0) dstWidth = static_cast<int32_t>(maxRadius * 2);
     if (dstHeight == 0) dstHeight = static_cast<int32_t>(maxRadius * 2);
 
+    QImage srcPolar = flipRadius ? FlipVertical(src) : src;
     dst = Internal::WarpPolar(
-        src, center, maxRadius,
+        srcPolar, center, maxRadius,
         dstWidth, dstHeight,
         ToInternalMode(mode),
         true,  // inverse transform
@@ -124,7 +144,8 @@ void WarpPolar(
     int32_t dstHeight,
     PolarMode mode,
     bool inverse,
-    PolarInterpolation interp)
+    PolarInterpolation interp,
+    bool flipRadius)
 {
     if (!RequireImageU8(src, dst, "WarpPolar")) {
         return;
@@ -134,9 +155,9 @@ void WarpPolar(
     Validate::RequireNonNegative(dstWidth, "dstWidth", "WarpPolar");
     Validate::RequireNonNegative(dstHeight, "dstHeight", "WarpPolar");
     if (inverse) {
-        PolarToCartesian(src, dst, center, maxRadius, dstWidth, dstHeight, mode, interp);
+        PolarToCartesian(src, dst, center, maxRadius, dstWidth, dstHeight, mode, interp, flipRadius);
     } else {
-        CartesianToPolar(src, dst, center, maxRadius, dstWidth, dstHeight, mode, interp);
+        CartesianToPolar(src, dst, center, maxRadius, dstWidth, dstHeight, mode, interp, flipRadius);
     }
 }
 

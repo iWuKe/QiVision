@@ -1260,83 +1260,27 @@ EllipseFitResult FitEllipseFitzgibbon(const std::vector<Point2d>& points,
         }
     }
 
-    // Solve C1^{-1} * M * a1 = lambda * a1
-    // C1^{-1} = [0 0 -0.5; 0 1 0; -0.5 0 0]
-    Mat33 C1inv;
-    C1inv(0, 0) = 0;    C1inv(0, 1) = 0;  C1inv(0, 2) = -0.5;
-    C1inv(1, 0) = 0;    C1inv(1, 1) = 1;  C1inv(1, 2) = 0;
-    C1inv(2, 0) = -0.5; C1inv(2, 1) = 0;  C1inv(2, 2) = 0;
-
-    Mat33 MC = C1inv * M;
-
-    // Find eigenvalues using characteristic polynomial
-    // For 3x3 matrix, use analytic formula
-    double a11 = MC(0, 0), a12 = MC(0, 1), a13 = MC(0, 2);
-    double a22 = MC(1, 1), a23 = MC(1, 2);
-    double a33 = MC(2, 2);
-
-    double tr = a11 + a22 + a33;
-    double q = tr / 3.0;
-
-    double p1 = (a11 - q) * (a11 - q) + (a22 - q) * (a22 - q) + (a33 - q) * (a33 - q);
-    p1 += 2.0 * (a12 * a12 + a13 * a13 + a23 * a23);
-    double p = std::sqrt(p1 / 6.0);
-
-    if (p < 1e-15) {
+    // Solve generalized eigenproblem: M * a1 = lambda * C1 * a1
+    // Select eigenvector that satisfies ellipse constraint 4ac - b^2 > 0
+    Eigen3x3Result eig = GeneralizedEigen3x3(M, C1);
+    if (!eig.valid || !eig.allReal) {
         return result;
     }
 
-    Mat33 B;
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            B(i, j) = (MC(i, j) - (i == j ? q : 0)) / p;
+    Vec3 a1;
+    bool found = false;
+    Vec3 candidates[3] = {eig.v1, eig.v2, eig.v3};
+    for (const auto& v : candidates) {
+        double cond = 4.0 * v[0] * v[2] - v[1] * v[1];
+        if (cond > 0) {
+            a1 = v;
+            found = true;
+            break;
         }
     }
 
-    double detB = B.Determinant();
-    double r = detB / 2.0;
-    r = std::max(-1.0, std::min(1.0, r));
-    double phi = std::acos(r) / 3.0;
-
-    // Eigenvalues
-    double eig1 = q + 2.0 * p * std::cos(phi);
-    double eig2 = q + 2.0 * p * std::cos(phi + 2.0 * M_PI / 3.0);
-    double eig3 = q + 2.0 * p * std::cos(phi + 4.0 * M_PI / 3.0);
-
-    // Find the smallest positive eigenvalue (for ellipse constraint)
-    double targetEig = std::numeric_limits<double>::max();
-    if (eig1 > 0 && eig1 < targetEig) targetEig = eig1;
-    if (eig2 > 0 && eig2 < targetEig) targetEig = eig2;
-    if (eig3 > 0 && eig3 < targetEig) targetEig = eig3;
-
-    if (targetEig == std::numeric_limits<double>::max()) {
+    if (!found) {
         return result;
-    }
-
-    // Find eigenvector for targetEig
-    // (MC - targetEig * I) * v = 0
-    Mat33 A = MC;
-    A(0, 0) -= targetEig;
-    A(1, 1) -= targetEig;
-    A(2, 2) -= targetEig;
-
-    // Use SVD to find null space
-    // Simple approach: find row with smallest norm, compute cross product of other two
-    Vec3 r0{A(0, 0), A(0, 1), A(0, 2)};
-    Vec3 r1{A(1, 0), A(1, 1), A(1, 2)};
-    Vec3 r2{A(2, 0), A(2, 1), A(2, 2)};
-
-    double n0 = r0.NormSquared();
-    double n1 = r1.NormSquared();
-    double n2 = r2.NormSquared();
-
-    Vec3 a1;
-    if (n0 <= n1 && n0 <= n2) {
-        a1 = Cross(r1, r2);
-    } else if (n1 <= n0 && n1 <= n2) {
-        a1 = Cross(r0, r2);
-    } else {
-        a1 = Cross(r0, r1);
     }
 
     double norm = a1.Norm();

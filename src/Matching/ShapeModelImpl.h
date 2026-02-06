@@ -325,7 +325,7 @@ public:
                                   bool useGridPoints = false) const;
 
     void RefinePosition(const AnglePyramid& pyramid, MatchResult& match,
-                        SubpixelMethod method) const;
+                        SubpixelMethod method, double scale) const;
 };
 
 } // namespace Internal

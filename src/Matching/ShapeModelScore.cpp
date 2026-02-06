@@ -958,7 +958,7 @@ double ShapeModelImpl::ComputeScoreQuantized(
 
 void ShapeModelImpl::RefinePosition(
     const AnglePyramid& pyramid, MatchResult& match,
-    SubpixelMethod method) const
+    SubpixelMethod method, double scale) const
 {
     if (method == SubpixelMethod::None) {
         return;
@@ -980,7 +980,7 @@ void ShapeModelImpl::RefinePosition(
             for (int32_t dx = -1; dx <= 1; ++dx) {
                 scores[dy + 1][dx + 1] = ComputeScoreAtPosition(
                     pyramid, level, match.x + dx * delta, match.y + dy * delta,
-                    match.angle, 1.0, 0.0);
+                    match.angle, scale, 0.0);
             }
         }
 
@@ -1007,11 +1007,11 @@ void ShapeModelImpl::RefinePosition(
         delta_angle = std::max(0.005, std::min(0.05, delta_angle));  // Clamp to 0.3-3 degrees
 
         double s_minus = ComputeScoreAtPosition(pyramid, level, match.x, match.y,
-                                                 match.angle - delta_angle, 1.0, 0.0);
+                                                 match.angle - delta_angle, scale, 0.0);
         double s_center = ComputeScoreAtPosition(pyramid, level, match.x, match.y,
-                                                  match.angle, 1.0, 0.0);
+                                                  match.angle, scale, 0.0);
         double s_plus = ComputeScoreAtPosition(pyramid, level, match.x, match.y,
-                                                match.angle + delta_angle, 1.0, 0.0);
+                                                match.angle + delta_angle, scale, 0.0);
 
         double denom_a = 2.0 * (s_minus - 2.0 * s_center + s_plus);
         if (std::abs(denom_a) > 1e-10) {
@@ -1022,7 +1022,7 @@ void ShapeModelImpl::RefinePosition(
 
         // Final score at refined position
         match.score = ComputeScoreAtPosition(pyramid, level, match.x, match.y,
-                                              match.angle, 1.0, 0.0);
+                                              match.angle, scale, 0.0);
     }
     else if (method == SubpixelMethod::LeastSquares ||
              method == SubpixelMethod::LeastSquaresHigh ||

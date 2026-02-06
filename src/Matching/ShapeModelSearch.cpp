@@ -371,7 +371,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
     // Final refinement at level 0
     for (auto& match : candidates) {
         if (params.subpixelMethod != SubpixelMethod::None) {
-            RefinePosition(targetPyramid, match, params.subpixelMethod);
+            RefinePosition(targetPyramid, match, params.subpixelMethod, params.scaleMin);
         }
 
         double scale = levels_[0].scale;

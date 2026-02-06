@@ -1,7 +1,7 @@
 <p align="center">
-  <h1 align="center">🔬 QiVision</h1>
+  <h1 align="center">QiVision</h1>
   <p align="center">
-    <strong>Industrial Machine Vision Library - Zero Dependencies, Sub-pixel Precision, Halcon Compatible</strong>
+    <strong>Industrial machine vision library (C++17) with Halcon‑style API and sub‑pixel accuracy</strong>
   </p>
 </p>
 
@@ -19,178 +19,82 @@
 
 ---
 
-## Repository
+## Positioning
 
-| Platform | URL |
-|----------|-----|
-| **GitHub** | https://github.com/userqz1/QiVision |
-| **Gitee** | https://gitee.com/flyingtoad/QiVision |
+QiVision targets industrial vision workflows with Halcon‑style APIs, Domain/XLD/ROI semantics, sub‑pixel measurement, and high‑performance matching. It is suitable for production alignment, inspection, metrology, barcode/OCR, and geometric analysis.
 
 ---
 
-## 📋 Introduction
+## Core Capabilities
 
-**QiVision** is an industrial machine vision library built from scratch in C++17, designed to match Halcon's core functionality and precision.
-
-### ✨ Key Features
-
-| Feature | Description |
-|---------|-------------|
-| 🚀 **Zero Dependencies** | Only uses stb_image for file I/O, no OpenCV required |
-| 🎯 **Sub-pixel Precision** | Edge detection < 0.02px, Shape matching < 0.05px |
-| 🔧 **Halcon Compatible** | Domain concept, XLD contours, RLE region encoding |
-| ⚡ **SIMD Optimized** | AVX2/SSE4 instruction set acceleration |
-| 📐 **Modern C++17** | RAII design, clean API interface |
+- Template matching: ShapeModel (gradient shape), NCCModel (gray correlation), rotation/scale support
+- Component matching: ComponentModel with relative constraints
+- Metrology: calipers and metrology models (line/circle/ellipse/rectangle)
+- Morphology/segmentation/blob: thresholding, connected components, filtering
+- Contours & geometry: XLD, fitting, transforms, Hough
+- Calibration & distortion: camera model, undistortion, fisheye model (partial)
+- OCR/Barcode: optional modules (ONNXRuntime / ZXing)
 
 ---
 
-## 📊 Development Progress
+## Performance & Accuracy (brief)
 
-```
-Platform ████████████████░░░░ 86%   (Memory, SIMD, Thread, Timer, FileIO, Random)
-Core     ████████████████████ 100%  (QImage, QRegion, QContour, QMatrix)
-Internal ████████████████████ 100%  (Gradient, Pyramid, Fitting, Steger, Hessian...)
-Feature  ██░░░░░░░░░░░░░░░░░░ 10%   (ShapeModel ✓, Caliper ✓)
-Tests    █████████████████░░░ 87%   (2616/2626 passed)
-```
-
-### 🎯 Completed Modules
-
-| Module | Status | Performance | Description |
-|--------|:------:|-------------|-------------|
-| **ShapeModel** | ✅ Done | 640x512: **9.5ms**<br>2048x4001: **205ms** | Shape template matching, 0-360° rotation |
-| **Caliper** | ✅ Done | < 0.03px precision | Caliper measurement with rectangle/arc handles |
-| **CaliperArray** | ✅ Done | - | Multi-caliper array measurement |
-
-### 📋 In Development / Planned
-
-| Module | Priority | Status |
-|--------|:--------:|:------:|
-| NCCModel | P1 | 🟡 Designing |
-| ComponentModel | P1 | ✅ Implemented |
-| Blob Analysis | P1 | ⬜ Planned |
-| OCR | P1 | ⬜ Planned |
-| Barcode | P1 | ⬜ Planned |
-| Camera Calibration | P2 | ⬜ Planned |
-
-> 📄 **Detailed Progress**: See [PROGRESS.md](PROGRESS.md) for full module status
+- Sub‑pixel measurement: < 0.03 px in typical caliper scenarios
+- Shape matching: 0–360° with pyramid + SIMD acceleration
+- Low dependency: only stb_image for image I/O
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### Requirements
-
-- **Compiler**: GCC 9+, Clang 10+, MSVC 2019+
-- **Build Tool**: CMake 3.16+
-- **C++ Standard**: C++17
-
-### Build
+### Build (Linux)
 
 ```bash
-git clone https://github.com/userqz1/QiVision.git
-cd QiVision
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-### Run Tests
+### Run a sample
 
 ```bash
-# Unit tests
-./build/bin/unit_test
-
-# Shape matching sample
-./build/bin/samples/08_shape_match_large
+./build/bin/samples/matching_shape_match
 ```
 
 ---
 
-## 📦 Integration
+## Common Options
 
-**CMake FetchContent:**
+```bash
+# Build tests
+cmake -B build -DQIVISION_BUILD_TESTS=ON
 
-```cmake
-include(FetchContent)
-FetchContent_Declare(QiVision
-    GIT_REPOSITORY https://github.com/userqz1/QiVision.git
-    GIT_TAG main)
-FetchContent_MakeAvailable(QiVision)
-target_link_libraries(your_app PRIVATE QiVision)
-```
+# Build samples
+cmake -B build -DQIVISION_BUILD_SAMPLES=ON
 
-**As Subdirectory:**
-
-```cmake
-add_subdirectory(QiVision)
-target_link_libraries(your_app PRIVATE QiVision)
+# Optional modules
+cmake -B build -DQIVISION_BUILD_OCR=ON -DQIVISION_BUILD_BARCODE=ON
 ```
 
 ---
 
-## 🏗️ Architecture
+## Sample Entry Points
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ API Layer                                                        │
-│   QImage (Domain), QRegion (RLE), QContour (XLD), QMatrix       │
-├─────────────────────────────────────────────────────────────────┤
-│ Feature Layer                                                    │
-│   Matching: ShapeModel ✓, NCCModel ✓, ComponentModel ✓          │
-│   Measure:  Caliper ✓, CaliperArray ✓, Metrology                │
-│   Analysis: Blob, OCR, Barcode, Defect                          │
-├─────────────────────────────────────────────────────────────────┤
-│ Internal Layer (not exported)                                    │
-│   Math:     Gaussian, Matrix, Solver, Eigen                     │
-│   Image:    Interpolate, Convolution, Gradient, Pyramid         │
-│   Edge:     Edge1D, Steger, Hessian, NMS, Canny                 │
-│   Geometry: SubPixel, Fitting, Homography, Hough                │
-│   Region:   RLEOps, Morphology, ConnectedComponent              │
-├─────────────────────────────────────────────────────────────────┤
-│ Platform Layer                                                   │
-│   Memory (64B aligned), SIMD, Thread, Timer, FileIO, Random     │
-└─────────────────────────────────────────────────────────────────┘
-```
+- `samples/matching_shape_match`
+- `samples/matching_ncc_match`
+- `samples/matching_component_model`
+- `samples/measure_circle_metrology`
+- `samples/blob_analysis`
 
 ---
 
-## 📈 Performance
+## Progress & Docs
 
-### Shape Matching Performance (ShapeModel)
-
-| Test Set | Image Size | Images | Avg Time | Match Rate |
-|----------|------------|--------|----------|------------|
-| Small | 640x512 | 5 | **9.5 ms** | 100% |
-| Large | 2048x4001 | 11 | **204.8 ms** | 100% |
-| Medium | 1280x1024 | 66 | **49.0 ms** | 100% |
-| Rotated | 888x702 | 20 | **34.4 ms** | 100% |
-
-### Precision Targets
-
-| Module | Metric | Target |
-|--------|--------|--------|
-| Edge1D | Edge position | < 0.02 px |
-| Caliper | Position/Width | < 0.03 px / < 0.05 px |
-| ShapeModel | Position/Angle | < 0.05 px / < 0.05° |
-| CircleFit | Center/Radius | < 0.02 px |
-| LineFit | Angle | < 0.005° |
+- Progress: `PROGRESS.md`
+- API reference: `docs/API_Reference.md`
+- Samples: `samples/`
 
 ---
 
-## 📚 Documentation
+## License
 
-- [PROGRESS.md](PROGRESS.md) - Development progress
-- [samples/](samples/) - Example programs
-- [CLAUDE.md](.claude/CLAUDE.md) - Development guidelines
-
----
-
-## 📄 License
-
-[MIT License](LICENSE)
-
----
-
-<p align="center">
-  <i>QiVision - Making Machine Vision Simpler</i>
-</p>
+MIT License

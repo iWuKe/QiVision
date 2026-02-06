@@ -60,3 +60,7 @@ docs/api/
 
 # Test output images
 tests/output/
+
+# Local/agent artifacts
+AGENTS.md
+shape_model.qism

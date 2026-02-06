@@ -62,7 +62,7 @@ cmake --build build --parallel
 
 ---
 
-## 常用开关
+## 构建与运行配置
 
 ```bash
 # 构建测试
@@ -71,9 +71,16 @@ cmake -B build -DQIVISION_BUILD_TESTS=ON
 # 构建 samples
 cmake -B build -DQIVISION_BUILD_SAMPLES=ON
 
+# GUI 显示与交互窗口
+cmake -B build -DQIVISION_BUILD_GUI=ON
+
 # 可选模块
 cmake -B build -DQIVISION_BUILD_OCR=ON -DQIVISION_BUILD_BARCODE=ON
 ```
+
+运行提示：
+- `samples/*` 默认输出到 `build/bin/samples/`
+- OCR/Barcode 需要对应依赖库可用（详见各模块文档）
 
 ---
 
@@ -89,9 +96,11 @@ cmake -B build -DQIVISION_BUILD_OCR=ON -DQIVISION_BUILD_BARCODE=ON
 
 ## 进度与详细文档
 
-- 开发进度：`PROGRESS.md`
-- API 参考：`docs/API_Reference.md`
-- 示例代码：`samples/`
+- 开发进度：[PROGRESS.md](PROGRESS.md)
+- API 参考：[docs/API_Reference.md](docs/API_Reference.md)
+- Troubleshooting：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- 代码规范：[docs/CODING_STYLE.md](docs/CODING_STYLE.md)
+- 示例代码：[samples/](samples/)
 
 ---
 

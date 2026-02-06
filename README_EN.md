@@ -62,7 +62,7 @@ cmake --build build --parallel
 
 ---
 
-## Common Options
+## Build & Runtime Configuration
 
 ```bash
 # Build tests
@@ -71,9 +71,16 @@ cmake -B build -DQIVISION_BUILD_TESTS=ON
 # Build samples
 cmake -B build -DQIVISION_BUILD_SAMPLES=ON
 
+# GUI display & interactive windows
+cmake -B build -DQIVISION_BUILD_GUI=ON
+
 # Optional modules
 cmake -B build -DQIVISION_BUILD_OCR=ON -DQIVISION_BUILD_BARCODE=ON
 ```
+
+Runtime notes:
+- `samples/*` binaries are placed under `build/bin/samples/`
+- OCR/Barcode require their dependencies to be available (see module docs)
 
 ---
 
@@ -89,9 +96,11 @@ cmake -B build -DQIVISION_BUILD_OCR=ON -DQIVISION_BUILD_BARCODE=ON
 
 ## Progress & Docs
 
-- Progress: `PROGRESS.md`
-- API reference: `docs/API_Reference.md`
-- Samples: `samples/`
+- Progress: [PROGRESS.md](PROGRESS.md)
+- API reference: [docs/API_Reference.md](docs/API_Reference.md)
+- Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- Coding style: [docs/CODING_STYLE.md](docs/CODING_STYLE.md)
+- Samples: [samples/](samples/)
 
 ---
 

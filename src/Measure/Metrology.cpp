@@ -372,6 +372,49 @@ namespace {
         return residuals;
     }
 
+    template<typename FitResultT>
+    std::vector<MetrologyPointDetail> BuildPointDetails(const std::vector<Point2d>& originalPoints,
+                                                        const std::vector<double>& originalScores,
+                                                        const std::vector<int32_t>& originalCaliperIds,
+                                                        const std::vector<size_t>& mappedKept,
+                                                        const FitResultT& fitResult,
+                                                        const std::vector<double>& expandedWeights,
+                                                        int32_t instanceIndex) {
+        std::vector<MetrologyPointDetail> details(originalPoints.size());
+        for (size_t i = 0; i < originalPoints.size(); ++i) {
+            details[i].pointIndex = static_cast<int32_t>(i);
+            details[i].instanceIndex = instanceIndex;
+            details[i].column = originalPoints[i].x;
+            details[i].row = originalPoints[i].y;
+            details[i].caliperIndex = (i < originalCaliperIds.size()) ? originalCaliperIds[i] : -1;
+            details[i].amplitude = (i < originalScores.size()) ? originalScores[i] : 0.0;
+        }
+
+        if (expandedWeights.size() == originalPoints.size()) {
+            for (size_t i = 0; i < originalPoints.size(); ++i) {
+                double w = expandedWeights[i];
+                if (std::isfinite(w)) {
+                    details[i].weight = std::clamp(w, 0.0, 1.0);
+                    details[i].isInlier = details[i].weight >= 0.5;
+                }
+            }
+        }
+
+        if (!fitResult.residuals.empty()) {
+            size_t n = std::min(mappedKept.size(), fitResult.residuals.size());
+            for (size_t i = 0; i < n; ++i) {
+                size_t originalIdx = mappedKept[i];
+                if (originalIdx >= details.size()) continue;
+                double r = fitResult.residuals[i];
+                if (std::isfinite(r)) {
+                    details[originalIdx].residual = std::abs(r);
+                }
+            }
+        }
+
+        return details;
+    }
+
     void RemoveMaskedPoints(std::vector<Point2d>& points,
                             std::vector<double>& scores,
                             std::vector<size_t>& indexMap,
@@ -781,6 +824,9 @@ struct MetrologyModel::Impl {
     // Per-object point weights (from robust fitting, e.g., Huber/Tukey)
     std::unordered_map<int32_t, std::vector<double>> pointWeights;
 
+    // Per-object point diagnostics (aligned with measuredPoints)
+    std::unordered_map<int32_t, std::vector<MetrologyPointDetail>> pointDetails;
+
     // Alignment state
     double alignRow = 0.0;
     double alignCol = 0.0;
@@ -793,6 +839,7 @@ struct MetrologyModel::Impl {
         rectangleResults.clear();
         measuredPoints.clear();
         pointWeights.clear();
+        pointDetails.clear();
     }
 };
 
@@ -1003,6 +1050,7 @@ bool MetrologyModel::Apply(const QImage& image) {
         // Measure edge positions
         std::vector<Point2d> edgePoints;
         std::vector<double> edgeScores;
+        std::vector<int32_t> edgeCaliperIds;
         double sigma = obj.Params().measureSigma;
         double userThreshold = obj.Params().measureThreshold;
         ThresholdMode thresholdMode = obj.Params().thresholdMode;
@@ -1141,6 +1189,7 @@ bool MetrologyModel::Apply(const QImage& image) {
                 double edgeY = startY + profilePos * std::sin(profileAngle);
                 edgePoints.push_back({edgeX, edgeY});
                 edgeScores.push_back(std::abs(sel.amplitude));
+                edgeCaliperIds.push_back(caliperIdx);
             }
             caliperIdx++;
         }
@@ -1278,7 +1327,12 @@ bool MetrologyModel::Apply(const QImage& image) {
                     }
                     auto displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
                     if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
+                        auto details = BuildPointDetails(
+                            edgePoints, edgeScores, edgeCaliperIds,
+                            mappedKept, fitResult, displayWeights, inst
+                        );
                         impl_->pointWeights[idx] = std::move(displayWeights);
+                        impl_->pointDetails[idx] = std::move(details);
                     }
 
                     double instanceThreshold =
@@ -1386,7 +1440,12 @@ bool MetrologyModel::Apply(const QImage& image) {
                     }
                     auto displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
                     if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
+                        auto details = BuildPointDetails(
+                            edgePoints, edgeScores, edgeCaliperIds,
+                            mappedKept, fitResult, displayWeights, inst
+                        );
                         impl_->pointWeights[idx] = std::move(displayWeights);
+                        impl_->pointDetails[idx] = std::move(details);
                     }
 
                     double instanceThreshold =
@@ -1492,7 +1551,12 @@ bool MetrologyModel::Apply(const QImage& image) {
                     }
                     auto displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
                     if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
+                        auto details = BuildPointDetails(
+                            edgePoints, edgeScores, edgeCaliperIds,
+                            mappedKept, fitResult, displayWeights, inst
+                        );
                         impl_->pointWeights[idx] = std::move(displayWeights);
+                        impl_->pointDetails[idx] = std::move(details);
                     }
 
                     double instanceThreshold =
@@ -1709,7 +1773,12 @@ bool MetrologyModel::Apply(const QImage& image) {
                         displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
                     }
                     if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
+                        auto details = BuildPointDetails(
+                            edgePoints, edgeScores, edgeCaliperIds,
+                            mappedKept, fitResult, displayWeights, inst
+                        );
                         impl_->pointWeights[idx] = std::move(displayWeights);
+                        impl_->pointDetails[idx] = std::move(details);
                     }
 
                     std::vector<bool> compactMask(sideCompactWeights.size(), false);
@@ -1911,6 +1980,15 @@ std::vector<double> MetrologyModel::GetPointWeights(int32_t index) const {
     (void)GetObject(index);
     auto it = impl_->pointWeights.find(index);
     if (it != impl_->pointWeights.end()) {
+        return it->second;
+    }
+    return {};
+}
+
+std::vector<MetrologyPointDetail> MetrologyModel::GetPointDetails(int32_t index) const {
+    (void)GetObject(index);
+    auto it = impl_->pointDetails.find(index);
+    if (it != impl_->pointDetails.end()) {
         return it->second;
     }
     return {};

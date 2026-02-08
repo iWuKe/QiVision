@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cctype>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -330,6 +331,21 @@ struct QIVISION_API MetrologyRectangle2Result {
     double rmsError = 0.0;
 
     bool IsValid() const { return numUsed >= 4 && length1 > 0 && length2 > 0 && score > 0; }
+};
+
+/**
+ * @brief Point-level diagnostics for metrology result interpretation
+ */
+struct QIVISION_API MetrologyPointDetail {
+    int32_t pointIndex = -1;        ///< Index in GetMeasuredPoints(index)
+    int32_t caliperIndex = -1;      ///< Source caliper index for this point
+    int32_t instanceIndex = 0;      ///< Fitted instance index
+    double row = 0.0;               ///< Point row (y)
+    double column = 0.0;            ///< Point column (x)
+    double amplitude = 0.0;         ///< Edge amplitude score from caliper detection
+    double residual = std::numeric_limits<double>::quiet_NaN();  ///< Distance to fitted geometry (pixels)
+    double weight = 0.0;            ///< Robust weight [0,1] (or binary inlier weight)
+    bool isInlier = false;          ///< Final inlier/outlier decision for this point
 };
 
 // =============================================================================
@@ -937,6 +953,13 @@ public:
      *         Weight < 1 indicates potential outlier (lower weight = more outlier-like)
      */
     std::vector<double> GetPointWeights(int32_t index) const;
+
+    /**
+     * @brief Get per-point diagnostics for fitted result interpretation
+     * @param index Object index
+     * @return Vector aligned with GetMeasuredPoints(index)
+     */
+    std::vector<MetrologyPointDetail> GetPointDetails(int32_t index) const;
 
     // =========================================================================
     // Alignment

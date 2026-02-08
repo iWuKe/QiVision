@@ -53,7 +53,8 @@ int main(int argc, char* argv[]) {
     lineParams.SetNumMeasures(20)         // 20 calipers along the line
               .SetMeasureLength(30, 5)    // Caliper: 30px half-length, 5px half-width
               .SetThreshold("auto")       // Automatic threshold
-              .SetFitMethod("ransac")     // RANSAC for robust fitting
+              .SetFitMethod("huber")      // Huber is more stable on real-image texture/noise
+              .SetMinScore(0.3)           // Relax acceptance threshold for demo robustness
               .SetDistanceThreshold(2.0); // 2px outlier threshold
 
     // Add line measurements for IC chip edges
@@ -66,25 +67,25 @@ int main(int argc, char* argv[]) {
     // Top edge: horizontal line around row 120
     model.AddLineMeasure(120, 100, 120, w - 100,  // row1, col1, row2, col2
                          30.0, 5.0,                // measureLength1, measureLength2
-                         "all", "strongest",       // all transitions, strongest edge
+                         "positive", "strongest",  // top edge: dark->bright
                          lineParams);
 
     // Left edge: vertical line around col 130
     model.AddLineMeasure(150, 130, h - 150, 130,
                          30.0, 5.0,
-                         "all", "strongest",
+                         "positive", "strongest",  // left edge: dark->bright
                          lineParams);
 
     // Bottom edge: horizontal line around row 390
     model.AddLineMeasure(h - 120, 100, h - 120, w - 100,
                          30.0, 5.0,
-                         "all", "strongest",
+                         "negative", "strongest",  // bottom edge: bright->dark
                          lineParams);
 
     // Right edge: vertical line around col 380
     model.AddLineMeasure(150, w - 130, h - 150, w - 130,
                          30.0, 5.0,
-                         "all", "strongest",
+                         "negative", "strongest",  // right edge: bright->dark
                          lineParams);
 
     std::cout << "\nAdded " << model.NumObjects() << " line measurements" << std::endl;

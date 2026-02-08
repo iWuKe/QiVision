@@ -42,6 +42,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace Qi::Vision::Measure {
@@ -214,7 +215,7 @@ public:
      * @param p1 Start point
      * @param p2 End point
      * @param caliperCount Number of calipers along the line
-     * @param profileLength Profile length per caliper (pixels)
+     * @param profileLength Profile half-length per caliper (pixels, maps to MeasureRectangle2::Length1)
      * @param handleWidth Handle width for averaging (pixels)
      */
     bool CreateAlongLine(const Point2d& p1, const Point2d& p2,
@@ -235,7 +236,7 @@ public:
      * @param startAngle Start angle (radians)
      * @param sweepAngle Sweep angle (radians)
      * @param caliperCount Number of calipers
-     * @param profileLength Profile length per caliper
+     * @param profileLength Profile half-length per caliper
      * @param handleWidth Handle width
      */
     bool CreateAlongArc(const Point2d& center, double radius,
@@ -255,7 +256,7 @@ public:
      * @param center Circle center
      * @param radius Circle radius
      * @param caliperCount Number of calipers
-     * @param profileLength Profile length per caliper
+     * @param profileLength Profile half-length per caliper
      * @param handleWidth Handle width
      */
     bool CreateAlongCircle(const Point2d& center, double radius,
@@ -273,7 +274,7 @@ public:
      *
      * @param contour XLD contour
      * @param caliperCount Number of calipers (0 = auto from spacing)
-     * @param profileLength Profile length per caliper
+     * @param profileLength Profile half-length per caliper
      * @param handleWidth Handle width
      */
     bool CreateAlongContour(const QContour& contour,
@@ -455,6 +456,17 @@ QIVISION_API CaliperArray CreateCaliperArrayContour(const QContour& contour,
 // =============================================================================
 
 /**
+ * @brief Robust fitting parameters for CaliperArray convenience APIs
+ */
+struct QIVISION_API CaliperRobustFitParams {
+    std::string fitMethod = "ransac";          ///< "ransac", "huber", "tukey"
+    double distanceThreshold = 3.5;            ///< Outlier distance threshold in pixels
+    int32_t maxIterations = -1;                ///< Max RANSAC iterations (-1 = default high limit)
+    int32_t ignorePointCount = 0;              ///< Number of points ignored before refit
+    std::string ignorePointPolicy = "residual";///< "residual" or "score"
+};
+
+/**
  * @brief Measure edges along a line and fit a line to results
  */
 QIVISION_API std::optional<Line2d> MeasureAndFitLine(const QImage& image,
@@ -465,6 +477,19 @@ QIVISION_API std::optional<Line2d> MeasureAndFitLine(const QImage& image,
                                          const std::string& transition = "all",
                                          const std::string& select = "first",
                                          std::vector<Point2d>* measuredPoints = nullptr);
+
+/**
+ * @brief Measure edges along a line and fit with robust method
+ */
+QIVISION_API std::optional<Line2d> MeasureAndFitLineRobust(const QImage& image,
+                                               const Point2d& p1, const Point2d& p2,
+                                               int32_t caliperCount = 10,
+                                               double sigma = 1.0,
+                                               double threshold = 20.0,
+                                               const std::string& transition = "all",
+                                               const std::string& select = "first",
+                                               const CaliperRobustFitParams& fitParams = {},
+                                               std::vector<Point2d>* measuredPoints = nullptr);
 
 /**
  * @brief Measure edges along a circle and fit a circle to results
@@ -478,6 +503,20 @@ QIVISION_API std::optional<Circle2d> MeasureAndFitCircle(const QImage& image,
                                              const std::string& transition = "all",
                                              const std::string& select = "first",
                                              std::vector<Point2d>* measuredPoints = nullptr);
+
+/**
+ * @brief Measure edges along a circle and fit with robust method
+ */
+QIVISION_API std::optional<Circle2d> MeasureAndFitCircleRobust(const QImage& image,
+                                                   const Point2d& approxCenter,
+                                                   double approxRadius,
+                                                   int32_t caliperCount = 24,
+                                                   double sigma = 1.0,
+                                                   double threshold = 20.0,
+                                                   const std::string& transition = "all",
+                                                   const std::string& select = "first",
+                                                   const CaliperRobustFitParams& fitParams = {},
+                                                   std::vector<Point2d>* measuredPoints = nullptr);
 
 // =============================================================================
 // Width Measurement Functions

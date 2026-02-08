@@ -7,8 +7,10 @@
 #include <QiVision/Core/Exception.h>
 #include <QiVision/Core/Validate.h>
 #include <QiVision/Internal/Fitting.h>
+#include <QiVision/Platform/Timer.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <numeric>
 
@@ -36,6 +38,92 @@ struct CaliperArrayParams {
     double startRatio = 0.0;
     double endRatio = 1.0;
 };
+
+struct IgnoreSelection {
+    std::vector<Point2d> points;
+    std::vector<double> scores;
+    bool applied = false;
+};
+
+IgnoreSelection SelectPointsForIgnore(const std::vector<Point2d>& points,
+                                      const std::vector<double>& scores,
+                                      int32_t ignorePointCount,
+                                      const std::string& policy,
+                                      const std::vector<double>& residuals,
+                                      size_t minRequired) {
+    IgnoreSelection selection;
+    selection.points = points;
+    selection.scores = scores;
+
+    const size_t n = points.size();
+    if (ignorePointCount <= 0 || n <= minRequired) {
+        return selection;
+    }
+
+    const size_t removable = n - minRequired;
+    const size_t removeCount = std::min(removable, static_cast<size_t>(ignorePointCount));
+    if (removeCount == 0) {
+        return selection;
+    }
+
+    std::vector<size_t> order(n);
+    std::iota(order.begin(), order.end(), 0);
+
+    std::string lower = policy;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (lower.empty() || lower == "residual") {
+        if (residuals.size() != n) return selection;
+        std::sort(order.begin(), order.end(),
+                  [&residuals](size_t a, size_t b) { return std::abs(residuals[a]) > std::abs(residuals[b]); });
+    } else if (lower == "score") {
+        if (scores.size() != n) return selection;
+        std::sort(order.begin(), order.end(),
+                  [&scores](size_t a, size_t b) { return scores[a] < scores[b]; });
+    } else {
+        throw InvalidArgumentException("Caliper robust fit: unknown ignorePointPolicy: " + policy);
+    }
+
+    std::vector<bool> removed(n, false);
+    for (size_t i = 0; i < removeCount; ++i) {
+        removed[order[i]] = true;
+    }
+
+    selection.points.clear();
+    selection.scores.clear();
+    selection.points.reserve(n - removeCount);
+    selection.scores.reserve(n - removeCount);
+
+    for (size_t i = 0; i < n; ++i) {
+        if (removed[i]) continue;
+        selection.points.push_back(points[i]);
+        if (!scores.empty()) {
+            selection.scores.push_back(scores[i]);
+        }
+    }
+
+    selection.applied = (selection.points.size() < points.size());
+    return selection;
+}
+
+void ValidateRobustFitParams(const CaliperRobustFitParams& params, const char* funcName) {
+    std::string method = params.fitMethod;
+    std::transform(method.begin(), method.end(), method.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (!(method.empty() || method == "ransac" || method == "huber" || method == "tukey")) {
+        throw InvalidArgumentException(std::string(funcName) + ": fitMethod must be ransac/huber/tukey");
+    }
+    if (!std::isfinite(params.distanceThreshold) || params.distanceThreshold <= 0.0) {
+        throw InvalidArgumentException(std::string(funcName) + ": distanceThreshold must be > 0");
+    }
+    if (params.maxIterations < -1) {
+        throw InvalidArgumentException(std::string(funcName) + ": maxIterations must be >= -1");
+    }
+    if (params.ignorePointCount < 0) {
+        throw InvalidArgumentException(std::string(funcName) + ": ignorePointCount must be >= 0");
+    }
+}
 
 } // anonymous namespace
 
@@ -166,9 +254,7 @@ bool CaliperArray::Impl::GenerateLineHandles(const Point2d& p1, const Point2d& p
             pt.y, pt.x,
             phi,
             params.profileLength,
-            params.handleWidth,
-            params.numLines,
-            params.samplesPerPixel
+            params.handleWidth
         );
 
         handles_.push_back(handle);
@@ -254,9 +340,7 @@ bool CaliperArray::Impl::GenerateArcHandles(const Point2d& center, double radius
             pt.y, pt.x,
             phi,
             params.profileLength,
-            params.handleWidth,
-            params.numLines,
-            params.samplesPerPixel
+            params.handleWidth
         );
 
         handles_.push_back(handle);
@@ -414,9 +498,7 @@ bool CaliperArray::Impl::GenerateContourHandles(const std::vector<Point2d>& poin
             pt.y, pt.x,
             phi,
             params.profileLength,
-            params.handleWidth,
-            params.numLines,
-            params.samplesPerPixel
+            params.handleWidth
         );
 
         handles_.push_back(handle);
@@ -609,6 +691,8 @@ CaliperArrayResult CaliperArray::MeasurePos(const QImage& image,
                                              const std::string& transition,
                                              const std::string& select,
                                              CaliperArrayStats* stats) const {
+    Platform::Timer timer;
+    timer.Start();
     CaliperArrayResult result;
     result.numCalipers = Size();
 
@@ -686,6 +770,10 @@ CaliperArrayResult CaliperArray::MeasurePos(const QImage& image,
         stats->meanAmplitude = (edgeCount > 0) ? totalAmplitude / edgeCount : 0.0;
         stats->minAmplitude = (edgeCount > 0) ? minAmp : 0.0;
         stats->maxAmplitude = maxAmp;
+        stats->measurementTime = timer.ElapsedMs();
+        stats->avgTimePerCaliper = (result.numCalipers > 0)
+                                       ? (stats->measurementTime / result.numCalipers)
+                                       : 0.0;
     }
 
     return result;
@@ -698,6 +786,8 @@ CaliperArrayResult CaliperArray::FuzzyMeasurePos(const QImage& image,
                                                   const std::string& select,
                                                   double fuzzyThresh,
                                                   CaliperArrayStats* stats) const {
+    Platform::Timer timer;
+    timer.Start();
     CaliperArrayResult result;
     result.numCalipers = Size();
 
@@ -760,6 +850,10 @@ CaliperArrayResult CaliperArray::FuzzyMeasurePos(const QImage& image,
 
     if (stats) {
         stats->totalEdgesFound = static_cast<int32_t>(result.allEdgePoints.size());
+        stats->measurementTime = timer.ElapsedMs();
+        stats->avgTimePerCaliper = (result.numCalipers > 0)
+                                       ? (stats->measurementTime / result.numCalipers)
+                                       : 0.0;
     }
 
     return result;
@@ -771,6 +865,8 @@ CaliperArrayResult CaliperArray::MeasurePairs(const QImage& image,
                                                const std::string& transition,
                                                const std::string& select,
                                                CaliperArrayStats* stats) const {
+    Platform::Timer timer;
+    timer.Start();
     CaliperArrayResult result;
     result.numCalipers = Size();
 
@@ -809,7 +905,7 @@ CaliperArrayResult CaliperArray::MeasurePairs(const QImage& image,
             cr.secondEdge = firstPair.second.Position();
 
             result.centerPoints.push_back(cr.resultPoint);
-            result.firstEdgePoints.push_back(cr.resultPoint);
+            result.firstEdgePoints.push_back(cr.firstEdge);
             result.firstPairEdges.push_back(cr.firstEdge);
             result.secondPairEdges.push_back(cr.secondEdge);
             result.widths.push_back(cr.width);
@@ -855,6 +951,10 @@ CaliperArrayResult CaliperArray::MeasurePairs(const QImage& image,
 
     if (stats) {
         stats->totalPairsFound = result.numValid;
+        stats->measurementTime = timer.ElapsedMs();
+        stats->avgTimePerCaliper = (result.numCalipers > 0)
+                                       ? (stats->measurementTime / result.numCalipers)
+                                       : 0.0;
     }
 
     return result;
@@ -867,6 +967,8 @@ CaliperArrayResult CaliperArray::FuzzyMeasurePairs(const QImage& image,
                                                     const std::string& select,
                                                     double fuzzyThresh,
                                                     CaliperArrayStats* stats) const {
+    Platform::Timer timer;
+    timer.Start();
     CaliperArrayResult result;
     result.numCalipers = Size();
 
@@ -906,7 +1008,7 @@ CaliperArrayResult CaliperArray::FuzzyMeasurePairs(const QImage& image,
             cr.secondEdge = firstPair.second.Position();
 
             result.centerPoints.push_back(cr.resultPoint);
-            result.firstEdgePoints.push_back(cr.resultPoint);
+            result.firstEdgePoints.push_back(cr.firstEdge);
             result.firstPairEdges.push_back(cr.firstEdge);
             result.secondPairEdges.push_back(cr.secondEdge);
             result.widths.push_back(cr.width);
@@ -951,6 +1053,10 @@ CaliperArrayResult CaliperArray::FuzzyMeasurePairs(const QImage& image,
 
     if (stats) {
         stats->totalPairsFound = result.numValid;
+        stats->measurementTime = timer.ElapsedMs();
+        stats->avgTimePerCaliper = (result.numCalipers > 0)
+                                       ? (stats->measurementTime / result.numCalipers)
+                                       : 0.0;
     }
 
     return result;
@@ -1180,6 +1286,173 @@ std::optional<Circle2d> MeasureAndFitCircle(const QImage& image,
     }
 
     return fitResult.circle;
+}
+
+std::optional<Line2d> MeasureAndFitLineRobust(const QImage& image,
+                                               const Point2d& p1, const Point2d& p2,
+                                               int32_t caliperCount,
+                                               double sigma,
+                                               double threshold,
+                                               const std::string& transition,
+                                               const std::string& select,
+                                               const CaliperRobustFitParams& fitParams,
+                                               std::vector<Point2d>* measuredPoints) {
+    Validate::RequireImageNonEmpty(image, "MeasureAndFitLineRobust");
+    if (!p1.IsValid() || !p2.IsValid()) {
+        throw InvalidArgumentException("MeasureAndFitLineRobust: invalid points");
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasureAndFitLineRobust: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasureAndFitLineRobust: threshold must be >= 0");
+    }
+    ValidateRobustFitParams(fitParams, "MeasureAndFitLineRobust");
+
+    CaliperArray array = CreateCaliperArrayLine(p1, p2, caliperCount);
+    auto result = array.MeasurePos(image, sigma, threshold, transition, select);
+    if (measuredPoints) {
+        *measuredPoints = result.firstEdgePoints;
+    }
+    if (!result.CanFitLine()) {
+        return std::nullopt;
+    }
+
+    std::vector<Point2d> points = result.firstEdgePoints;
+    std::vector<double> scores;
+    scores.reserve(result.results.size());
+    for (const auto& r : result.results) {
+        if (!r.hasResult) continue;
+        if (!r.edges.empty()) {
+            scores.push_back(std::abs(r.edges.front().amplitude));
+        } else {
+            scores.push_back(r.resultScore);
+        }
+    }
+    if (scores.size() != points.size()) {
+        scores.assign(points.size(), 0.0);
+    }
+
+    Internal::FitParams fp;
+    fp.computeResiduals = true;
+    fp.computeInlierMask = true;
+
+    Internal::RansacParams rp;
+    rp.threshold = fitParams.distanceThreshold;
+    rp.maxIterations = (fitParams.maxIterations < 0) ? 10000 : fitParams.maxIterations;
+    rp.confidence = 0.99;
+
+    std::string method = fitParams.fitMethod;
+    std::transform(method.begin(), method.end(), method.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (method.empty()) method = "ransac";
+
+    auto fitLine = [&](const std::vector<Point2d>& pts) -> Internal::LineFitResult {
+        if (method == "ransac") return Internal::FitLineRANSAC(pts, rp, fp);
+        if (method == "huber") return Internal::FitLineHuber(pts, 0.0, fp);
+        return Internal::FitLineTukey(pts, 0.0, fp);
+    };
+
+    auto fitResult = fitLine(points);
+    if (!fitResult.success) return std::nullopt;
+
+    if (fitParams.ignorePointCount > 0) {
+        IgnoreSelection sel = SelectPointsForIgnore(
+            points, scores, fitParams.ignorePointCount, fitParams.ignorePointPolicy, fitResult.residuals, 2
+        );
+        if (sel.applied) {
+            auto refit = fitLine(sel.points);
+            if (refit.success) {
+                fitResult = std::move(refit);
+            }
+        }
+    }
+
+    return fitResult.success ? std::optional<Line2d>(fitResult.line) : std::nullopt;
+}
+
+std::optional<Circle2d> MeasureAndFitCircleRobust(const QImage& image,
+                                                   const Point2d& approxCenter,
+                                                   double approxRadius,
+                                                   int32_t caliperCount,
+                                                   double sigma,
+                                                   double threshold,
+                                                   const std::string& transition,
+                                                   const std::string& select,
+                                                   const CaliperRobustFitParams& fitParams,
+                                                   std::vector<Point2d>* measuredPoints) {
+    Validate::RequireImageNonEmpty(image, "MeasureAndFitCircleRobust");
+    if (!approxCenter.IsValid() || !std::isfinite(approxRadius) || approxRadius <= 0.0) {
+        throw InvalidArgumentException("MeasureAndFitCircleRobust: invalid circle");
+    }
+    if (!std::isfinite(sigma) || sigma <= 0.0) {
+        throw InvalidArgumentException("MeasureAndFitCircleRobust: sigma must be > 0");
+    }
+    if (!std::isfinite(threshold) || threshold < 0.0) {
+        throw InvalidArgumentException("MeasureAndFitCircleRobust: threshold must be >= 0");
+    }
+    ValidateRobustFitParams(fitParams, "MeasureAndFitCircleRobust");
+
+    CaliperArray array = CreateCaliperArrayCircle(approxCenter, approxRadius, caliperCount);
+    auto result = array.MeasurePos(image, sigma, threshold, transition, select);
+    if (measuredPoints) {
+        *measuredPoints = result.firstEdgePoints;
+    }
+    if (!result.CanFitCircle()) {
+        return std::nullopt;
+    }
+
+    std::vector<Point2d> points = result.firstEdgePoints;
+    std::vector<double> scores;
+    scores.reserve(result.results.size());
+    for (const auto& r : result.results) {
+        if (!r.hasResult) continue;
+        if (!r.edges.empty()) {
+            scores.push_back(std::abs(r.edges.front().amplitude));
+        } else {
+            scores.push_back(r.resultScore);
+        }
+    }
+    if (scores.size() != points.size()) {
+        scores.assign(points.size(), 0.0);
+    }
+
+    Internal::FitParams fp;
+    fp.computeResiduals = true;
+    fp.computeInlierMask = true;
+
+    Internal::RansacParams rp;
+    rp.threshold = fitParams.distanceThreshold;
+    rp.maxIterations = (fitParams.maxIterations < 0) ? 10000 : fitParams.maxIterations;
+    rp.confidence = 0.99;
+
+    std::string method = fitParams.fitMethod;
+    std::transform(method.begin(), method.end(), method.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (method.empty()) method = "ransac";
+
+    auto fitCircle = [&](const std::vector<Point2d>& pts) -> Internal::CircleFitResult {
+        if (method == "ransac") return Internal::FitCircleRANSAC(pts, rp, fp);
+        if (method == "huber") return Internal::FitCircleHuber(pts, true, 0.0, fp);
+        return Internal::FitCircleTukey(pts, true, 0.0, fp);
+    };
+
+    auto fitResult = fitCircle(points);
+    if (!fitResult.success) return std::nullopt;
+
+    if (fitParams.ignorePointCount > 0) {
+        IgnoreSelection sel = SelectPointsForIgnore(
+            points, scores, fitParams.ignorePointCount, fitParams.ignorePointPolicy, fitResult.residuals, 3
+        );
+        if (sel.applied) {
+            auto refit = fitCircle(sel.points);
+            if (refit.success) {
+                fitResult = std::move(refit);
+            }
+        }
+    }
+
+    return fitResult.success ? std::optional<Circle2d>(fitResult.circle) : std::nullopt;
 }
 
 bool MeasureWidthsAlongLine(const QImage& image,

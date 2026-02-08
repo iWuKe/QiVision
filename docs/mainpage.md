@@ -128,4 +128,5 @@ MIT License - See LICENSE file for details.
 
 - [GitHub Repository](https://github.com/userqz1/QiVision)
 - [API Reference](modules.html)
+- [Measure SDK Parameter Spec](https://github.com/userqz1/QiVision/blob/main/docs/MEASURE_SDK_PARAM_SPEC.md)
 - [Class List](annotated.html)

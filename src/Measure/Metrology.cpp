@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <unordered_map>
 
 namespace Qi::Vision::Measure {
@@ -41,11 +42,23 @@ namespace {
         if (!std::isfinite(params.minScore) || params.minScore < 0.0 || params.minScore > 1.0) {
             throw InvalidArgumentException(std::string(funcName) + ": minScore must be in [0,1]");
         }
+        if (!std::isfinite(params.minCoverage) || params.minCoverage < 0.0 || params.minCoverage > 1.0) {
+            throw InvalidArgumentException(std::string(funcName) + ": minCoverage must be in [0,1]");
+        }
+        if (!std::isfinite(params.maxRmsError)) {
+            throw InvalidArgumentException(std::string(funcName) + ": maxRmsError must be finite");
+        }
+        if (params.maxRmsError > 0.0 && params.maxRmsError < 1e-9) {
+            throw InvalidArgumentException(std::string(funcName) + ": maxRmsError must be >= 1e-9 when enabled");
+        }
         if (!std::isfinite(params.distanceThreshold) || params.distanceThreshold <= 0.0) {
             throw InvalidArgumentException(std::string(funcName) + ": distanceThreshold must be > 0");
         }
         if (params.maxIterations < -1) {
             throw InvalidArgumentException(std::string(funcName) + ": maxIterations must be >= -1");
+        }
+        if (params.ignorePointCount < 0) {
+            throw InvalidArgumentException(std::string(funcName) + ": ignorePointCount must be >= 0");
         }
     }
 
@@ -94,6 +107,257 @@ namespace {
             center.x + dx * cosPhi - dy * sinPhi,
             center.y + dx * sinPhi + dy * cosPhi
         };
+    }
+
+    struct IgnoreSelection {
+        std::vector<Point2d> points;
+        std::vector<double> scores;
+        std::vector<size_t> keptIndices;
+        bool applied = false;
+    };
+
+    IgnoreSelection SelectPointsForIgnore(const std::vector<Point2d>& points,
+                                          const std::vector<double>& scores,
+                                          int32_t ignorePointCount,
+                                          IgnorePointPolicy policy,
+                                          const std::vector<double>& residuals,
+                                          size_t minRequired) {
+        IgnoreSelection selection;
+        selection.points = points;
+        selection.scores = scores;
+        selection.keptIndices.resize(points.size());
+        std::iota(selection.keptIndices.begin(), selection.keptIndices.end(), 0);
+
+        const size_t n = points.size();
+        if (ignorePointCount <= 0 || n <= minRequired) {
+            return selection;
+        }
+
+        const size_t removable = n - minRequired;
+        const size_t removeCount = std::min(removable, static_cast<size_t>(ignorePointCount));
+        if (removeCount == 0) {
+            return selection;
+        }
+
+        std::vector<size_t> order(n);
+        std::iota(order.begin(), order.end(), 0);
+
+        if (policy == IgnorePointPolicy::ByResidual) {
+            if (residuals.size() != n) {
+                return selection;
+            }
+            std::sort(order.begin(), order.end(),
+                      [&residuals](size_t a, size_t b) { return std::abs(residuals[a]) > std::abs(residuals[b]); });
+        } else {
+            if (scores.size() != n) {
+                return selection;
+            }
+            std::sort(order.begin(), order.end(),
+                      [&scores](size_t a, size_t b) { return scores[a] < scores[b]; });
+        }
+
+        std::vector<bool> removed(n, false);
+        for (size_t i = 0; i < removeCount; ++i) {
+            removed[order[i]] = true;
+        }
+
+        selection.points.clear();
+        selection.scores.clear();
+        selection.keptIndices.clear();
+        selection.points.reserve(n - removeCount);
+        selection.scores.reserve(n - removeCount);
+        selection.keptIndices.reserve(n - removeCount);
+
+        for (size_t i = 0; i < n; ++i) {
+            if (removed[i]) continue;
+            selection.points.push_back(points[i]);
+            if (!scores.empty()) {
+                selection.scores.push_back(scores[i]);
+            }
+            selection.keptIndices.push_back(i);
+        }
+
+        selection.applied = (selection.points.size() < points.size());
+        return selection;
+    }
+
+    std::vector<double> ExpandMappedValues(const std::vector<double>& compact,
+                                           const std::vector<size_t>& keptIndices,
+                                           size_t originalSize) {
+        if (compact.empty()) return {};
+        if (keptIndices.empty()) return compact;
+        if (compact.size() != keptIndices.size()) return {};
+
+        std::vector<double> expanded(originalSize, 0.0);
+        for (size_t i = 0; i < keptIndices.size(); ++i) {
+            expanded[keptIndices[i]] = compact[i];
+        }
+        return expanded;
+    }
+
+    template<typename FitResultT>
+    std::vector<double> BuildWeightsForDisplay(const FitResultT& fitResult,
+                                               const std::vector<size_t>& keptIndices,
+                                               size_t originalSize) {
+        if (!fitResult.weights.empty()) {
+            return ExpandMappedValues(fitResult.weights, keptIndices, originalSize);
+        }
+        if (!fitResult.inlierMask.empty()) {
+            std::vector<double> compact(fitResult.inlierMask.size(), 0.0);
+            for (size_t i = 0; i < fitResult.inlierMask.size(); ++i) {
+                compact[i] = fitResult.inlierMask[i] ? 1.0 : 0.0;
+            }
+            return ExpandMappedValues(compact, keptIndices, originalSize);
+        }
+        return {};
+    }
+
+    template<typename FitResultT>
+    std::vector<bool> BuildInstanceCompactMask(const FitResultT& fitResult,
+                                               size_t compactSize,
+                                               double distanceThreshold,
+                                               size_t minRequired) {
+        if (compactSize < minRequired) {
+            return {};
+        }
+
+        std::vector<bool> mask(compactSize, false);
+
+        if (fitResult.inlierMask.size() == compactSize) {
+            mask = fitResult.inlierMask;
+        } else if (fitResult.weights.size() == compactSize) {
+            for (size_t i = 0; i < compactSize; ++i) {
+                mask[i] = fitResult.weights[i] > 0.5;
+            }
+        } else if (fitResult.residuals.size() == compactSize &&
+                   std::isfinite(distanceThreshold) && distanceThreshold > 0.0) {
+            for (size_t i = 0; i < compactSize; ++i) {
+                mask[i] = std::abs(fitResult.residuals[i]) <= distanceThreshold;
+            }
+        } else {
+            return {};
+        }
+
+        size_t inlierCount = 0;
+        for (bool m : mask) {
+            if (m) ++inlierCount;
+        }
+        if (inlierCount < minRequired) {
+            return {};
+        }
+        return mask;
+    }
+
+    double ComputeMedian(std::vector<double> values) {
+        if (values.empty()) return 0.0;
+        size_t mid = values.size() / 2;
+        std::nth_element(values.begin(), values.begin() + mid, values.end());
+        double m = values[mid];
+        if ((values.size() % 2) == 0) {
+            auto maxIt = std::max_element(values.begin(), values.begin() + mid);
+            if (maxIt != values.begin() + mid) {
+                m = 0.5 * (m + *maxIt);
+            }
+        }
+        return m;
+    }
+
+    // Adaptive residual threshold from robust statistics (MAD).
+    double ComputeAdaptiveResidualThreshold(const std::vector<double>& residuals,
+                                            double baseThreshold) {
+        std::vector<double> absResiduals;
+        absResiduals.reserve(residuals.size());
+        for (double r : residuals) {
+            if (std::isfinite(r)) {
+                absResiduals.push_back(std::abs(r));
+            }
+        }
+        if (absResiduals.size() < 3) {
+            return baseThreshold;
+        }
+
+        double median = ComputeMedian(absResiduals);
+        for (double& v : absResiduals) {
+            v = std::abs(v - median);
+        }
+        double mad = ComputeMedian(absResiduals);
+        double robustSigma = 1.4826 * mad;
+        double adaptive = median + 2.5 * robustSigma;
+        double floorValue = std::max(baseThreshold, 1e-6);
+        return std::max(floorValue, adaptive);
+    }
+
+    bool FilterByResidualThreshold(const std::vector<double>& residuals,
+                                   double threshold,
+                                   size_t minRequired,
+                                   std::vector<Point2d>& points,
+                                   std::vector<double>& scores,
+                                   std::vector<size_t>& keptIndices) {
+        if (residuals.size() != points.size() || keptIndices.size() != points.size()) {
+            return false;
+        }
+
+        std::vector<bool> keep(points.size(), false);
+        size_t keptCount = 0;
+        for (size_t i = 0; i < residuals.size(); ++i) {
+            keep[i] = std::isfinite(residuals[i]) && std::abs(residuals[i]) <= threshold;
+            if (keep[i]) ++keptCount;
+        }
+        if (keptCount < minRequired || keptCount == points.size()) {
+            return false;
+        }
+
+        std::vector<Point2d> filteredPoints;
+        std::vector<double> filteredScores;
+        std::vector<size_t> filteredIndices;
+        filteredPoints.reserve(keptCount);
+        filteredScores.reserve(scores.size());
+        filteredIndices.reserve(keptCount);
+
+        for (size_t i = 0; i < points.size(); ++i) {
+            if (!keep[i]) continue;
+            filteredPoints.push_back(points[i]);
+            if (!scores.empty() && i < scores.size()) {
+                filteredScores.push_back(scores[i]);
+            }
+            filteredIndices.push_back(keptIndices[i]);
+        }
+
+        points = std::move(filteredPoints);
+        scores = std::move(filteredScores);
+        keptIndices = std::move(filteredIndices);
+        return true;
+    }
+
+    void RemoveMaskedPoints(std::vector<Point2d>& points,
+                            std::vector<double>& scores,
+                            std::vector<size_t>& indexMap,
+                            const std::vector<bool>& removeMask) {
+        if (points.size() != removeMask.size()) {
+            return;
+        }
+
+        std::vector<Point2d> newPoints;
+        std::vector<double> newScores;
+        std::vector<size_t> newMap;
+        newPoints.reserve(points.size());
+        newScores.reserve(scores.size());
+        newMap.reserve(indexMap.size());
+
+        for (size_t i = 0; i < points.size(); ++i) {
+            if (removeMask[i]) continue;
+            newPoints.push_back(points[i]);
+            if (!scores.empty() && i < scores.size()) {
+                newScores.push_back(scores[i]);
+            }
+            if (i < indexMap.size()) {
+                newMap.push_back(indexMap[i]);
+            }
+        }
+
+        points = std::move(newPoints);
+        scores = std::move(newScores);
+        indexMap = std::move(newMap);
     }
 }
 
@@ -695,9 +959,13 @@ bool MetrologyModel::Apply(const QImage& image) {
 
         // Measure edge positions
         std::vector<Point2d> edgePoints;
+        std::vector<double> edgeScores;
         double sigma = obj.Params().measureSigma;
         double userThreshold = obj.Params().measureThreshold;
         ThresholdMode thresholdMode = obj.Params().thresholdMode;
+
+        EdgeTransition measureTransition = obj.Params().measureTransition;
+        EdgeSelectMode measureSelect = obj.Params().measureSelect;
 
         int caliperIdx = 0;
         for (auto& caliper : calipers) {
@@ -765,7 +1033,7 @@ bool MetrologyModel::Apply(const QImage& image) {
                 profile.data.data(),
                 profile.data.size(),
                 threshold,
-                Internal::EdgePolarity::Both,
+                ToEdgePolarity(measureTransition),
                 sigma
             );
 
@@ -774,27 +1042,63 @@ bool MetrologyModel::Apply(const QImage& image) {
                 continue;
             }
 
-            // Find the strongest edge
-            auto strongest = std::max_element(edges1D.begin(), edges1D.end(),
-                [](const auto& a, const auto& b) {
-                    return std::abs(a.amplitude) < std::abs(b.amplitude);
-                });
+            std::vector<size_t> selectedIndices;
+            selectedIndices.reserve(edges1D.size());
 
-            // Convert profile position to image coordinates
+            switch (measureSelect) {
+                case EdgeSelectMode::All:
+                    for (size_t i = 0; i < edges1D.size(); ++i) {
+                        selectedIndices.push_back(i);
+                    }
+                    break;
+                case EdgeSelectMode::First: {
+                    auto it = std::min_element(edges1D.begin(), edges1D.end(),
+                        [](const auto& a, const auto& b) { return a.position < b.position; });
+                    if (it != edges1D.end()) selectedIndices.push_back(static_cast<size_t>(std::distance(edges1D.begin(), it)));
+                    break;
+                }
+                case EdgeSelectMode::Last: {
+                    auto it = std::max_element(edges1D.begin(), edges1D.end(),
+                        [](const auto& a, const auto& b) { return a.position < b.position; });
+                    if (it != edges1D.end()) selectedIndices.push_back(static_cast<size_t>(std::distance(edges1D.begin(), it)));
+                    break;
+                }
+                case EdgeSelectMode::Weakest: {
+                    auto it = std::min_element(edges1D.begin(), edges1D.end(),
+                        [](const auto& a, const auto& b) {
+                            return std::abs(a.amplitude) < std::abs(b.amplitude);
+                        });
+                    if (it != edges1D.end()) selectedIndices.push_back(static_cast<size_t>(std::distance(edges1D.begin(), it)));
+                    break;
+                }
+                case EdgeSelectMode::Strongest:
+                default: {
+                    auto it = std::max_element(edges1D.begin(), edges1D.end(),
+                        [](const auto& a, const auto& b) {
+                            return std::abs(a.amplitude) < std::abs(b.amplitude);
+                        });
+                    if (it != edges1D.end()) selectedIndices.push_back(static_cast<size_t>(std::distance(edges1D.begin(), it)));
+                    break;
+                }
+            }
+
+            // Convert selected profile positions to image coordinates
             double profileLength = caliper.ProfileLength();
             double stepSize = profileLength / (profile.data.size() - 1);
-            double profilePos = strongest->position * stepSize;
-
-            // ProfileToImage calculation
             double profileAngle = caliper.ProfileAngle();
             double halfLen = caliper.Length1();
             double startX = caliper.Column() - halfLen * std::cos(profileAngle);
             double startY = caliper.Row() - halfLen * std::sin(profileAngle);
 
-            double edgeX = startX + profilePos * std::cos(profileAngle);
-            double edgeY = startY + profilePos * std::sin(profileAngle);
-
-            edgePoints.push_back({edgeX, edgeY});
+            for (size_t idxSel : selectedIndices) {
+                if (idxSel >= edges1D.size()) continue;
+                const auto& sel = edges1D[idxSel];
+                double profilePos = sel.position * stepSize;
+                double edgeX = startX + profilePos * std::cos(profileAngle);
+                double edgeY = startY + profilePos * std::sin(profileAngle);
+                edgePoints.push_back({edgeX, edgeY});
+                edgeScores.push_back(std::abs(sel.amplitude));
+            }
             caliperIdx++;
         }
 
@@ -804,6 +1108,18 @@ bool MetrologyModel::Apply(const QImage& image) {
         auto fitMethod = obj.Params().fitMethod;
         double distThreshold = obj.Params().distanceThreshold;
         int32_t maxIter = obj.Params().maxIterations;
+        int32_t numInstances = std::max(1, obj.Params().numInstances);
+        double minScore = obj.Params().minScore;
+        double minCoverage = obj.Params().minCoverage;
+        double maxRmsError = obj.Params().maxRmsError;
+        double totalMeasures = static_cast<double>(std::max(1, obj.Params().numMeasures));
+        auto isAccepted = [&](int32_t numUsed, double rms, double score) -> bool {
+            double coverage = static_cast<double>(std::max(0, numUsed)) / totalMeasures;
+            if (score < minScore) return false;
+            if (coverage < minCoverage) return false;
+            if (maxRmsError > 0.0 && rms > maxRmsError) return false;
+            return true;
+        };
 
         // Setup RANSAC parameters
         Internal::RansacParams ransacParams;
@@ -819,179 +1135,355 @@ bool MetrologyModel::Apply(const QImage& image) {
         // Fit geometric primitive based on object type
         switch (obj.Type()) {
             case MetrologyObjectType::Line: {
-                MetrologyLineResult result;
-                if (edgePoints.size() >= 2) {
-                    Internal::LineFitResult fitResult;
-
-                    // Select fitting method based on params
+                auto fitLine = [&](const std::vector<Point2d>& pts) -> Internal::LineFitResult {
                     switch (fitMethod) {
                         case MetrologyFitMethod::RANSAC:
-                            fitResult = Internal::FitLineRANSAC(edgePoints, ransacParams, fitParams);
-                            break;
+                            return Internal::FitLineRANSAC(pts, ransacParams, fitParams);
                         case MetrologyFitMethod::Huber:
-                            fitResult = Internal::FitLineHuber(edgePoints, 0.0, fitParams);
-                            break;
+                            return Internal::FitLineHuber(pts, 0.0, fitParams);
                         case MetrologyFitMethod::Tukey:
-                            fitResult = Internal::FitLineTukey(edgePoints, 0.0, fitParams);
-                            break;
+                            return Internal::FitLineTukey(pts, 0.0, fitParams);
                     }
+                    return {};
+                };
 
-                    if (fitResult.success) {
-                        // Get line endpoints from fitted line
-                        auto& line = fitResult.line;
+                std::vector<Point2d> remainPoints = edgePoints;
+                std::vector<double> remainScores = edgeScores;
+                std::vector<size_t> remainMap(remainPoints.size());
+                std::iota(remainMap.begin(), remainMap.end(), 0);
 
-                        // Project original endpoints onto fitted line
-                        auto* lineObj = static_cast<MetrologyObjectLine*>(&obj);
-                        Point2d p1 = {lineObj->Col1(), lineObj->Row1()};
-                        Point2d p2 = {lineObj->Col2(), lineObj->Row2()};
+                for (int32_t inst = 0; inst < numInstances; ++inst) {
+                    if (remainPoints.size() < 2) break;
 
-                        // Project points onto line
-                        auto project = [&line](const Point2d& p) -> Point2d {
-                            double d = line.a * p.x + line.b * p.y + line.c;
-                            return {p.x - d * line.a, p.y - d * line.b};
-                        };
+                    std::vector<Point2d> fitPoints = remainPoints;
+                    std::vector<double> fitScores = remainScores;
+                    std::vector<size_t> keptIndices(fitPoints.size());
+                    std::iota(keptIndices.begin(), keptIndices.end(), 0);
+                    Internal::LineFitResult fitResult = fitLine(fitPoints);
 
-                        Point2d proj1 = project(p1);
-                        Point2d proj2 = project(p2);
-
-                        result.row1 = proj1.y;
-                        result.col1 = proj1.x;
-                        result.row2 = proj2.y;
-                        result.col2 = proj2.x;
-                        result.nr = line.b;  // Normal row component
-                        result.nc = line.a;  // Normal column component
-                        result.dist = -line.c;  // Distance from origin
-                        result.numUsed = fitResult.numInliers > 0 ? fitResult.numInliers : static_cast<int>(edgePoints.size());
-                        result.rmsError = fitResult.residualRMS;
-                        result.score = result.numUsed > 0 ? 1.0 / (1.0 + result.rmsError) : 0.0;
-
-                        // Store weights for visualization
-                        if (!fitResult.weights.empty()) {
-                            impl_->pointWeights[idx] = fitResult.weights;
+                    if (fitResult.success && fitResult.residuals.size() == fitPoints.size()) {
+                        double adaptiveThreshold =
+                            ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                        if (FilterByResidualThreshold(fitResult.residuals, adaptiveThreshold, 2,
+                                                      fitPoints, fitScores, keptIndices)) {
+                            auto refit = fitLine(fitPoints);
+                            if (refit.success) {
+                                fitResult = std::move(refit);
+                            }
                         }
                     }
+
+                    if (fitResult.success && obj.Params().ignorePointCount > 0 && fitPoints.size() >= 2) {
+                        IgnoreSelection sel = SelectPointsForIgnore(
+                            fitPoints,
+                            fitScores,
+                            obj.Params().ignorePointCount,
+                            obj.Params().ignorePointPolicy,
+                            fitResult.residuals,
+                            2
+                        );
+                        if (sel.applied) {
+                            auto refit = fitLine(sel.points);
+                            if (refit.success) {
+                                fitResult = std::move(refit);
+                                std::vector<size_t> remapped(sel.keptIndices.size(), 0);
+                                for (size_t i = 0; i < sel.keptIndices.size(); ++i) {
+                                    if (sel.keptIndices[i] < keptIndices.size()) {
+                                        remapped[i] = keptIndices[sel.keptIndices[i]];
+                                    }
+                                }
+                                keptIndices = std::move(remapped);
+                                fitPoints = std::move(sel.points);
+                                fitScores = std::move(sel.scores);
+                            }
+                        }
+                    }
+
+                    if (!fitResult.success) break;
+
+                    MetrologyLineResult result;
+                    auto& line = fitResult.line;
+                    auto* lineObj = static_cast<MetrologyObjectLine*>(&obj);
+                    Point2d p1 = {lineObj->Col1(), lineObj->Row1()};
+                    Point2d p2 = {lineObj->Col2(), lineObj->Row2()};
+                    auto project = [&line](const Point2d& p) -> Point2d {
+                        double d = line.a * p.x + line.b * p.y + line.c;
+                        return {p.x - d * line.a, p.y - d * line.b};
+                    };
+
+                    Point2d proj1 = project(p1);
+                    Point2d proj2 = project(p2);
+                    result.row1 = proj1.y;
+                    result.col1 = proj1.x;
+                    result.row2 = proj2.y;
+                    result.col2 = proj2.x;
+                    result.nr = line.b;
+                    result.nc = line.a;
+                    result.dist = -line.c;
+                    result.numUsed = fitResult.numInliers > 0 ? fitResult.numInliers : static_cast<int>(keptIndices.size());
+                    result.rmsError = fitResult.residualRMS;
+                    result.score = result.numUsed > 0 ? 1.0 / (1.0 + result.rmsError) : 0.0;
+                    bool accepted = isAccepted(result.numUsed, result.rmsError, result.score);
+                    if (accepted) {
+                        impl_->lineResults[idx].push_back(result);
+                    }
+
+                    std::vector<size_t> mappedKept;
+                    mappedKept.reserve(keptIndices.size());
+                    for (size_t k : keptIndices) {
+                        if (k < remainMap.size()) mappedKept.push_back(remainMap[k]);
+                    }
+                    auto displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
+                    if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
+                        impl_->pointWeights[idx] = std::move(displayWeights);
+                    }
+
+                    double instanceThreshold =
+                        ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                    auto compactMask = BuildInstanceCompactMask(fitResult, keptIndices.size(), instanceThreshold, 2);
+                    if (compactMask.empty()) break;
+                    std::vector<bool> removeMask(remainPoints.size(), false);
+                    for (size_t i = 0; i < keptIndices.size() && i < compactMask.size(); ++i) {
+                        if (compactMask[i] && keptIndices[i] < removeMask.size()) {
+                            removeMask[keptIndices[i]] = true;
+                        }
+                    }
+                    RemoveMaskedPoints(remainPoints, remainScores, remainMap, removeMask);
                 }
-                impl_->lineResults[idx].push_back(result);
                 break;
             }
 
             case MetrologyObjectType::Circle: {
-                MetrologyCircleResult result;
-                if (edgePoints.size() >= 3) {
-                    Internal::CircleFitResult fitResult;
-
-                    // Select fitting method based on params
+                auto fitCircle = [&](const std::vector<Point2d>& pts) -> Internal::CircleFitResult {
                     switch (fitMethod) {
                         case MetrologyFitMethod::RANSAC:
-                            fitResult = Internal::FitCircleRANSAC(edgePoints, ransacParams, fitParams);
-                            break;
+                            return Internal::FitCircleRANSAC(pts, ransacParams, fitParams);
                         case MetrologyFitMethod::Huber:
-                            fitResult = Internal::FitCircleHuber(edgePoints, true, 0.0, fitParams);
-                            break;
+                            return Internal::FitCircleHuber(pts, true, 0.0, fitParams);
                         case MetrologyFitMethod::Tukey:
-                            fitResult = Internal::FitCircleTukey(edgePoints, true, 0.0, fitParams);
-                            break;
+                            return Internal::FitCircleTukey(pts, true, 0.0, fitParams);
                     }
+                    return {};
+                };
 
-                    if (fitResult.success) {
-                        result.row = fitResult.circle.center.y;
-                        result.column = fitResult.circle.center.x;
-                        result.radius = fitResult.circle.radius;
-                        result.numUsed = fitResult.numInliers;
-                        result.rmsError = fitResult.residualRMS;
-                        result.score = result.numUsed > 0 ? 1.0 / (1.0 + result.rmsError) : 0.0;
+                std::vector<Point2d> remainPoints = edgePoints;
+                std::vector<double> remainScores = edgeScores;
+                std::vector<size_t> remainMap(remainPoints.size());
+                std::iota(remainMap.begin(), remainMap.end(), 0);
 
-                        // Get angle range from original object
-                        auto* circleObj = static_cast<MetrologyObjectCircle*>(&obj);
-                        result.startAngle = circleObj->AngleStart();
-                        result.endAngle = circleObj->AngleEnd();
+                for (int32_t inst = 0; inst < numInstances; ++inst) {
+                    if (remainPoints.size() < 3) break;
 
-                        // Save weights for outlier visualization
-                        if (!fitResult.weights.empty()) {
-                            impl_->pointWeights[idx] = fitResult.weights;
-                        } else if (!fitResult.inlierMask.empty()) {
-                            // Convert inlier mask to weights for RANSAC
-                            std::vector<double> weights(fitResult.inlierMask.size());
-                            for (size_t i = 0; i < fitResult.inlierMask.size(); ++i) {
-                                weights[i] = fitResult.inlierMask[i] ? 1.0 : 0.0;
+                    std::vector<Point2d> fitPoints = remainPoints;
+                    std::vector<double> fitScores = remainScores;
+                    std::vector<size_t> keptIndices(fitPoints.size());
+                    std::iota(keptIndices.begin(), keptIndices.end(), 0);
+                    Internal::CircleFitResult fitResult = fitCircle(fitPoints);
+
+                    if (fitResult.success && fitResult.residuals.size() == fitPoints.size()) {
+                        double adaptiveThreshold =
+                            ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                        if (FilterByResidualThreshold(fitResult.residuals, adaptiveThreshold, 3,
+                                                      fitPoints, fitScores, keptIndices)) {
+                            auto refit = fitCircle(fitPoints);
+                            if (refit.success) {
+                                fitResult = std::move(refit);
                             }
-                            impl_->pointWeights[idx] = weights;
                         }
                     }
+
+                    if (fitResult.success && obj.Params().ignorePointCount > 0 && fitPoints.size() >= 3) {
+                        IgnoreSelection sel = SelectPointsForIgnore(
+                            fitPoints,
+                            fitScores,
+                            obj.Params().ignorePointCount,
+                            obj.Params().ignorePointPolicy,
+                            fitResult.residuals,
+                            3
+                        );
+                        if (sel.applied) {
+                            auto refit = fitCircle(sel.points);
+                            if (refit.success) {
+                                fitResult = std::move(refit);
+                                std::vector<size_t> remapped(sel.keptIndices.size(), 0);
+                                for (size_t i = 0; i < sel.keptIndices.size(); ++i) {
+                                    if (sel.keptIndices[i] < keptIndices.size()) {
+                                        remapped[i] = keptIndices[sel.keptIndices[i]];
+                                    }
+                                }
+                                keptIndices = std::move(remapped);
+                                fitPoints = std::move(sel.points);
+                                fitScores = std::move(sel.scores);
+                            }
+                        }
+                    }
+
+                    if (!fitResult.success) break;
+
+                    MetrologyCircleResult result;
+                    result.row = fitResult.circle.center.y;
+                    result.column = fitResult.circle.center.x;
+                    result.radius = fitResult.circle.radius;
+                    result.numUsed = fitResult.numInliers > 0 ? fitResult.numInliers : static_cast<int32_t>(keptIndices.size());
+                    result.rmsError = fitResult.residualRMS;
+                    result.score = result.numUsed > 0 ? 1.0 / (1.0 + result.rmsError) : 0.0;
+
+                    auto* circleObj = static_cast<MetrologyObjectCircle*>(&obj);
+                    result.startAngle = circleObj->AngleStart();
+                    result.endAngle = circleObj->AngleEnd();
+                    bool accepted = isAccepted(result.numUsed, result.rmsError, result.score);
+                    if (accepted) {
+                        impl_->circleResults[idx].push_back(result);
+                    }
+
+                    std::vector<size_t> mappedKept;
+                    mappedKept.reserve(keptIndices.size());
+                    for (size_t k : keptIndices) {
+                        if (k < remainMap.size()) mappedKept.push_back(remainMap[k]);
+                    }
+                    auto displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
+                    if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
+                        impl_->pointWeights[idx] = std::move(displayWeights);
+                    }
+
+                    double instanceThreshold =
+                        ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                    auto compactMask = BuildInstanceCompactMask(fitResult, keptIndices.size(), instanceThreshold, 3);
+                    if (compactMask.empty()) break;
+                    std::vector<bool> removeMask(remainPoints.size(), false);
+                    for (size_t i = 0; i < keptIndices.size() && i < compactMask.size(); ++i) {
+                        if (compactMask[i] && keptIndices[i] < removeMask.size()) {
+                            removeMask[keptIndices[i]] = true;
+                        }
+                    }
+                    RemoveMaskedPoints(remainPoints, remainScores, remainMap, removeMask);
                 }
-                impl_->circleResults[idx].push_back(result);
                 break;
             }
 
             case MetrologyObjectType::Ellipse: {
-                MetrologyEllipseResult result;
-                if (edgePoints.size() >= 5) {
-                    Internal::EllipseFitResult fitResult;
-
-                    // Select fitting method based on params
+                auto fitEllipse = [&](const std::vector<Point2d>& pts) -> Internal::EllipseFitResult {
                     switch (fitMethod) {
                         case MetrologyFitMethod::RANSAC:
-                            fitResult = Internal::FitEllipseRANSAC(edgePoints, ransacParams, fitParams);
-                            break;
+                            return Internal::FitEllipseRANSAC(pts, ransacParams, fitParams);
                         case MetrologyFitMethod::Huber:
-                            fitResult = Internal::FitEllipseHuber(edgePoints, 0.0, fitParams);
-                            break;
+                            return Internal::FitEllipseHuber(pts, 0.0, fitParams);
                         case MetrologyFitMethod::Tukey:
-                            fitResult = Internal::FitEllipseTukey(edgePoints, 0.0, fitParams);
-                            break;
+                            return Internal::FitEllipseTukey(pts, 0.0, fitParams);
                     }
+                    return {};
+                };
 
-                    if (fitResult.success) {
-                        result.row = fitResult.ellipse.center.y;
-                        result.column = fitResult.ellipse.center.x;
-                        result.phi = fitResult.ellipse.angle;
-                        result.ra = fitResult.ellipse.a;
-                        result.rb = fitResult.ellipse.b;
-                        result.numUsed = fitResult.numInliers > 0 ? fitResult.numInliers : static_cast<int>(edgePoints.size());
-                        result.rmsError = fitResult.residualRMS;
-                        result.score = result.numUsed > 0 ? 1.0 / (1.0 + result.rmsError) : 0.0;
+                std::vector<Point2d> remainPoints = edgePoints;
+                std::vector<double> remainScores = edgeScores;
+                std::vector<size_t> remainMap(remainPoints.size());
+                std::iota(remainMap.begin(), remainMap.end(), 0);
 
-                        // Store weights for GetPointWeights
-                        if (!fitResult.weights.empty()) {
-                            impl_->pointWeights[idx] = fitResult.weights;
-                        } else if (!fitResult.inlierMask.empty()) {
-                            std::vector<double> weights(fitResult.inlierMask.size());
-                            for (size_t i = 0; i < fitResult.inlierMask.size(); ++i) {
-                                weights[i] = fitResult.inlierMask[i] ? 1.0 : 0.0;
+                for (int32_t inst = 0; inst < numInstances; ++inst) {
+                    if (remainPoints.size() < 5) break;
+
+                    std::vector<Point2d> fitPoints = remainPoints;
+                    std::vector<double> fitScores = remainScores;
+                    std::vector<size_t> keptIndices(fitPoints.size());
+                    std::iota(keptIndices.begin(), keptIndices.end(), 0);
+                    Internal::EllipseFitResult fitResult = fitEllipse(fitPoints);
+
+                    if (fitResult.success && fitResult.residuals.size() == fitPoints.size()) {
+                        double adaptiveThreshold =
+                            ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                        if (FilterByResidualThreshold(fitResult.residuals, adaptiveThreshold, 5,
+                                                      fitPoints, fitScores, keptIndices)) {
+                            auto refit = fitEllipse(fitPoints);
+                            if (refit.success) {
+                                fitResult = std::move(refit);
                             }
-                            impl_->pointWeights[idx] = weights;
                         }
                     }
+
+                    if (fitResult.success && obj.Params().ignorePointCount > 0 && fitPoints.size() >= 5) {
+                        IgnoreSelection sel = SelectPointsForIgnore(
+                            fitPoints,
+                            fitScores,
+                            obj.Params().ignorePointCount,
+                            obj.Params().ignorePointPolicy,
+                            fitResult.residuals,
+                            5
+                        );
+                        if (sel.applied) {
+                            auto refit = fitEllipse(sel.points);
+                            if (refit.success) {
+                                fitResult = std::move(refit);
+                                std::vector<size_t> remapped(sel.keptIndices.size(), 0);
+                                for (size_t i = 0; i < sel.keptIndices.size(); ++i) {
+                                    if (sel.keptIndices[i] < keptIndices.size()) {
+                                        remapped[i] = keptIndices[sel.keptIndices[i]];
+                                    }
+                                }
+                                keptIndices = std::move(remapped);
+                                fitPoints = std::move(sel.points);
+                                fitScores = std::move(sel.scores);
+                            }
+                        }
+                    }
+
+                    if (!fitResult.success) break;
+
+                    MetrologyEllipseResult result;
+                    result.row = fitResult.ellipse.center.y;
+                    result.column = fitResult.ellipse.center.x;
+                    result.phi = fitResult.ellipse.angle;
+                    result.ra = fitResult.ellipse.a;
+                    result.rb = fitResult.ellipse.b;
+                    result.numUsed = fitResult.numInliers > 0 ? fitResult.numInliers : static_cast<int32_t>(keptIndices.size());
+                    result.rmsError = fitResult.residualRMS;
+                    result.score = result.numUsed > 0 ? 1.0 / (1.0 + result.rmsError) : 0.0;
+                    bool accepted = isAccepted(result.numUsed, result.rmsError, result.score);
+                    if (accepted) {
+                        impl_->ellipseResults[idx].push_back(result);
+                    }
+
+                    std::vector<size_t> mappedKept;
+                    mappedKept.reserve(keptIndices.size());
+                    for (size_t k : keptIndices) {
+                        if (k < remainMap.size()) mappedKept.push_back(remainMap[k]);
+                    }
+                    auto displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
+                    if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
+                        impl_->pointWeights[idx] = std::move(displayWeights);
+                    }
+
+                    double instanceThreshold =
+                        ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                    auto compactMask = BuildInstanceCompactMask(fitResult, keptIndices.size(), instanceThreshold, 5);
+                    if (compactMask.empty()) break;
+                    std::vector<bool> removeMask(remainPoints.size(), false);
+                    for (size_t i = 0; i < keptIndices.size() && i < compactMask.size(); ++i) {
+                        if (compactMask[i] && keptIndices[i] < removeMask.size()) {
+                            removeMask[keptIndices[i]] = true;
+                        }
+                    }
+                    RemoveMaskedPoints(remainPoints, remainScores, remainMap, removeMask);
                 }
-                impl_->ellipseResults[idx].push_back(result);
                 break;
             }
 
             case MetrologyObjectType::Rectangle2: {
-                MetrologyRectangle2Result result;
-                if (edgePoints.size() >= 8) {  // At least 2 points per side
-                    auto* rectObj = static_cast<MetrologyObjectRectangle2*>(&obj);
+                auto* rectObj = static_cast<MetrologyObjectRectangle2*>(&obj);
 
-                    // Create initial rectangle estimate from object parameters
-                    RotatedRect2d initialRect;
-                    initialRect.center = {rectObj->Column(), rectObj->Row()};
-                    initialRect.width = rectObj->Length1() * 2.0;   // full width
-                    initialRect.height = rectObj->Length2() * 2.0;  // full height
-                    initialRect.angle = rectObj->Phi();
+                RotatedRect2d initialRect;
+                initialRect.center = {rectObj->Column(), rectObj->Row()};
+                initialRect.width = rectObj->Length1() * 2.0;
+                initialRect.height = rectObj->Length2() * 2.0;
+                initialRect.angle = rectObj->Phi();
 
-                    // Get fitting parameters
-                    auto fitMethod = obj.Params().fitMethod;
-                    double distThreshold = obj.Params().distanceThreshold;
-                    int32_t maxIter = obj.Params().maxIterations;
-
+                auto fitRectangle = [&](const std::vector<Point2d>& points) -> Internal::RectangleFitResult {
                     Internal::RectangleFitResult fitResult;
-                    Internal::FitParams fitParams;
-                    fitParams.SetComputeResiduals(true);
-                    fitParams.computeInlierMask = true;  // For outlier visualization
+                    if (points.size() < 8) {
+                        return fitResult;
+                    }
 
                     if (fitMethod == MetrologyFitMethod::RANSAC) {
-                        // For RANSAC: segment points by side, fit each with RANSAC, compute rectangle
-                        auto sidedPoints = Internal::SegmentPointsByRectangleSide(edgePoints, initialRect);
+                        auto sidedPoints = Internal::SegmentPointsByRectangleSide(points, initialRect);
 
                         std::array<Internal::LineFitResult, 4> sideResults;
                         std::array<Line2d, 4> fittedLines;
@@ -1000,15 +1492,14 @@ bool MetrologyModel::Apply(const QImage& image) {
                         double totalResidual = 0.0;
                         int validSides = 0;
 
-                        // Setup RANSAC parameters
-                        Internal::RansacParams ransacParams;
-                        ransacParams.threshold = distThreshold;
-                        ransacParams.maxIterations = (maxIter < 0) ? 1000 : maxIter;
+                        Internal::RansacParams sideRansacParams;
+                        sideRansacParams.threshold = distThreshold;
+                        sideRansacParams.maxIterations = (maxIter < 0) ? 1000 : maxIter;
 
                         for (int side = 0; side < 4; ++side) {
                             if (sidedPoints[side].size() >= 2) {
                                 sideResults[side] = Internal::FitLineRANSAC(
-                                    sidedPoints[side], ransacParams, fitParams);
+                                    sidedPoints[side], sideRansacParams, fitParams);
 
                                 if (sideResults[side].success) {
                                     fittedLines[side] = sideResults[side].line;
@@ -1032,39 +1523,30 @@ bool MetrologyModel::Apply(const QImage& image) {
                                 fitResult.residualRMS = totalInliers > 0 ? totalResidual / totalInliers : 0.0;
                                 fitResult.sideResults = sideResults;
 
-                                // Build weights: iterate through sidedPoints and map back to edgePoints
-                                std::vector<double> weights(edgePoints.size(), 0.0);
+                                std::vector<double> weights(points.size(), 0.0);
                                 for (int side = 0; side < 4; ++side) {
-                                    const auto& sidePoints = sidedPoints[side];
+                                    const auto& sidePts = sidedPoints[side];
                                     const auto& mask = sideResults[side].inlierMask;
-                                    for (size_t j = 0; j < sidePoints.size(); ++j) {
-                                        const auto& pt = sidePoints[j];
-                                        // Find this point in edgePoints
-                                        for (size_t i = 0; i < edgePoints.size(); ++i) {
-                                            if (std::abs(edgePoints[i].x - pt.x) < 1e-6 &&
-                                                std::abs(edgePoints[i].y - pt.y) < 1e-6) {
+                                    for (size_t j = 0; j < sidePts.size(); ++j) {
+                                        const auto& pt = sidePts[j];
+                                        for (size_t i = 0; i < points.size(); ++i) {
+                                            if (std::abs(points[i].x - pt.x) < 1e-6 &&
+                                                std::abs(points[i].y - pt.y) < 1e-6) {
                                                 weights[i] = (j < mask.size() && mask[j]) ? 1.0 : 0.0;
                                                 break;
                                             }
                                         }
                                     }
                                 }
-                                impl_->pointWeights[idx] = weights;
+                                fitResult.weights = std::move(weights);
                             }
                         }
                     } else {
-                        // Use Huber or Tukey with iterative rectangle fitting
-                        fitResult = Internal::FitRectangleIterative(
-                            edgePoints, initialRect, 10, 0.01, fitParams
-                        );
-
-                        // Apply distance threshold as post-filter for consistency
+                        fitResult = Internal::FitRectangleIterative(points, initialRect, 10, 0.01, fitParams);
                         if (fitResult.success && distThreshold > 0) {
-                            // Count inliers based on distance threshold
                             size_t inlierCount = 0;
-                            for (const auto& pt : edgePoints) {
+                            for (const auto& pt : points) {
                                 double dist = std::numeric_limits<double>::max();
-                                // Compute distance to nearest rectangle edge
                                 for (int side = 0; side < 4; ++side) {
                                     if (fitResult.sideResults[side].success) {
                                         double d = fitResult.sideResults[side].line.Distance(pt);
@@ -1079,37 +1561,144 @@ bool MetrologyModel::Apply(const QImage& image) {
                         }
                     }
 
-                    if (fitResult.success) {
-                        result.row = fitResult.rect.center.y;
-                        result.column = fitResult.rect.center.x;
-                        result.phi = fitResult.rect.angle;
-                        result.length1 = fitResult.rect.width / 2.0;   // half-length
-                        result.length2 = fitResult.rect.height / 2.0;  // half-length
-                        result.numUsed = static_cast<int32_t>(fitResult.numInliers);
-                        result.rmsError = fitResult.residualRMS;
-                        result.score = result.numUsed > 0 ? 1.0 / (1.0 + result.rmsError) : 0.0;
-                    } else {
-                        // Fallback to original parameters
+                    if (fitResult.success && fitResult.residuals.size() != points.size()) {
+                        fitResult.residuals.assign(points.size(), 0.0);
+                        for (size_t i = 0; i < points.size(); ++i) {
+                            double dist = std::numeric_limits<double>::max();
+                            for (int side = 0; side < 4; ++side) {
+                                if (fitResult.sideResults[side].success) {
+                                    double d = fitResult.sideResults[side].line.Distance(points[i]);
+                                    dist = std::min(dist, d);
+                                }
+                            }
+                            fitResult.residuals[i] = std::isfinite(dist) ? dist : 0.0;
+                        }
+                    }
+
+                    return fitResult;
+                };
+
+                bool pushedAny = false;
+                std::vector<Point2d> remainPoints = edgePoints;
+                std::vector<double> remainScores = edgeScores;
+                std::vector<size_t> remainMap(remainPoints.size());
+                std::iota(remainMap.begin(), remainMap.end(), 0);
+
+                for (int32_t inst = 0; inst < numInstances; ++inst) {
+                    if (remainPoints.size() < 8) break;
+
+                    std::vector<Point2d> fitPoints = remainPoints;
+                    std::vector<double> fitScores = remainScores;
+                    std::vector<size_t> keptIndices(fitPoints.size());
+                    std::iota(keptIndices.begin(), keptIndices.end(), 0);
+                    Internal::RectangleFitResult fitResult = fitRectangle(fitPoints);
+
+                    if (fitResult.success && fitResult.residuals.size() == fitPoints.size()) {
+                        double adaptiveThreshold =
+                            ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                        if (FilterByResidualThreshold(fitResult.residuals, adaptiveThreshold, 8,
+                                                      fitPoints, fitScores, keptIndices)) {
+                            auto refit = fitRectangle(fitPoints);
+                            if (refit.success) {
+                                fitResult = std::move(refit);
+                            }
+                        }
+                    }
+
+                    if (fitResult.success && obj.Params().ignorePointCount > 0 && fitPoints.size() >= 8) {
+                        IgnoreSelection sel = SelectPointsForIgnore(
+                            fitPoints,
+                            fitScores,
+                            obj.Params().ignorePointCount,
+                            obj.Params().ignorePointPolicy,
+                            fitResult.residuals,
+                            8
+                        );
+                        if (sel.applied) {
+                            auto refit = fitRectangle(sel.points);
+                            if (refit.success) {
+                                fitResult = std::move(refit);
+                                std::vector<size_t> remapped(sel.keptIndices.size(), 0);
+                                for (size_t i = 0; i < sel.keptIndices.size(); ++i) {
+                                    if (sel.keptIndices[i] < keptIndices.size()) {
+                                        remapped[i] = keptIndices[sel.keptIndices[i]];
+                                    }
+                                }
+                                keptIndices = std::move(remapped);
+                                fitPoints = std::move(sel.points);
+                                fitScores = std::move(sel.scores);
+                            }
+                        }
+                    }
+
+                    if (!fitResult.success) break;
+
+                    MetrologyRectangle2Result result;
+                    result.row = fitResult.rect.center.y;
+                    result.column = fitResult.rect.center.x;
+                    result.phi = fitResult.rect.angle;
+                    result.length1 = fitResult.rect.width / 2.0;
+                    result.length2 = fitResult.rect.height / 2.0;
+                    result.numUsed = static_cast<int32_t>(fitResult.numInliers > 0 ? fitResult.numInliers : keptIndices.size());
+                    result.rmsError = fitResult.residualRMS;
+                    result.score = result.numUsed > 0 ? 1.0 / (1.0 + result.rmsError) : 0.0;
+                    bool accepted = isAccepted(result.numUsed, result.rmsError, result.score);
+                    if (accepted) {
+                        impl_->rectangleResults[idx].push_back(result);
+                        pushedAny = true;
+                    }
+
+                    std::vector<size_t> mappedKept;
+                    mappedKept.reserve(keptIndices.size());
+                    for (size_t k : keptIndices) {
+                        if (k < remainMap.size()) mappedKept.push_back(remainMap[k]);
+                    }
+                    auto displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
+                    if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
+                        impl_->pointWeights[idx] = std::move(displayWeights);
+                    }
+
+                    double instanceThreshold =
+                        ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                    auto compactMask = BuildInstanceCompactMask(fitResult, keptIndices.size(), instanceThreshold, 8);
+                    if (compactMask.empty()) break;
+                    std::vector<bool> removeMask(remainPoints.size(), false);
+                    for (size_t i = 0; i < keptIndices.size() && i < compactMask.size(); ++i) {
+                        if (compactMask[i] && keptIndices[i] < removeMask.size()) {
+                            removeMask[keptIndices[i]] = true;
+                        }
+                    }
+                    RemoveMaskedPoints(remainPoints, remainScores, remainMap, removeMask);
+                }
+
+                if (!pushedAny) {
+                    MetrologyRectangle2Result result;
+                    if (edgePoints.size() >= 8) {
                         result.row = rectObj->Row();
                         result.column = rectObj->Column();
                         result.phi = rectObj->Phi();
                         result.length1 = rectObj->Length1();
                         result.length2 = rectObj->Length2();
                         result.numUsed = static_cast<int32_t>(edgePoints.size());
-                        result.score = 0.5;  // Lower confidence for fallback
+                        result.score = 0.5;
+                        result.rmsError = 0.0;
+                        if (isAccepted(result.numUsed, result.rmsError, result.score)) {
+                            impl_->rectangleResults[idx].push_back(result);
+                        }
+                    } else if (edgePoints.size() >= 4) {
+                        result.row = rectObj->Row();
+                        result.column = rectObj->Column();
+                        result.phi = rectObj->Phi();
+                        result.length1 = rectObj->Length1();
+                        result.length2 = rectObj->Length2();
+                        result.numUsed = static_cast<int32_t>(edgePoints.size());
+                        result.score = 0.3;
+                        result.rmsError = 0.0;
+                        if (isAccepted(result.numUsed, result.rmsError, result.score)) {
+                            impl_->rectangleResults[idx].push_back(result);
+                        }
                     }
-                } else if (edgePoints.size() >= 4) {
-                    // Not enough points for robust fitting, use original
-                    auto* rectObj = static_cast<MetrologyObjectRectangle2*>(&obj);
-                    result.row = rectObj->Row();
-                    result.column = rectObj->Column();
-                    result.phi = rectObj->Phi();
-                    result.length1 = rectObj->Length1();
-                    result.length2 = rectObj->Length2();
-                    result.numUsed = static_cast<int32_t>(edgePoints.size());
-                    result.score = 0.3;  // Low confidence
                 }
-                impl_->rectangleResults[idx].push_back(result);
                 break;
             }
         }

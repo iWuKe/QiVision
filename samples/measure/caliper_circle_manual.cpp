@@ -164,7 +164,7 @@ int main() {
         }
 
         // 绘制拟合圆
-        Draw::Circle(colorImg, fittedRow, fittedCol, fittedRadius, yellow, 2);
+        Draw::Circle(colorImg, fittedCol, fittedRow, fittedRadius, yellow, 2);
         Draw::Cross(colorImg, Point2d(fittedCol, fittedRow), 8, yellow, 2);
 
         // 保存结果

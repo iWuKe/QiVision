@@ -105,6 +105,14 @@ enum class MetrologyFitMethod {
 };
 
 /**
+ * @brief Policy for selecting points to ignore before final refit
+ */
+enum class IgnorePointPolicy {
+    ByResidual,     ///< Ignore points with largest fitting residuals (recommended)
+    ByScore         ///< Ignore points with lowest caliper edge scores/amplitudes
+};
+
+/**
  * @brief Parameters for metrology measurement
  */
 struct QIVISION_API MetrologyMeasureParams {
@@ -118,12 +126,16 @@ struct QIVISION_API MetrologyMeasureParams {
     EdgeSelectMode measureSelect = EdgeSelectMode::All;      ///< Edge selection
     int32_t numMeasures = 10;           ///< Number of calipers per object
     double minScore = 0.7;              ///< Minimum score threshold (Halcon default: 0.7)
+    double minCoverage = 0.0;           ///< Minimum inlier coverage ratio [0,1], 0 disables
+    double maxRmsError = -1.0;          ///< Maximum allowed RMS error in pixels, <=0 disables
 
     // Fitting parameters (Halcon compatible)
     MetrologyFitMethod fitMethod = MetrologyFitMethod::RANSAC;  ///< Fitting method (default: RANSAC for Halcon compatibility)
     double distanceThreshold = 3.5;     ///< Outlier distance threshold in pixels (Halcon default: 3.5)
     int32_t maxIterations = -1;         ///< Max RANSAC iterations (-1 = unlimited, Halcon default)
     int32_t randSeed = 42;              ///< Random seed for RANSAC (Halcon default: 42)
+    int32_t ignorePointCount = 0;       ///< Number of points to ignore before final refit
+    IgnorePointPolicy ignorePointPolicy = IgnorePointPolicy::ByResidual;  ///< Ignore policy
 
     // Builder pattern
     MetrologyMeasureParams& SetNumInstances(int32_t n) { numInstances = n; return *this; }
@@ -181,6 +193,8 @@ struct QIVISION_API MetrologyMeasureParams {
     MetrologyMeasureParams& SetMeasureSelect(EdgeSelectMode m) { measureSelect = m; return *this; }
     MetrologyMeasureParams& SetNumMeasures(int32_t n) { numMeasures = n; return *this; }
     MetrologyMeasureParams& SetMinScore(double s) { minScore = s; return *this; }
+    MetrologyMeasureParams& SetMinCoverage(double c) { minCoverage = c; return *this; }
+    MetrologyMeasureParams& SetMaxRmsError(double e) { maxRmsError = e; return *this; }
 
     /// Set fitting method
     MetrologyMeasureParams& SetFitMethod(MetrologyFitMethod m) { fitMethod = m; return *this; }
@@ -214,6 +228,28 @@ struct QIVISION_API MetrologyMeasureParams {
 
     /// Set random seed for RANSAC
     MetrologyMeasureParams& SetRandSeed(int32_t s) { randSeed = s; return *this; }
+
+    /// Set number of points ignored before final refit
+    MetrologyMeasureParams& SetIgnorePointCount(int32_t n) { ignorePointCount = n; return *this; }
+
+    /// Set ignore point policy
+    MetrologyMeasureParams& SetIgnorePointPolicy(IgnorePointPolicy p) { ignorePointPolicy = p; return *this; }
+
+    /// Set ignore point policy with string ("residual", "score")
+    MetrologyMeasureParams& SetIgnorePointPolicy(const std::string& policy) {
+        std::string lower = policy;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lower.empty() || lower == "residual") {
+            ignorePointPolicy = IgnorePointPolicy::ByResidual;
+            return *this;
+        }
+        if (lower == "score") {
+            ignorePointPolicy = IgnorePointPolicy::ByScore;
+            return *this;
+        }
+        throw InvalidArgumentException("MetrologyMeasureParams::SetIgnorePointPolicy: unknown policy: " + policy);
+    }
 };
 
 /**
@@ -351,6 +387,12 @@ public:
     /// Get minimum score threshold
     double GetMinScore() const { return params_.minScore; }
 
+    /// Get minimum inlier coverage ratio
+    double GetMinCoverage() const { return params_.minCoverage; }
+
+    /// Get maximum allowed RMS error in pixels (<=0 means disabled)
+    double GetMaxRmsError() const { return params_.maxRmsError; }
+
     /// Get fitting method
     MetrologyFitMethod GetFitMethod() const { return params_.fitMethod; }
 
@@ -362,6 +404,12 @@ public:
 
     /// Get random seed for RANSAC
     int32_t GetRandSeed() const { return params_.randSeed; }
+
+    /// Get ignored point count
+    int32_t GetIgnorePointCount() const { return params_.ignorePointCount; }
+
+    /// Get ignored point policy
+    IgnorePointPolicy GetIgnorePointPolicy() const { return params_.ignorePointPolicy; }
 
     // =========================================================================
     // Parameter Setters
@@ -420,6 +468,12 @@ public:
     /// Set minimum score threshold
     void SetMinScore(double minScore) { params_.minScore = minScore; }
 
+    /// Set minimum inlier coverage ratio
+    void SetMinCoverage(double minCoverage) { params_.minCoverage = minCoverage; }
+
+    /// Set maximum allowed RMS error in pixels (<=0 means disabled)
+    void SetMaxRmsError(double maxRmsError) { params_.maxRmsError = maxRmsError; }
+
     /// Set fitting method ("ransac", "huber", "tukey")
     void SetFitMethod(const std::string& method) {
         std::string lower = method;
@@ -448,6 +502,12 @@ public:
 
     /// Set random seed for RANSAC
     void SetRandSeed(int32_t seed) { params_.randSeed = seed; }
+
+    /// Set number of ignored points before final refit
+    void SetIgnorePointCount(int32_t n) { params_.ignorePointCount = n; }
+
+    /// Set ignore point policy
+    void SetIgnorePointPolicy(IgnorePointPolicy p) { params_.ignorePointPolicy = p; }
 
     // =========================================================================
     // Virtual Methods

@@ -98,6 +98,7 @@ Runtime notes:
 
 - Progress: [PROGRESS.md](PROGRESS.md)
 - API reference: [docs/API_Reference.md](docs/API_Reference.md)
+- Measure SDK parameter spec: [docs/MEASURE_SDK_PARAM_SPEC.md](docs/MEASURE_SDK_PARAM_SPEC.md)
 - Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - Samples: [samples/](samples/)
 

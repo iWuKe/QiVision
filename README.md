@@ -98,6 +98,7 @@ cmake -B build -DQIVISION_BUILD_OCR=ON -DQIVISION_BUILD_BARCODE=ON
 
 - 开发进度：[PROGRESS.md](PROGRESS.md)
 - API 参考：[docs/API_Reference.md](docs/API_Reference.md)
+- Measure SDK 参数规范：[docs/MEASURE_SDK_PARAM_SPEC.md](docs/MEASURE_SDK_PARAM_SPEC.md)
 - Troubleshooting：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - 示例代码：[samples/](samples/)
 

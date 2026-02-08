@@ -1,7 +1,7 @@
 # QiVision API Reference
 
 > Version: 0.16.0
-> Last Updated: 2026-02-03
+> Last Updated: 2026-02-07
 > Namespace: `Qi::Vision`
 
 Professional industrial machine vision library.
@@ -600,6 +600,9 @@ void DetermineNCCModelParams(
 
 Subpixel edge measurement tools for precise edge position and width measurement.
 
+**SDK Parameter Contract**: `docs/MEASURE_SDK_PARAM_SPEC.md`  
+This document defines stable defaults, value ranges, naming, and error semantics for SDK packaging.
+
 ---
 
 ### MeasureRectangle2
@@ -611,8 +614,8 @@ struct MeasureRectangle2 {
     double row;         // Center Y
     double col;         // Center X
     double phi;         // Rotation angle [rad]
-    double length1;     // Half-width (along normal direction)
-    double length2;     // Half-length (along edge direction)
+    double length1;     // Half-length along measurement/profile direction
+    double length2;     // Half-width perpendicular to profile
 };
 ```
 
@@ -882,8 +885,8 @@ model.AddLineMeasure(100, 100, 100, 500, 20.0, 5.0, "positive", "first", params)
 model.Apply(grayImage);
 
 auto result = model.GetLineResult(0);
-std::cout << "Line from (" << result.column1 << "," << result.row1 << ") to ("
-          << result.column2 << "," << result.row2 << ")\n";
+std::cout << "Line from (" << result.col1 << "," << result.row1 << ") to ("
+          << result.col2 << "," << result.row2 << ")\n";
 ```
 
 ---
@@ -897,9 +900,10 @@ struct MetrologyLineResult {
     double row1, col1;        // Start point
     double row2, col2;        // End point
     double nr, nc, dist;      // Hesse normal form: nr*row + nc*col = dist
+    double score;             // Fit quality [0, 1]
     int32_t numUsed;          // Number of edge points used
     double rmsError;          // RMS fitting error [px]
-    bool valid;               // True if fitting succeeded
+    bool IsValid() const;     // Valid if numUsed>=2 && score>0
     // Angle can be calculated: atan2(row2-row1, col2-col1)
 };
 
@@ -910,7 +914,7 @@ struct MetrologyCircleResult {
     double score;             // Fit quality [0, 1]
     int32_t numUsed;          // Number of edge points used
     double rmsError;          // RMS fitting error [px]
-    bool valid;               // True if fitting succeeded
+    bool IsValid() const;
 };
 
 struct MetrologyEllipseResult {
@@ -920,7 +924,7 @@ struct MetrologyEllipseResult {
     double score;
     int32_t numUsed;
     double rmsError;
-    bool valid;
+    bool IsValid() const;
 };
 
 struct MetrologyRectangle2Result {
@@ -930,7 +934,7 @@ struct MetrologyRectangle2Result {
     double score;
     int32_t numUsed;
     double rmsError;
-    bool valid;
+    bool IsValid() const;
 };
 ```
 
@@ -956,6 +960,8 @@ struct MetrologyMeasureParams {
     double distanceThreshold = 3.5;     // Outlier distance threshold (pixels)
     int32_t maxIterations = -1;         // Max RANSAC iterations (-1 = unlimited)
     int32_t randSeed = 42;              // Random seed for RANSAC
+    int32_t ignorePointCount = 0;       // Points removed before final refit
+    IgnorePointPolicy ignorePointPolicy = IgnorePointPolicy::ByResidual;
 
     // Builder pattern setters
     MetrologyMeasureParams& SetNumInstances(int32_t n);
@@ -972,8 +978,14 @@ struct MetrologyMeasureParams {
     MetrologyMeasureParams& SetDistanceThreshold(double t);
     MetrologyMeasureParams& SetMaxIterations(int32_t n);
     MetrologyMeasureParams& SetRandSeed(int32_t s);
+    MetrologyMeasureParams& SetIgnorePointCount(int32_t n);
+    MetrologyMeasureParams& SetIgnorePointPolicy(IgnorePointPolicy p);
+    MetrologyMeasureParams& SetIgnorePointPolicy(const std::string& policy);  // "residual", "score"
 };
 ```
+
+**Default values (current implementation)**  
+`numInstances=1, measureLength1=20, measureLength2=5, measureSigma=1, measureThreshold=30, thresholdMode=Manual, measureTransition=All, measureSelect=All, numMeasures=10, minScore=0.7, fitMethod=RANSAC, distanceThreshold=3.5, maxIterations=-1, randSeed=42, ignorePointCount=0, ignorePointPolicy=ByResidual`.
 
 ---
 

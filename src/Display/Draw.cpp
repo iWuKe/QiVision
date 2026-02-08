@@ -1110,33 +1110,17 @@ void Draw::MeasureRects(QImage& image,
         }
     }
 
-    // 1. Calculate geometric center and average radius
-    double centerX = 0, centerY = 0;
+    // Draw center path in creation order (works for line/arc/contour arrays).
+    std::vector<Point2d> centers;
+    centers.reserve(handles.size());
     for (const auto& handle : handles) {
-        centerX += handle.Column();
-        centerY += handle.Row();
+        centers.push_back(Point2d{handle.Column(), handle.Row()});
     }
-    centerX /= handles.size();
-    centerY /= handles.size();
-
-    // Calculate average radius from center to caliper positions
-    double avgRadius = 0;
-    for (const auto& handle : handles) {
-        double dx = handle.Column() - centerX;
-        double dy = handle.Row() - centerY;
-        avgRadius += std::sqrt(dx * dx + dy * dy);
-    }
-    avgRadius /= handles.size();
-
-    // 2. Draw circle connecting caliper centers
-    if (avgRadius > 0) {
-        Circle(image, Point2d{centerX, centerY}, avgRadius, color, thickness);
+    if (centers.size() >= 2) {
+        Polyline(image, centers, color, std::max(1, thickness), false);
     }
 
-    // 3. Draw geometric center of the entire caliper tool
-    Cross(image, Point2d{centerX, centerY}, 12, color, thickness);
-
-    // 4. Draw each caliper projection box
+    // Draw each caliper projection box.
     for (const auto& handle : handles) {
         MeasureRect(image, handle, color, thickness);
     }

@@ -24,6 +24,7 @@ add_sample(measure_circle_metrology measure/circle_metrology.cpp)
 add_sample(measure_line_metrology measure/line_metrology.cpp)
 add_sample(measure_caliper_pairs measure/caliper_pairs.cpp)
 add_sample(measure_caliper_circle_manual measure/caliper_circle_manual.cpp)
+add_sample(measure_ellipse_fit_synthetic measure/ellipse_fit_synthetic.cpp)
 
 # Blob - Blob analysis
 add_sample(blob_analysis blob/blob_analysis.cpp)
@@ -53,6 +54,7 @@ set(SAMPLE_TARGETS
     measure_line_metrology
     measure_caliper_pairs
     measure_caliper_circle_manual
+    measure_ellipse_fit_synthetic
     blob_analysis
     calib_polar_transform
 )

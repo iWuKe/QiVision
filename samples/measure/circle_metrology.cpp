@@ -49,8 +49,8 @@ int main() {
     // 添加矩形 (row, col, phi, length1, length2, measureLength1, measureLength2, ...)
     // 中心(col=210, row=705), length1=65(x方向), length2=70(y方向)
     MetrologyMeasureParams rectParams;
-    rectParams.SetNumMeasures(32).SetThreshold("auto");
-    model.AddRectangle2Measure(705, 210, 0.0, 65, 70, 20.0, 5.0, "all", "all", rectParams);
+    rectParams.SetNumMeasures(32).SetThreshold("auto").SetFitMethod("huber").SetMinScore(0.3);
+    model.AddRectangle2Measure(705, 210, 0.0, 65, 70, 20.0, 5.0, "all", "strongest", rectParams);
 
     // 测量
     Timer timer;

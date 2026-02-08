@@ -34,6 +34,8 @@
 | `measureSelect` | `All` |
 | `numMeasures` | `10` |
 | `minScore` | `0.7` |
+| `minCoverage` | `0.0`（关闭） |
+| `maxRmsError` | `-1.0`（关闭） |
 | `fitMethod` | `RANSAC` |
 | `distanceThreshold` | `3.5` |
 | `maxIterations` | `-1` |
@@ -54,6 +56,8 @@
 | `numMeasures` | `> 0` |
 | `numInstances` | `> 0` |
 | `minScore` | `[0,1]` |
+| `minCoverage` | `[0,1]` |
+| `maxRmsError` | 有限数值；`<=0` 代表关闭，`>0` 代表启用 |
 | `distanceThreshold` | `> 0` |
 | `maxIterations` | `>= -1` |
 | `ignorePointCount` | `>= 0` |
@@ -86,6 +90,25 @@
 - `ByResidual` 为优先推荐策略，按残差从大到小剔除。
 - `ByScore` 按点质量分数从低到高剔除。
 - 若剔除后剩余点不足最小拟合数，则不应用剔除。
+
+### 4.3 点级可解释结果（已实现）
+
+- `GetMeasuredPoints(index)`：对象测得的全部边缘点坐标。
+- `GetPointWeights(index)`：用于可视化的点权重（常用于红/绿内外点显示）。
+- `GetPointDetails(index)`：按点输出可追溯信息（用于平台调试页/诊断页）。
+
+`MetrologyPointDetail` 字段建议作为 SDK 稳定输出：
+
+| 字段 | 说明 |
+|---|---|
+| `pointIndex` | 在 `GetMeasuredPoints(index)` 中的索引 |
+| `caliperIndex` | 来源卡尺序号（用于“各点对各边”诊断） |
+| `instanceIndex` | 所属拟合实例序号 |
+| `row`, `column` | 点坐标 |
+| `amplitude` | 边缘幅值 |
+| `residual` | 点到拟合几何的残差（像素） |
+| `weight` | 点权重（0~1） |
+| `isInlier` | 最终是否作为内点 |
 
 ## 5. 错误语义（建议 SDK 对外固定）
 

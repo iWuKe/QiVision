@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-05 (进度状态更正)
+> 最后更新: 2026-02-08 (测量可解释性与绘图统一更新)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -173,6 +173,12 @@ Tests    █████████████████░░░ 87%
 - MetrologyLineResult/CircleResult/EllipseResult/Rectangle2Result: 结果结构体
 - MetrologyObjectLine/Circle/Ellipse/Rectangle2: 测量对象类
 - MetrologyModel: 组合测量模型
+
+**2026-02-08 增量更新**:
+- 新增点级可解释接口：`GetPointDetails(index)`（pointIndex/caliperIndex/residual/isInlier 等）
+- 拟合策略统一：线/圆/椭圆/矩形均采用“全点初拟合 -> 自适应离群剔除 -> 重拟合”
+- 矩形点判定改为“各点对所属边”残差判定，避免跨边误判
+- 绘图统一：卡尺青色细线、检测点红/绿叉号显示
 
 ---
 

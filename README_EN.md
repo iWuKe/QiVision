@@ -30,6 +30,7 @@ QiVision targets industrial vision workflows with sub‑pixel measurement and hi
 - Template matching: ShapeModel (gradient shape), NCCModel (gray correlation), rotation/scale support
 - Component matching: ComponentModel with relative constraints
 - Metrology: calipers and metrology models (line/circle/ellipse/rectangle)
+  - Supports point-level diagnostics (`GetPointDetails`) for platform debugging and traceability
 - Morphology/segmentation/blob: thresholding, connected components, filtering
 - Contours & geometry: XLD, fitting, transforms, Hough
 - Calibration & distortion: camera model, undistortion, fisheye model (partial)
@@ -99,6 +100,7 @@ Runtime notes:
 - Progress: [PROGRESS.md](PROGRESS.md)
 - API reference: [docs/API_Reference.md](docs/API_Reference.md)
 - Measure SDK parameter spec: [docs/MEASURE_SDK_PARAM_SPEC.md](docs/MEASURE_SDK_PARAM_SPEC.md)
+- Point-level metrology details: see API docs (`GetPointDetails`)
 - Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - Samples: [samples/](samples/)
 

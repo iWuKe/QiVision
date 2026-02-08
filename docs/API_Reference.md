@@ -1,7 +1,7 @@
 # QiVision API Reference
 
 > Version: 0.16.0
-> Last Updated: 2026-02-07
+> Last Updated: 2026-02-08
 > Namespace: `Qi::Vision`
 
 Professional industrial machine vision library.
@@ -804,6 +804,7 @@ public:
 
     std::vector<Point2d> GetMeasuredPoints(int32_t index) const;
     std::vector<double> GetPointWeights(int32_t index) const;
+    std::vector<MetrologyPointDetail> GetPointDetails(int32_t index) const;
 
     // Alignment (for template matching integration)
     void Align(double rowOffset, double colOffset, double phi);
@@ -847,6 +848,7 @@ public:
 | GetRectangle2Result | MetrologyRectangle2Result | Fitted rectangle result for object at index |
 | GetMeasuredPoints | std::vector<Point2d> | Edge points used for fitting |
 | GetPointWeights | std::vector<double> | Weight of each edge point (0-1) |
+| GetPointDetails | std::vector<MetrologyPointDetail> | Point-level diagnostics (residual/inlier/edge id) |
 
 **Example: Measure a circle**
 ```cpp
@@ -936,6 +938,17 @@ struct MetrologyRectangle2Result {
     double rmsError;
     bool IsValid() const;
 };
+
+struct MetrologyPointDetail {
+    int32_t pointIndex;        // Index in GetMeasuredPoints(index)
+    int32_t caliperIndex;      // Source caliper index
+    int32_t instanceIndex;     // Fitted instance index
+    double row, column;        // Point coordinates
+    double amplitude;          // Edge amplitude from caliper detection
+    double residual;           // Distance to fitted geometry [px]
+    double weight;             // Robust weight [0,1], binary for inlier/outlier display
+    bool isInlier;             // Final inlier/outlier decision
+};
 ```
 
 ---
@@ -956,6 +969,8 @@ struct MetrologyMeasureParams {
     EdgeSelectMode measureSelect = EdgeSelectMode::All;
     int32_t numMeasures = 10;           // Number of calipers per object
     double minScore = 0.7;              // Minimum score threshold
+    double minCoverage = 0.0;           // Minimum inlier coverage ratio [0,1]
+    double maxRmsError = -1.0;          // Maximum RMS error [px], <=0 disables
     MetrologyFitMethod fitMethod = MetrologyFitMethod::RANSAC;
     double distanceThreshold = 3.5;     // Outlier distance threshold (pixels)
     int32_t maxIterations = -1;         // Max RANSAC iterations (-1 = unlimited)
@@ -973,6 +988,8 @@ struct MetrologyMeasureParams {
     MetrologyMeasureParams& SetMeasureSelect(EdgeSelectMode m);
     MetrologyMeasureParams& SetNumMeasures(int32_t n);
     MetrologyMeasureParams& SetMinScore(double s);
+    MetrologyMeasureParams& SetMinCoverage(double c);
+    MetrologyMeasureParams& SetMaxRmsError(double e);
     MetrologyMeasureParams& SetFitMethod(MetrologyFitMethod m);
     MetrologyMeasureParams& SetFitMethod(const std::string& method);  // "ransac", "huber", "tukey"
     MetrologyMeasureParams& SetDistanceThreshold(double t);
@@ -985,7 +1002,7 @@ struct MetrologyMeasureParams {
 ```
 
 **Default values (current implementation)**  
-`numInstances=1, measureLength1=20, measureLength2=5, measureSigma=1, measureThreshold=30, thresholdMode=Manual, measureTransition=All, measureSelect=All, numMeasures=10, minScore=0.7, fitMethod=RANSAC, distanceThreshold=3.5, maxIterations=-1, randSeed=42, ignorePointCount=0, ignorePointPolicy=ByResidual`.
+`numInstances=1, measureLength1=20, measureLength2=5, measureSigma=1, measureThreshold=30, thresholdMode=Manual, measureTransition=All, measureSelect=All, numMeasures=10, minScore=0.7, minCoverage=0.0, maxRmsError=-1.0, fitMethod=RANSAC, distanceThreshold=3.5, maxIterations=-1, randSeed=42, ignorePointCount=0, ignorePointPolicy=ByResidual`.
 
 ---
 

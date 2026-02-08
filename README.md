@@ -30,6 +30,7 @@ QiVision 面向工业视觉场景，提供亚像素精度测量与高性能匹�
 - 模板匹配：ShapeModel（梯度形状匹配）、NCCModel（灰度相关），支持旋转/缩放
 - 组件匹配：ComponentModel（多部件相对关系约束）
 - 测量：卡尺/计量模型（直线、圆、椭圆、矩形）
+  - 支持点级诊断查询（`GetPointDetails`）用于平台调试与追溯
 - 形态学/分割/Blob：阈值、连通域、形状筛选
 - 轮廓与几何：XLD、拟合、变换、Hough
 - 标定与畸变：相机模型、畸变校正、鱼眼模型（部分实现）
@@ -99,6 +100,7 @@ cmake -B build -DQIVISION_BUILD_OCR=ON -DQIVISION_BUILD_BARCODE=ON
 - 开发进度：[PROGRESS.md](PROGRESS.md)
 - API 参考：[docs/API_Reference.md](docs/API_Reference.md)
 - Measure SDK 参数规范：[docs/MEASURE_SDK_PARAM_SPEC.md](docs/MEASURE_SDK_PARAM_SPEC.md)
+- 点级结果说明（Metrology）：见 API 文档 `GetPointDetails` 小节
 - Troubleshooting：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - 示例代码：[samples/](samples/)
 

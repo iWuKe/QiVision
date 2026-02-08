@@ -200,7 +200,18 @@ namespace {
                                                const std::vector<size_t>& keptIndices,
                                                size_t originalSize) {
         if (!fitResult.weights.empty()) {
-            return ExpandMappedValues(fitResult.weights, keptIndices, originalSize);
+            bool hasPositiveWeight = false;
+            for (double w : fitResult.weights) {
+                if (std::isfinite(w) && w > 1e-6) {
+                    hasPositiveWeight = true;
+                    break;
+                }
+            }
+            // Some fit paths may return all-zero weights; fall back to inlierMask/residuals
+            // to avoid displaying all points as outliers.
+            if (hasPositiveWeight) {
+                return ExpandMappedValues(fitResult.weights, keptIndices, originalSize);
+            }
         }
         if (!fitResult.inlierMask.empty()) {
             std::vector<double> compact(fitResult.inlierMask.size(), 0.0);
@@ -327,6 +338,38 @@ namespace {
         scores = std::move(filteredScores);
         keptIndices = std::move(filteredIndices);
         return true;
+    }
+
+    // Residual to the point's assigned rectangle side (not min distance to all sides).
+    std::vector<double> ComputeRectangleSideResiduals(const std::vector<Point2d>& points,
+                                                      const RotatedRect2d& rect) {
+        std::vector<double> residuals(points.size(), std::numeric_limits<double>::infinity());
+        if (points.empty() || rect.width <= 0.0 || rect.height <= 0.0) {
+            return residuals;
+        }
+
+        const double hw = rect.width * 0.5;
+        const double hh = rect.height * 0.5;
+        const double c = std::cos(rect.angle);
+        const double s = std::sin(rect.angle);
+
+        for (size_t i = 0; i < points.size(); ++i) {
+            double dx = points[i].x - rect.center.x;
+            double dy = points[i].y - rect.center.y;
+
+            // World -> rectangle local frame (rotate by -angle).
+            double lx = c * dx + s * dy;
+            double ly = -s * dx + c * dy;
+
+            double dLeft = std::abs(lx + hw);
+            double dRight = std::abs(lx - hw);
+            double dTop = std::abs(ly + hh);
+            double dBottom = std::abs(ly - hh);
+
+            residuals[i] = std::min(std::min(dLeft, dRight), std::min(dTop, dBottom));
+        }
+
+        return residuals;
     }
 
     void RemoveMaskedPoints(std::vector<Point2d>& points,
@@ -1653,14 +1696,33 @@ bool MetrologyModel::Apply(const QImage& image) {
                     for (size_t k : keptIndices) {
                         if (k < remainMap.size()) mappedKept.push_back(remainMap[k]);
                     }
-                    auto displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
+                    auto sideResiduals = ComputeRectangleSideResiduals(fitPoints, fitResult.rect);
+                    double sideThreshold = ComputeAdaptiveResidualThreshold(sideResiduals, distThreshold);
+                    std::vector<double> sideCompactWeights(sideResiduals.size(), 0.0);
+                    for (size_t i = 0; i < sideResiduals.size(); ++i) {
+                        sideCompactWeights[i] = (std::isfinite(sideResiduals[i]) &&
+                                                 std::abs(sideResiduals[i]) <= sideThreshold) ? 1.0 : 0.0;
+                    }
+
+                    auto displayWeights = ExpandMappedValues(sideCompactWeights, mappedKept, edgePoints.size());
+                    if (displayWeights.empty()) {
+                        displayWeights = BuildWeightsForDisplay(fitResult, mappedKept, edgePoints.size());
+                    }
                     if (accepted && !displayWeights.empty() && impl_->pointWeights.find(idx) == impl_->pointWeights.end()) {
                         impl_->pointWeights[idx] = std::move(displayWeights);
                     }
 
-                    double instanceThreshold =
-                        ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
-                    auto compactMask = BuildInstanceCompactMask(fitResult, keptIndices.size(), instanceThreshold, 8);
+                    std::vector<bool> compactMask(sideCompactWeights.size(), false);
+                    size_t inlierCount = 0;
+                    for (size_t i = 0; i < sideCompactWeights.size(); ++i) {
+                        compactMask[i] = sideCompactWeights[i] >= 0.5;
+                        if (compactMask[i]) ++inlierCount;
+                    }
+                    if (inlierCount < 8) {
+                        double instanceThreshold =
+                            ComputeAdaptiveResidualThreshold(fitResult.residuals, distThreshold);
+                        compactMask = BuildInstanceCompactMask(fitResult, keptIndices.size(), instanceThreshold, 8);
+                    }
                     if (compactMask.empty()) break;
                     std::vector<bool> removeMask(remainPoints.size(), false);
                     for (size_t i = 0; i < keptIndices.size() && i < compactMask.size(); ++i) {

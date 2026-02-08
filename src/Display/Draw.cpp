@@ -1299,8 +1299,9 @@ void Draw::EdgePoints(QImage& image, const std::vector<Point2d>& points,
     if (markerSize <= 0) {
         throw InvalidArgumentException("Draw::EdgePoints: markerSize must be > 0");
     }
+    constexpr double kCrossAngle45Deg = 0.7853981633974483;  // PI/4
     for (const auto& pt : points) {
-        Cross(image, pt, markerSize, color, 1);
+        Cross(image, pt, markerSize, kCrossAngle45Deg, color, 1);
     }
 }
 
@@ -1383,34 +1384,11 @@ void Draw::EdgePointsWeighted(QImage& image, const std::vector<Point2d>& points,
     }
     if (points.empty()) return;
 
-    // Detect if weights are binary (RANSAC/Tukey) or continuous (Huber)
-    bool isBinary = true;
-    for (double w : weights) {
-        if (w > 0.01 && w < 0.99) {  // Has intermediate values
-            isBinary = false;
-            break;
-        }
-    }
-
+    constexpr double kCrossAngle45Deg = 0.7853981633974483;  // PI/4
     for (size_t i = 0; i < points.size(); ++i) {
         double w = (i < weights.size()) ? weights[i] : 1.0;
-
-        Scalar color;
-        if (isBinary) {
-            // Binary weights (RANSAC/Tukey): two colors
-            color = (w >= 0.5) ? Scalar::Green() : Scalar::Red();
-        } else {
-            // Continuous weights (Huber): three colors
-            if (w >= 0.8) {
-                color = Scalar::Green();   // Strong inlier
-            } else if (w >= 0.3) {
-                color = Scalar::Yellow();  // Moderate weight
-            } else {
-                color = Scalar::Red();     // Weak/outlier
-            }
-        }
-
-        FilledCircle(image, points[i], markerSize, color);
+        Scalar color = (w >= 0.5) ? Scalar::Green() : Scalar::Red();
+        Cross(image, points[i], markerSize, kCrossAngle45Deg, color, 1);
     }
 }
 

@@ -60,7 +60,7 @@ set(QIVISION_SOURCES
     Internal/Eigen.cpp
     Internal/Hough.cpp
     Internal/AnglePyramid.cpp
-    # Internal/LinemodPyramid.cpp  # Archived - using XLD method
+    Internal/archive/LinemodPyramid.cpp
     # Internal/ResponseMap.cpp     # Archived - using XLD method
     Internal/IntegralImage.cpp
     Internal/PolarTransform.cpp
@@ -75,6 +75,8 @@ set(QIVISION_SOURCES
     Matching/NCCModelSearch.cpp
     Matching/NCCModelScore.cpp
     Matching/ComponentModel.cpp
+    Matching/FastShapeModel.cpp
+    Matching/FastShapeDetector.cpp
     # Measure (Feature Layer)
     Measure/MeasureHandle.cpp
     Measure/Caliper.cpp
@@ -84,6 +86,7 @@ set(QIVISION_SOURCES
     IO/ImageIO.cpp
     # Color (Feature Layer)
     Color/ColorConvert.cpp
+    Color/ColorDetect.cpp
     # Filter (Feature Layer)
     Filter/Filter.cpp
     # Morphology (Feature Layer)
@@ -200,7 +203,7 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Eigen.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Hough.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/AnglePyramid.h
-    # ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/LinemodPyramid.h  # Archived
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/LinemodPyramid.h
     # ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ResponseMap.h     # Archived
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/IntegralImage.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/PolarTransform.h
@@ -210,6 +213,8 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/ShapeModel.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/NCCModel.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/ComponentModel.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/FastShapeModel.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/FastShapeDetector.h
     # Matching internal headers (in src/)
     ${CMAKE_SOURCE_DIR}/src/Matching/ShapeModelImpl.h
     ${CMAKE_SOURCE_DIR}/src/Matching/NCCModelImpl.h
@@ -224,6 +229,7 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/IO/ImageIO.h
     # Color (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Color/ColorConvert.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Color/ColorDetect.h
     # Filter (Feature Layer)
     ${CMAKE_SOURCE_DIR}/include/QiVision/Filter/Filter.h
     # Morphology (Feature Layer)

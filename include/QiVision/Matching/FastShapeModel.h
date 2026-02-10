@@ -45,9 +45,12 @@ private:
  */
 struct QIVISION_API FastShapeModelStrategy {
     int32_t numFeatures = 63;               ///< Feature count at level 0
-    std::vector<int32_t> tAtLevel{4, 8};   ///< Pyramid step (T) per level
-    double weakThreshold = 10.0;            ///< Search-side magnitude threshold
-    double strongThreshold = 55.0;          ///< Template-side magnitude threshold
+    std::vector<int32_t> tAtLevel{5, 8};   ///< Pyramid step (T) per level
+    double weakThreshold = 20.0;            ///< Search-side magnitude threshold
+    double strongThreshold = 60.0;          ///< Template-side magnitude threshold
+    double scaleMin = 1.0;                  ///< Training-time minimum scale
+    double scaleMax = 1.0;                  ///< Training-time maximum scale
+    double scaleStep = 0.0;                 ///< Scale step (<=0 means single-scale)
 };
 
 /**
@@ -86,6 +89,7 @@ QIVISION_API void CreateFastShapeModel(
  * @param cols          [out] Match cols
  * @param angles        [out] Match angles (rad)
  * @param scores        [out] Match scores [0,1]
+ * @param scales        [out,opt] Match scales (same size as scores)
  */
 QIVISION_API void FindFastShapeModel(
     const QImage& image,
@@ -97,7 +101,8 @@ QIVISION_API void FindFastShapeModel(
     std::vector<double>& rows,
     std::vector<double>& cols,
     std::vector<double>& angles,
-    std::vector<double>& scores
+    std::vector<double>& scores,
+    std::vector<double>* scales = nullptr
 );
 
 /**

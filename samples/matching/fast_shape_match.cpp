@@ -29,9 +29,9 @@ int main() {
 
     FastShapeModel model;
     FastShapeModelStrategy strategy;
-    strategy.tAtLevel = {4, 8};
-    strategy.weakThreshold = 10.0;
-    strategy.strongThreshold = 55.0;
+    strategy.tAtLevel = {5, 8};
+    strategy.weakThreshold = 20.0;
+    strategy.strongThreshold = 60.0;
     strategy.numFeatures = 63;
     CreateFastShapeModel(
         gray, roi, model,
@@ -46,17 +46,18 @@ int main() {
         return 1;
     }
 
-    std::vector<double> rows, cols, angles, scores;
+    std::vector<double> rows, cols, angles, scores, scales;
     FindFastShapeModel(
         gray, model,
         0.35, 20, 0.5, 0.8,
-        rows, cols, angles, scores
+        rows, cols, angles, scores, &scales
     );
 
     std::printf("Matches: %zu\n", rows.size());
     for (size_t i = 0; i < rows.size() && i < 5; ++i) {
-        std::printf("  #%zu: row=%.2f col=%.2f angle=%.2fdeg score=%.4f\n",
-                    i, rows[i], cols[i], deg(angles[i]), scores[i]);
+        const double s = (i < scales.size()) ? scales[i] : 1.0;
+        std::printf("  #%zu: row=%.2f col=%.2f angle=%.2fdeg scale=%.3f score=%.4f\n",
+                    i, rows[i], cols[i], deg(angles[i]), s, scores[i]);
     }
 
     QImage vis;

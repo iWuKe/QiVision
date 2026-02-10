@@ -54,16 +54,17 @@ SimilarityLUT::SimilarityLUT() {
     // 135°: cos(135) = -0.707 -> 3 (absolute value)
     // 180°: cos(180) = -1.000 -> 4 (absolute value)
 
-    // Pre-computed |cos((i-j) * PI/4)| * 4, scaled to [0, 4]
+    // Circular similarity by orientation-bin distance (single-peak at 0 deg).
+    // This avoids 180-degree ambiguity from absolute-cosine scoring.
     static const uint8_t cosTable[8] = {
-        4,  // 0°:   |cos(0)|   = 1.000 -> 4
-        3,  // 45°:  |cos(45)|  = 0.707 -> 3
-        1,  // 90°:  |cos(90)|  = 0.000 -> 0, but use 1 for some tolerance
-        3,  // 135°: |cos(135)| = 0.707 -> 3
-        4,  // 180°: |cos(180)| = 1.000 -> 4
-        3,  // 225°: |cos(225)| = 0.707 -> 3
-        1,  // 270°: |cos(270)| = 0.000 -> 0, but use 1 for some tolerance
-        3   // 315°: |cos(315)| = 0.707 -> 3
+        4,  // 0 bins difference
+        3,  // 1 bin  (45 deg)
+        2,  // 2 bins (90 deg)
+        1,  // 3 bins (135 deg)
+        0,  // 4 bins (180 deg)
+        1,  // 5 bins
+        2,  // 6 bins
+        3   // 7 bins
     };
 
     for (int32_t ori = 0; ori < 8; ++ori) {
@@ -115,136 +116,54 @@ bool LinemodPyramid::Build(const QImage& image, const LinemodPyramidParams& para
 
     params_ = params;
     numLevels_ = std::max(1, std::min(params.numLevels, 10));
-    levels_.resize(numLevels_);
-
-    // =========================================================================
-    // 架构优化：只对 Level 0 做完整的 Sobel/量化计算
-    // Level 1+ 从量化图下采样，大幅减少计算量
-    // =========================================================================
-
-    // Convert to float if needed (parallelized for large images)
-    QImage floatImage;
-    if (image.Type() == PixelType::Float32) {
-        floatImage = image;
-    } else {
-        floatImage = QImage(image.Width(), image.Height(), PixelType::Float32, ChannelType::Gray);
-        const uint8_t* src = static_cast<const uint8_t*>(image.Data());
-        float* dst = static_cast<float*>(floatImage.Data());
-        const int32_t srcStride = static_cast<int32_t>(image.Stride());
-        const int32_t dstStride = static_cast<int32_t>(floatImage.Stride() / sizeof(float));
-        const int32_t imgW = image.Width();
-        const int32_t imgH = image.Height();
-
-#pragma omp parallel for schedule(static) if(imgW * imgH > 100000)
-        for (int32_t y = 0; y < imgH; ++y) {
-            const uint8_t* srcRow = src + y * srcStride;
-            float* dstRow = dst + y * dstStride;
-            for (int32_t x = 0; x < imgW; ++x) {
-                dstRow[x] = static_cast<float>(srcRow[x]);
-            }
+    if (!params_.spreadTAtLevel.empty()) {
+        for (auto& t : params_.spreadTAtLevel) {
+            t = std::max(1, t);
+        }
+        if (static_cast<int32_t>(params_.spreadTAtLevel.size()) < numLevels_) {
+            int32_t fillT = params_.spreadTAtLevel.back();
+            params_.spreadTAtLevel.resize(static_cast<size_t>(numLevels_), fillT);
         }
     }
 
-    // Level 0: 完整流程 (Sobel + 量化 + 邻域投票 + OR扩散)
-    if (!BuildLevel(floatImage, 0)) {
-        Clear();
+    PyramidParams pyrParams;
+    pyrParams.numLevels = numLevels_;
+    pyrParams.sigma = params_.smoothSigma;
+    pyrParams.downsample = DownsampleMethod::Gaussian;
+    pyrParams.minDimension = 8;
+    ImagePyramid gaussianPyr = BuildGaussianPyramid(image, pyrParams);
+    if (gaussianPyr.Empty()) {
         return false;
     }
 
-    // Level 1+: 从上一层量化图下采样 + OR扩散
-    for (int32_t level = 1; level < numLevels_; ++level) {
-        const auto& prevLevel = levels_[level - 1];
-        int32_t newW = prevLevel.width / 2;
-        int32_t newH = prevLevel.height / 2;
+    numLevels_ = std::min(numLevels_, gaussianPyr.NumLevels());
+    levels_.resize(numLevels_);
 
-        if (newW < 8 || newH < 8) {
+    for (int32_t level = 0; level < numLevels_; ++level) {
+        const auto& pyrLevel = gaussianPyr.GetLevel(level);
+        if (!pyrLevel.IsValid() || pyrLevel.width < 8 || pyrLevel.height < 8) {
             numLevels_ = level;
             levels_.resize(numLevels_);
             break;
         }
 
-        if (!BuildLevelFromQuantized(level, prevLevel)) {
+        QImage levelImage(pyrLevel.width, pyrLevel.height, PixelType::Float32, ChannelType::Gray);
+        float* dst = static_cast<float*>(levelImage.Data());
+        const int32_t dstStride = static_cast<int32_t>(levelImage.Stride() / sizeof(float));
+
+        for (int32_t y = 0; y < pyrLevel.height; ++y) {
+            std::memcpy(dst + y * dstStride,
+                        pyrLevel.data.data() + static_cast<size_t>(y) * pyrLevel.width,
+                        static_cast<size_t>(pyrLevel.width) * sizeof(float));
+        }
+
+        if (!BuildLevel(levelImage, level)) {
             Clear();
             return false;
         }
     }
 
     valid_ = true;
-    return true;
-}
-
-bool LinemodPyramid::BuildLevelFromQuantized(int32_t levelIdx, const LinemodLevelData& prevLevel) {
-    // 从上一层的量化图下采样构建当前层
-    // 只需要：下采样 + 邻域投票 + OR扩散
-    // 不需要：高斯模糊、Sobel、幅值计算、方向量化
-
-    auto& level = levels_[levelIdx];
-    level.width = prevLevel.width / 2;
-    level.height = prevLevel.height / 2;
-    level.scale = std::pow(0.5, levelIdx);
-    level.stride = (level.width + 63) & ~63;
-
-    const int32_t W = level.width;
-    const int32_t H = level.height;
-
-    // 1. 下采样量化图 (2x2 区域 OR 合并)
-    level.quantized = QImage(W, H, PixelType::UInt8, ChannelType::Gray);
-    {
-        const uint8_t* srcData = static_cast<const uint8_t*>(prevLevel.quantized.Data());
-        uint8_t* dstData = static_cast<uint8_t*>(level.quantized.Data());
-        const int32_t srcStride = static_cast<int32_t>(prevLevel.quantized.Stride());
-        const int32_t dstStride = static_cast<int32_t>(level.quantized.Stride());
-
-        std::memset(dstData, 0, H * dstStride);
-
-#pragma omp parallel for if(W * H > 50000)
-        for (int32_t y = 0; y < H; ++y) {
-            for (int32_t x = 0; x < W; ++x) {
-                int32_t sy = y * 2;
-                int32_t sx = x * 2;
-
-                // 2x2 区域投票选最强方向
-                std::array<int32_t, 8> votes = {0};
-                for (int32_t dy = 0; dy < 2; ++dy) {
-                    for (int32_t dx = 0; dx < 2; ++dx) {
-                        uint8_t q = srcData[(sy + dy) * srcStride + (sx + dx)];
-                        if (q == 0) continue;
-                        for (int32_t b = 0; b < 8; ++b) {
-                            if (q & (1 << b)) {
-                                votes[b]++;
-                            }
-                        }
-                    }
-                }
-
-                // 找最多票数的方向
-                int32_t maxVotes = 0;
-                int32_t maxBin = -1;
-                for (int32_t b = 0; b < 8; ++b) {
-                    if (votes[b] > maxVotes) {
-                        maxVotes = votes[b];
-                        maxBin = b;
-                    }
-                }
-
-                // 至少要有 2 票 (2x2 中至少 2 个像素有这个方向)
-                if (maxVotes >= 2 && maxBin >= 0) {
-                    dstData[y * dstStride + x] = static_cast<uint8_t>(1 << maxBin);
-                }
-            }
-        }
-    }
-
-    // 2. 邻域投票 (保持一致性)
-    ApplyNeighborVoting(level);
-
-    // 3. OR 扩散
-    ApplyORSpreading(level);
-
-    // 注意：BuildLevelFromQuantized 不提取特征
-    // 因为模板特征只在 Level 0 提取，粗层只用于搜索
-    // ExtractLevelFeatures 需要 gradMag，而我们没有计算它
-
     return true;
 }
 
@@ -281,7 +200,7 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
     const int32_t quantStride = static_cast<int32_t>(level.quantized.Stride());
 
     const float minMag = params_.minMagnitude;
-    constexpr double INV_2PI = 1.0 / (2.0 * PI);
+    const float minMag2 = minMag * minMag;
 
     // Pass 1: 行方向高斯 [1,2,1]/4 - 使用复用缓冲区 (SIMD 优化)
     const size_t bufSize = static_cast<size_t>(W) * H;
@@ -404,40 +323,15 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
     }
 
     // Pass 3: Sobel + 量化 (在完全平滑后的图像上)
-    // 使用快速八分法替代 atan2，大幅提升速度
-    // 8个方向: 0=E, 1=NE, 2=N, 3=NW, 4=W, 5=SW, 6=S, 7=SE
-    // tan(22.5°) ≈ 0.414, tan(67.5°) ≈ 2.414
-    constexpr float TAN_22_5 = 0.41421356f;  // tan(22.5°)
-    constexpr float TAN_67_5 = 2.41421356f;  // tan(67.5°)
-
-    // 快速角度量化函数 (内联 lambda)
-    auto fastQuantize = [&](float gx, float gy) -> uint8_t {
-        // 计算 |gy/gx| 的绝对值比例来确定八分区
-        float ax = std::abs(gx);
-        float ay = std::abs(gy);
-
-        int32_t bin;
-        if (ax > ay * TAN_67_5) {
-            // 接近水平: bin 0 或 4
-            bin = (gx >= 0) ? 0 : 4;
-        } else if (ay > ax * TAN_67_5) {
-            // 接近垂直: bin 2 或 6
-            bin = (gy >= 0) ? 2 : 6;
-        } else if (ax > ay * TAN_22_5) {
-            // 45度区域倾向水平
-            if (gx >= 0) {
-                bin = (gy >= 0) ? 1 : 7;
-            } else {
-                bin = (gy >= 0) ? 3 : 5;
-            }
-        } else {
-            // 45度区域倾向垂直
-            if (gy >= 0) {
-                bin = (gx >= 0) ? 1 : 3;
-            } else {
-                bin = (gx >= 0) ? 7 : 5;
-            }
+    // line2Dup 风格: 先量化到 16 个方向，再折叠到 8 个方向。
+    auto quantizeOri = [](float gx, float gy) -> uint8_t {
+        double angle = std::atan2(static_cast<double>(gy), static_cast<double>(gx));
+        if (angle < 0.0) {
+            angle += 2.0 * PI;
         }
+        int32_t bin16 = static_cast<int32_t>(angle * 16.0 / (2.0 * PI));
+        bin16 = std::clamp(bin16, 0, 15);
+        int32_t bin = bin16 & 7;
         return static_cast<uint8_t>(1 << bin);
     };
 
@@ -457,10 +351,11 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
 
             float gx = -p00 + p02 - 2.0f * p10 + 2.0f * p12 - p20 + p22;
             float gy = -p00 - 2.0f * p01 - p02 + p20 + 2.0f * p21 + p22;
-            float mag = std::sqrt(gx * gx + gy * gy);
-            if (magRow) magRow[0] = mag;
-
-            quantRow[0] = (mag < minMag) ? 0 : fastQuantize(gx, gy);
+            const float mag2 = gx * gx + gy * gy;
+            if (magRow) {
+                magRow[0] = std::sqrt(mag2);
+            }
+            quantRow[0] = (mag2 < minMag2) ? 0 : quantizeOri(gx, gy);
         }
 
         // 内部像素
@@ -471,10 +366,11 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
 
             float gx = -p00 + p02 - 2.0f * p10 + 2.0f * p12 - p20 + p22;
             float gy = -p00 - 2.0f * p01 - p02 + p20 + 2.0f * p21 + p22;
-            float mag = std::sqrt(gx * gx + gy * gy);
-            if (magRow) magRow[x] = mag;
-
-            quantRow[x] = (mag < minMag) ? 0 : fastQuantize(gx, gy);
+            const float mag2 = gx * gx + gy * gy;
+            if (magRow) {
+                magRow[x] = std::sqrt(mag2);
+            }
+            quantRow[x] = (mag2 < minMag2) ? 0 : quantizeOri(gx, gy);
         }
 
         // 边界 x=W-1
@@ -486,16 +382,28 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
 
             float gx = -p00 + p02 - 2.0f * p10 + 2.0f * p12 - p20 + p22;
             float gy = -p00 - 2.0f * p01 - p02 + p20 + 2.0f * p21 + p22;
-            float mag = std::sqrt(gx * gx + gy * gy);
-            if (magRow) magRow[x] = mag;
+            const float mag2 = gx * gx + gy * gy;
+            if (magRow) {
+                magRow[x] = std::sqrt(mag2);
+            }
+            quantRow[x] = (mag2 < minMag2) ? 0 : quantizeOri(gx, gy);
+        }
+    }
 
-            quantRow[x] = (mag < minMag) ? 0 : fastQuantize(gx, gy);
+    // Keep a 1-pixel border empty like reference implementations.
+    if (W > 1 && H > 1) {
+        std::memset(quantData, 0, static_cast<size_t>(quantStride));
+        std::memset(quantData + (H - 1) * quantStride, 0, static_cast<size_t>(quantStride));
+        for (int32_t y = 0; y < H; ++y) {
+            quantData[y * quantStride] = 0;
+            quantData[y * quantStride + (W - 1)] = 0;
         }
     }
 
     // Pass 3: 投票 + OR扩散 (保持原有实现)
     ApplyNeighborVoting(level);
-    ApplyORSpreading(level);
+    ApplyORSpreading(level, levelIdx);
+    BuildResponseMaps(level);
 
     // 提取特征 (模板创建时)
     if (params_.extractFeatures) {
@@ -594,13 +502,19 @@ void LinemodPyramid::ApplyNeighborVoting(LinemodLevelData& level) {
     level.quantized = std::move(voted);
 }
 
-void LinemodPyramid::ApplyORSpreading(LinemodLevelData& level) {
+void LinemodPyramid::ApplyORSpreading(LinemodLevelData& level, int32_t levelIdx) {
     // Paper: "Spread binary labels using OR operation"
     // spread[x] |= quantized[x + offset] for all offsets in T×T region
 
     const int32_t W = level.width;
     const int32_t H = level.height;
-    const int32_t T = params_.spreadT;
+    int32_t T = params_.spreadT;
+    if (!params_.spreadTAtLevel.empty() &&
+        levelIdx >= 0 &&
+        levelIdx < static_cast<int32_t>(params_.spreadTAtLevel.size())) {
+        T = params_.spreadTAtLevel[static_cast<size_t>(levelIdx)];
+    }
+    T = std::max(1, T);
     const int32_t srcStride = static_cast<int32_t>(level.quantized.Stride());
     const uint8_t* src = static_cast<const uint8_t*>(level.quantized.Data());
 
@@ -612,8 +526,8 @@ void LinemodPyramid::ApplyORSpreading(LinemodLevelData& level) {
     // Initialize with source
     std::memcpy(dst, src, H * dstStride);
 
-    // OR spreading: spread each pixel's value to its T×T neighborhood
-    // More efficient: for each offset, OR the shifted image
+    // OR spreading (single direction, line2Dup-style):
+    // spread[y][x] |= quantized[y + dy][x + dx], dy/dx in [0, T).
     for (int32_t dy = 0; dy < T; ++dy) {
         for (int32_t dx = 0; dx < T; ++dx) {
             if (dy == 0 && dx == 0) continue;
@@ -627,18 +541,31 @@ void LinemodPyramid::ApplyORSpreading(LinemodLevelData& level) {
             }
         }
     }
+}
 
-    // Also spread in negative direction for symmetry
-    for (int32_t dy = 0; dy < T; ++dy) {
-        for (int32_t dx = 0; dx < T; ++dx) {
-            if (dy == 0 && dx == 0) continue;
+void LinemodPyramid::BuildResponseMaps(LinemodLevelData& level) {
+    const int32_t W = level.width;
+    const int32_t H = level.height;
+    const int32_t stride = static_cast<int32_t>(level.spread.Stride());
+    const uint8_t* spreadData = static_cast<const uint8_t*>(level.spread.Data());
+    if (W <= 0 || H <= 0 || spreadData == nullptr) {
+        for (auto& map : level.responseMaps) {
+            map.clear();
+        }
+        return;
+    }
 
-            // OR src[y-dy][x-dx] into dst[y][x]
+    const size_t bufSize = static_cast<size_t>(stride) * static_cast<size_t>(H);
+    for (int32_t bin = 0; bin < LINEMOD_NUM_BINS; ++bin) {
+        auto& response = level.responseMaps[static_cast<size_t>(bin)];
+        response.assign(bufSize, 0);
+
 #pragma omp parallel for schedule(static) if(W * H > 100000)
-            for (int32_t y = dy; y < H; ++y) {
-                for (int32_t x = dx; x < W; ++x) {
-                    dst[y * dstStride + x] |= src[(y - dy) * srcStride + (x - dx)];
-                }
+        for (int32_t y = 0; y < H; ++y) {
+            const uint8_t* srcRow = spreadData + y * stride;
+            uint8_t* dstRow = response.data() + y * stride;
+            for (int32_t x = 0; x < W; ++x) {
+                dstRow[x] = g_SimilarityLUT.Get(bin, srcRow[x]);
             }
         }
     }
@@ -709,30 +636,72 @@ std::vector<LinemodFeature> LinemodPyramid::ExtractFeatures(
     float centerX = actualRoi.x + actualRoi.width / 2.0f;
     float centerY = actualRoi.y + actualRoi.height / 2.0f;
 
-    // Collect candidates with magnitude
+    // Collect candidates with score (line2Dup-style).
     struct Candidate {
         int16_t x, y;
         uint8_t ori;
-        float mag;
+        float score;
     };
     std::vector<Candidate> candidates;
 
     const uint8_t* quantData = static_cast<const uint8_t*>(levelData.quantized.Data());
     const int32_t quantStride = static_cast<int32_t>(levelData.quantized.Stride());
 
-    // gradMag 可能为空 (来自 BuildLevelFromQuantized 的层级没有 gradMag)
+    // gradMag may be empty for search pyramids when feature extraction is disabled.
     const bool hasGradMag = !levelData.gradMag.Empty();
     const float* magData = hasGradMag ? static_cast<const float*>(levelData.gradMag.Data()) : nullptr;
     const int32_t magStride = hasGradMag ? static_cast<int32_t>(levelData.gradMag.Stride() / sizeof(float)) : 0;
 
-    for (int32_t y = actualRoi.y; y < actualRoi.y + actualRoi.height; ++y) {
-        for (int32_t x = actualRoi.x; x < actualRoi.x + actualRoi.width; ++x) {
-            uint8_t q = quantData[y * quantStride + x];
-            if (q == 0) continue;
+    // 5x5 NMS suppresses clustered points before scattered selection.
+    constexpr int32_t NMS_KERNEL = 5;
+    constexpr int32_t NMS_HALF = NMS_KERNEL / 2;
+    std::vector<uint8_t> nmsMask(static_cast<size_t>(W * H), 255);
 
-            // 如果有 gradMag，使用它来过滤和排序；否则使用默认值
-            float mag = hasGradMag ? magData[y * magStride + x] : params_.minMagnitude + 1.0f;
-            if (hasGradMag && mag < params_.minMagnitude) continue;
+    const int32_t roiYBegin = std::max(actualRoi.y, NMS_HALF);
+    const int32_t roiYEnd = std::min(actualRoi.y + actualRoi.height, H - NMS_HALF);
+    const int32_t roiXBegin = std::max(actualRoi.x, NMS_HALF);
+    const int32_t roiXEnd = std::min(actualRoi.x + actualRoi.width, W - NMS_HALF);
+
+    for (int32_t y = roiYBegin; y < roiYEnd; ++y) {
+        for (int32_t x = roiXBegin; x < roiXEnd; ++x) {
+            if (!nmsMask[static_cast<size_t>(y * W + x)]) {
+                continue;
+            }
+
+            uint8_t q = quantData[y * quantStride + x];
+            if (q == 0) {
+                continue;
+            }
+
+            float mag = hasGradMag ? magData[y * magStride + x] : (params_.minMagnitude + 1.0f);
+            if (hasGradMag && mag < params_.minMagnitude) {
+                continue;
+            }
+
+            if (hasGradMag) {
+                bool isLocalMax = true;
+                for (int32_t ny = y - NMS_HALF; ny <= y + NMS_HALF && isLocalMax; ++ny) {
+                    for (int32_t nx = x - NMS_HALF; nx <= x + NMS_HALF; ++nx) {
+                        if (nx == x && ny == y) {
+                            continue;
+                        }
+                        if (magData[ny * magStride + nx] > mag) {
+                            isLocalMax = false;
+                            break;
+                        }
+                    }
+                }
+                if (isLocalMax) {
+                    for (int32_t ny = y - NMS_HALF; ny <= y + NMS_HALF; ++ny) {
+                        for (int32_t nx = x - NMS_HALF; nx <= x + NMS_HALF; ++nx) {
+                            if (nx == x && ny == y) {
+                                continue;
+                            }
+                            nmsMask[static_cast<size_t>(ny * W + nx)] = 0;
+                        }
+                    }
+                }
+            }
 
             int32_t ori = 0;
             for (int32_t b = 0; b < 8; ++b) {
@@ -746,45 +715,52 @@ std::vector<LinemodFeature> LinemodPyramid::ExtractFeatures(
                 static_cast<int16_t>(x),
                 static_cast<int16_t>(y),
                 static_cast<uint8_t>(ori),
-                mag
+                mag * mag
             });
         }
     }
 
-    if (candidates.empty()) {
+    if (candidates.empty() || maxFeatures <= 0) {
         return {};
     }
 
-    // Sort by magnitude (strongest first)
-    std::sort(candidates.begin(), candidates.end(),
-              [](const Candidate& a, const Candidate& b) { return a.mag > b.mag; });
+    maxFeatures = std::min<int32_t>(maxFeatures, static_cast<int32_t>(candidates.size()));
 
-    // Select scattered features using greedy algorithm
+    std::stable_sort(candidates.begin(), candidates.end(),
+                     [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
+
+    // line2Dup-style scattered selection with adaptive distance relaxation.
     std::vector<LinemodFeature> result;
     result.reserve(maxFeatures);
-
-    const float minDistSq = minDistance * minDistance;
-
-    for (const auto& c : candidates) {
-        if (static_cast<int32_t>(result.size()) >= maxFeatures) break;
-
-        // Check distance to existing features
-        bool tooClose = false;
+    float distance = std::max(minDistance, static_cast<float>(candidates.size() / maxFeatures + 1));
+    size_t candidateIndex = 0;
+    while (static_cast<int32_t>(result.size()) < maxFeatures) {
+        const auto& c = candidates[candidateIndex];
+        bool keep = true;
+        const float distSq = distance * distance;
         for (const auto& f : result) {
             float dx = (c.x - centerX) - f.x;
             float dy = (c.y - centerY) - f.y;
-            if (dx * dx + dy * dy < minDistSq) {
-                tooClose = true;
+            if (dx * dx + dy * dy < distSq) {
+                keep = false;
                 break;
             }
         }
-
-        if (!tooClose) {
+        if (keep) {
             result.emplace_back(
                 static_cast<int16_t>(c.x - centerX),
                 static_cast<int16_t>(c.y - centerY),
                 c.ori
             );
+        }
+
+        candidateIndex++;
+        if (candidateIndex >= candidates.size()) {
+            candidateIndex = 0;
+            distance -= 1.0f;
+            if (distance < 0.0f) {
+                distance = 0.0f;
+            }
         }
     }
 
@@ -809,11 +785,12 @@ double LinemodPyramid::ComputeScore(const std::vector<LinemodFeature>& features,
     const auto& levelData = levels_[level];
     const int32_t W = levelData.width;
     const int32_t H = levelData.height;
-    const uint8_t* spreadData = static_cast<const uint8_t*>(levelData.spread.Data());
     const int32_t spreadStride = static_cast<int32_t>(levelData.spread.Stride());
+    const bool hasResponseMap = !levelData.responseMaps[0].empty();
+    const uint8_t* spreadData = hasResponseMap ? nullptr
+                                               : static_cast<const uint8_t*>(levelData.spread.Data());
 
     int32_t totalScore = 0;
-    int32_t validCount = 0;
 
     for (const auto& f : features) {
         int32_t fx = x + f.x;
@@ -824,22 +801,18 @@ double LinemodPyramid::ComputeScore(const std::vector<LinemodFeature>& features,
             continue;
         }
 
-        // Get spread bitmask at this location
-        uint8_t mask = spreadData[fy * spreadStride + fx];
-
-        // Look up similarity using SIMILARITY_LUT
-        uint8_t sim = g_SimilarityLUT.Get(f.ori, mask);
-        totalScore += sim;
-        validCount++;
-    }
-
-    if (validCount == 0) {
-        return 0.0;
+        const int32_t idx = fy * spreadStride + fx;
+        if (hasResponseMap) {
+            totalScore += levelData.responseMaps[f.ori][idx];
+        } else {
+            totalScore += g_SimilarityLUT.Get(f.ori, spreadData[idx]);
+        }
     }
 
     // Normalize to [0, 1]
     // Max score per feature is LINEMOD_MAX_RESPONSE (4)
-    return static_cast<double>(totalScore) / (validCount * LINEMOD_MAX_RESPONSE);
+    return static_cast<double>(totalScore) /
+           (static_cast<double>(features.size()) * LINEMOD_MAX_RESPONSE);
 }
 
 double LinemodPyramid::ComputeScoreRotated(const std::vector<LinemodFeature>& features,
@@ -853,8 +826,10 @@ double LinemodPyramid::ComputeScoreRotated(const std::vector<LinemodFeature>& fe
     const auto& levelData = levels_[level];
     const int32_t W = levelData.width;
     const int32_t H = levelData.height;
-    const uint8_t* spreadData = static_cast<const uint8_t*>(levelData.spread.Data());
     const int32_t spreadStride = static_cast<int32_t>(levelData.spread.Stride());
+    const bool hasResponseMap = !levelData.responseMaps[0].empty();
+    const uint8_t* spreadData = hasResponseMap ? nullptr
+                                               : static_cast<const uint8_t*>(levelData.spread.Data());
 
     const double cosA = std::cos(angle);
     const double sinA = std::sin(angle);
@@ -865,7 +840,6 @@ double LinemodPyramid::ComputeScoreRotated(const std::vector<LinemodFeature>& fe
     rotBinOffset = ((rotBinOffset % 8) + 8) % 8;  // Normalize to [0, 7]
 
     int32_t totalScore = 0;
-    int32_t validCount = 0;
 
     for (const auto& f : features) {
         // Rotate feature coordinates
@@ -883,21 +857,17 @@ double LinemodPyramid::ComputeScoreRotated(const std::vector<LinemodFeature>& fe
         // Rotate orientation bin
         int32_t rotatedOri = (f.ori + rotBinOffset) & 7;
 
-        // Get spread bitmask at this location
-        uint8_t mask = spreadData[fy * spreadStride + fx];
-
-        // Look up similarity using SIMILARITY_LUT
-        uint8_t sim = g_SimilarityLUT.Get(rotatedOri, mask);
-        totalScore += sim;
-        validCount++;
-    }
-
-    if (validCount == 0) {
-        return 0.0;
+        const int32_t idx = fy * spreadStride + fx;
+        if (hasResponseMap) {
+            totalScore += levelData.responseMaps[rotatedOri][idx];
+        } else {
+            totalScore += g_SimilarityLUT.Get(rotatedOri, spreadData[idx]);
+        }
     }
 
     // Normalize to [0, 1]
-    return static_cast<double>(totalScore) / (validCount * LINEMOD_MAX_RESPONSE);
+    return static_cast<double>(totalScore) /
+           (static_cast<double>(features.size()) * LINEMOD_MAX_RESPONSE);
 }
 
 double LinemodPyramid::ComputeScorePrecomputed(const std::vector<LinemodFeature>& rotatedFeatures,
@@ -910,15 +880,13 @@ double LinemodPyramid::ComputeScorePrecomputed(const std::vector<LinemodFeature>
     const auto& levelData = levels_[level];
     const int32_t W = levelData.width;
     const int32_t H = levelData.height;
-    const uint8_t* spreadData = static_cast<const uint8_t*>(levelData.spread.Data());
     const int32_t spreadStride = static_cast<int32_t>(levelData.spread.Stride());
+    const bool hasResponseMap = !levelData.responseMaps[0].empty();
+    const uint8_t* spreadData = hasResponseMap ? nullptr
+                                               : static_cast<const uint8_t*>(levelData.spread.Data());
 
-    int32_t matchCount = 0;
-    int32_t validCount = 0;
+    int32_t totalScore = 0;
 
-    // Bit operation method: similarity = (spread_mask & model_bit) ? 1 : 0
-    // Since spread map already contains OR-spread orientations, this gives
-    // tolerance for small angle differences.
     for (const auto& f : rotatedFeatures) {
         int32_t fx = x + f.x;
         int32_t fy = y + f.y;
@@ -928,32 +896,22 @@ double LinemodPyramid::ComputeScorePrecomputed(const std::vector<LinemodFeature>
             continue;
         }
 
-        // Get spread bitmask at this location
-        uint8_t spreadMask = spreadData[fy * spreadStride + fx];
-
-        // Model orientation as bit flag
-        uint8_t modelBit = static_cast<uint8_t>(1 << f.ori);
-
-        // Bit AND: check if model orientation exists in spread mask
-        if (spreadMask & modelBit) {
-            matchCount++;
+        const int32_t idx = fy * spreadStride + fx;
+        if (hasResponseMap) {
+            totalScore += levelData.responseMaps[f.ori][idx];
+        } else {
+            totalScore += g_SimilarityLUT.Get(f.ori, spreadData[idx]);
         }
-        validCount++;
     }
 
-    if (validCount == 0) {
-        return 0.0;
-    }
-
-    // Normalize to [0, 1]: matchCount / validCount
-    return static_cast<double>(matchCount) / validCount;
+    return static_cast<double>(totalScore) /
+           (static_cast<double>(rotatedFeatures.size()) * LINEMOD_MAX_RESPONSE);
 }
 
 void LinemodPyramid::ComputeScoresBatch8(const std::vector<LinemodFeature>& rotatedFeatures,
                                           int32_t level, int32_t x, int32_t y,
                                           double* scoresOut) const
 {
-    // Initialize outputs to 0
     for (int32_t i = 0; i < 8; ++i) {
         scoresOut[i] = 0.0;
     }
@@ -965,251 +923,73 @@ void LinemodPyramid::ComputeScoresBatch8(const std::vector<LinemodFeature>& rota
     const auto& levelData = levels_[level];
     const int32_t W = levelData.width;
     const int32_t H = levelData.height;
-    const uint8_t* spreadData = static_cast<const uint8_t*>(levelData.spread.Data());
-    const int32_t spreadStride = static_cast<int32_t>(levelData.spread.Stride());
-
-    alignas(32) int32_t matchCounts8[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-    int32_t validCount = 0;
+    const int32_t stride = static_cast<int32_t>(levelData.spread.Stride());
+    const bool hasResponseMap = !levelData.responseMaps[0].empty();
+    const uint8_t* spreadData = hasResponseMap ? nullptr
+                                               : static_cast<const uint8_t*>(levelData.spread.Data());
 
 #ifdef __AVX2__
-    // ═══════════════════════════════════════════════════════════════
-    // 正确的 AVX2 实现：利用 spread 数据的连续性
-    // spread[y][x], spread[y][x+1], ..., spread[y][x+7] 是连续存储的
-    // ═══════════════════════════════════════════════════════════════
-
-    __m256i vCounts = _mm256_setzero_si256();
-    const __m256i vOne = _mm256_set1_epi32(1);
-    const __m256i vZero = _mm256_setzero_si256();
+    __m256i vTotals = _mm256_setzero_si256();
+    alignas(32) int32_t totals[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
     for (const auto& f : rotatedFeatures) {
-        int32_t fy = y + f.y;
-        int32_t fx = x + f.x;  // 起始 x 位置
-
-        // 边界检查：需要 8 个连续位置都在范围内
+        const int32_t fy = y + f.y;
+        const int32_t fx = x + f.x;
         if (fy < 0 || fy >= H || fx < 0 || fx + 7 >= W) {
             continue;
         }
 
-        validCount++;
+        const uint8_t* ptr = nullptr;
+        if (hasResponseMap) {
+            ptr = levelData.responseMaps[f.ori].data() + fy * stride + fx;
+        } else {
+            ptr = spreadData + fy * stride + fx;
+        }
 
-        // ⭐关键：一次读取 8 个连续的 spread 字节
-        const uint8_t* ptr = spreadData + fy * spreadStride + fx;
-        __m128i spread8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(ptr));
-
-        // 扩展为 8 × int32（为了后续比较）
-        __m256i spread32 = _mm256_cvtepu8_epi32(spread8);
-
-        // 广播 modelBit 到 8 个 int32
-        __m256i model32 = _mm256_set1_epi32(1 << f.ori);
-
-        // ⭐关键：一次 AND 操作处理 8 个位置
-        __m256i matched = _mm256_and_si256(spread32, model32);
-
-        // 非零检测: matched != 0 ? 1 : 0
-        __m256i isNonZero = _mm256_cmpgt_epi32(matched, vZero);
-        __m256i increment = _mm256_and_si256(isNonZero, vOne);
-
-        // 累加到计数器
-        vCounts = _mm256_add_epi32(vCounts, increment);
-    }
-
-    // 存储结果
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(matchCounts8), vCounts);
-
-#else
-    // 标量 fallback
-    for (const auto& f : rotatedFeatures) {
-        int32_t fy = y + f.y;
-        int32_t fx_base = x + f.x;
-
-        if (fy < 0 || fy >= H) continue;
-
-        const uint8_t* rowPtr = spreadData + fy * spreadStride;
-        uint8_t modelBit = static_cast<uint8_t>(1 << f.ori);
-
-        // 检查是否所有 8 个位置都有效
-        if (fx_base >= 0 && fx_base + 7 < W) {
-            validCount++;
+        if (hasResponseMap) {
+            __m128i v8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(ptr));
+            __m256i v32 = _mm256_cvtepu8_epi32(v8);
+            vTotals = _mm256_add_epi32(vTotals, v32);
+        } else {
             for (int32_t i = 0; i < 8; ++i) {
-                if (rowPtr[fx_base + i] & modelBit) {
-                    matchCounts8[i]++;
-                }
-            }
-        }
-    }
-#endif
-
-    // 计算分数：matchCount / validCount
-    if (validCount > 0) {
-        for (int32_t i = 0; i < 8; ++i) {
-            scoresOut[i] = static_cast<double>(matchCounts8[i]) / validCount;
-        }
-    }
-}
-
-void LinemodPyramid::ComputeScoresRow(const std::vector<LinemodFeature>& rotatedFeatures,
-                                       int32_t level, int32_t xStart, int32_t xEnd, int32_t y,
-                                       int32_t stride, double threshold,
-                                       std::vector<int32_t>& xPositionsOut,
-                                       std::vector<double>& scoresOut) const
-{
-    xPositionsOut.clear();
-    scoresOut.clear();
-
-    if (!valid_ || level < 0 || level >= numLevels_ || rotatedFeatures.empty()) {
-        return;
-    }
-
-    const auto& levelData = levels_[level];
-    const int32_t W = levelData.width;
-    const int32_t H = levelData.height;
-    const uint8_t* spreadData = static_cast<const uint8_t*>(levelData.spread.Data());
-    const int32_t spreadStride = static_cast<int32_t>(levelData.spread.Stride());
-    const int32_t numFeatures = static_cast<int32_t>(rotatedFeatures.size());
-
-    // Precompute model bits for all features
-    alignas(32) uint8_t modelBits[512];  // Max 512 features
-    const int32_t actualFeatures = std::min(numFeatures, 512);
-    for (int32_t i = 0; i < actualFeatures; ++i) {
-        modelBits[i] = static_cast<uint8_t>(1 << rotatedFeatures[i].ori);
-    }
-
-    // Calculate threshold as integer count
-    const int32_t thresholdCount = static_cast<int32_t>(threshold * numFeatures);
-
-    // Process positions in batches of 16 using AVX2
-    const int32_t numPositions = (xEnd - xStart) / stride + 1;
-
-#ifdef __AVX2__
-    // Process 16 positions at a time
-    alignas(64) int32_t matchCounts[16];
-    alignas(64) int32_t validCounts[16];
-
-    int32_t posIdx = 0;
-    for (; posIdx + 15 < numPositions; posIdx += 16) {
-        // Initialize counts
-        __m256i vMatch0 = _mm256_setzero_si256();
-        __m256i vMatch1 = _mm256_setzero_si256();
-        __m256i vValid0 = _mm256_setzero_si256();
-        __m256i vValid1 = _mm256_setzero_si256();
-        const __m256i vOne = _mm256_set1_epi32(1);
-
-        // Calculate X positions for these 16 slots
-        int32_t xPos[16];
-        for (int32_t i = 0; i < 16; ++i) {
-            xPos[i] = xStart + (posIdx + i) * stride;
-        }
-
-        // Process each feature
-        for (int32_t fi = 0; fi < actualFeatures; ++fi) {
-            const auto& f = rotatedFeatures[fi];
-            int32_t fy = y + f.y;
-
-            if (fy < 0 || fy >= H) continue;
-
-            const uint8_t* rowPtr = spreadData + fy * spreadStride;
-            uint8_t modelBit = modelBits[fi];
-
-            // Gather spread values for 16 positions and check matches
-            alignas(64) int32_t localMatch[16] = {0};
-            alignas(64) int32_t localValid[16] = {0};
-
-            for (int32_t i = 0; i < 16; ++i) {
-                int32_t fx = xPos[i] + f.x;
-                if (fx >= 0 && fx < W) {
-                    if (rowPtr[fx] & modelBit) {
-                        localMatch[i] = 1;
-                    }
-                    localValid[i] = 1;
-                }
-            }
-
-            // Accumulate using SIMD
-            __m256i vLM0 = _mm256_load_si256(reinterpret_cast<const __m256i*>(localMatch));
-            __m256i vLM1 = _mm256_load_si256(reinterpret_cast<const __m256i*>(localMatch + 8));
-            __m256i vLV0 = _mm256_load_si256(reinterpret_cast<const __m256i*>(localValid));
-            __m256i vLV1 = _mm256_load_si256(reinterpret_cast<const __m256i*>(localValid + 8));
-
-            vMatch0 = _mm256_add_epi32(vMatch0, vLM0);
-            vMatch1 = _mm256_add_epi32(vMatch1, vLM1);
-            vValid0 = _mm256_add_epi32(vValid0, vLV0);
-            vValid1 = _mm256_add_epi32(vValid1, vLV1);
-        }
-
-        // Store counts
-        _mm256_store_si256(reinterpret_cast<__m256i*>(matchCounts), vMatch0);
-        _mm256_store_si256(reinterpret_cast<__m256i*>(matchCounts + 8), vMatch1);
-        _mm256_store_si256(reinterpret_cast<__m256i*>(validCounts), vValid0);
-        _mm256_store_si256(reinterpret_cast<__m256i*>(validCounts + 8), vValid1);
-
-        // Check threshold and add passing positions
-        for (int32_t i = 0; i < 16; ++i) {
-            if (validCounts[i] > 0 && matchCounts[i] >= thresholdCount) {
-                double score = static_cast<double>(matchCounts[i]) / validCounts[i];
-                if (score >= threshold) {
-                    xPositionsOut.push_back(xPos[i]);
-                    scoresOut.push_back(score);
-                }
+                totals[i] += g_SimilarityLUT.Get(f.ori, ptr[i]);
             }
         }
     }
 
-    // Handle remaining positions
-    for (; posIdx < numPositions; ++posIdx) {
-        int32_t x = xStart + posIdx * stride;
-        int32_t matchCount = 0;
-        int32_t validCount = 0;
-
-        for (int32_t fi = 0; fi < actualFeatures; ++fi) {
-            const auto& f = rotatedFeatures[fi];
-            int32_t fx = x + f.x;
-            int32_t fy = y + f.y;
-
-            if (fx < 0 || fx >= W || fy < 0 || fy >= H) continue;
-
-            uint8_t spreadMask = spreadData[fy * spreadStride + fx];
-            if (spreadMask & modelBits[fi]) {
-                matchCount++;
-            }
-            validCount++;
-        }
-
-        if (validCount > 0 && matchCount >= thresholdCount) {
-            double score = static_cast<double>(matchCount) / validCount;
-            if (score >= threshold) {
-                xPositionsOut.push_back(x);
-                scoresOut.push_back(score);
-            }
-        }
+    if (hasResponseMap) {
+        _mm256_store_si256(reinterpret_cast<__m256i*>(totals), vTotals);
     }
 
+    const double denom = static_cast<double>(rotatedFeatures.size() * LINEMOD_MAX_RESPONSE);
+    for (int32_t i = 0; i < 8; ++i) {
+        scoresOut[i] = static_cast<double>(totals[i]) / denom;
+    }
 #else
-    // Scalar fallback
-    for (int32_t x = xStart; x <= xEnd; x += stride) {
-        int32_t matchCount = 0;
-        int32_t validCount = 0;
-
-        for (int32_t fi = 0; fi < actualFeatures; ++fi) {
-            const auto& f = rotatedFeatures[fi];
-            int32_t fx = x + f.x;
-            int32_t fy = y + f.y;
-
-            if (fx < 0 || fx >= W || fy < 0 || fy >= H) continue;
-
-            uint8_t spreadMask = spreadData[fy * spreadStride + fx];
-            if (spreadMask & modelBits[fi]) {
-                matchCount++;
-            }
-            validCount++;
+    int32_t totals[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    for (const auto& f : rotatedFeatures) {
+        const int32_t fy = y + f.y;
+        const int32_t fx = x + f.x;
+        if (fy < 0 || fy >= H || fx < 0 || fx + 7 >= W) {
+            continue;
         }
 
-        if (validCount > 0 && matchCount >= thresholdCount) {
-            double score = static_cast<double>(matchCount) / validCount;
-            if (score >= threshold) {
-                xPositionsOut.push_back(x);
-                scoresOut.push_back(score);
+        if (hasResponseMap) {
+            const uint8_t* ptr = levelData.responseMaps[f.ori].data() + fy * stride + fx;
+            for (int32_t i = 0; i < 8; ++i) {
+                totals[i] += ptr[i];
+            }
+        } else {
+            const uint8_t* ptr = spreadData + fy * stride + fx;
+            for (int32_t i = 0; i < 8; ++i) {
+                totals[i] += g_SimilarityLUT.Get(f.ori, ptr[i]);
             }
         }
+    }
+
+    const double denom = static_cast<double>(rotatedFeatures.size() * LINEMOD_MAX_RESPONSE);
+    for (int32_t i = 0; i < 8; ++i) {
+        scoresOut[i] = static_cast<double>(totals[i]) / denom;
     }
 #endif
 }

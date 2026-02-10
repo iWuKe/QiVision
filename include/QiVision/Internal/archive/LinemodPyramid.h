@@ -22,6 +22,7 @@
 
 #include <array>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace Qi::Vision::Internal {
@@ -135,6 +136,7 @@ struct LinemodPyramidParams {
     int32_t numLevels = 4;
     float minMagnitude = LINEMOD_MIN_MAGNITUDE;
     int32_t spreadT = LINEMOD_DEFAULT_T;
+    std::vector<int32_t> spreadTAtLevel;         ///< Optional per-level spread T
     int32_t neighborThreshold = LINEMOD_NEIGHBOR_THRESHOLD;
     double smoothSigma = 1.0;                   ///< Gaussian blur before gradient
     bool extractFeatures = true;                ///< Extract features (for template)
@@ -143,6 +145,10 @@ struct LinemodPyramidParams {
     LinemodPyramidParams& SetNumLevels(int32_t n) { numLevels = n; return *this; }
     LinemodPyramidParams& SetMinMagnitude(float v) { minMagnitude = v; return *this; }
     LinemodPyramidParams& SetSpreadT(int32_t v) { spreadT = v; return *this; }
+    LinemodPyramidParams& SetSpreadTAtLevel(std::vector<int32_t> v) {
+        spreadTAtLevel = std::move(v);
+        return *this;
+    }
     LinemodPyramidParams& SetNeighborThreshold(int32_t v) { neighborThreshold = v; return *this; }
     LinemodPyramidParams& SetSmoothSigma(double v) { smoothSigma = v; return *this; }
     LinemodPyramidParams& SetExtractFeatures(bool v) { extractFeatures = v; return *this; }
@@ -306,28 +312,6 @@ public:
                              double* scoresOut) const;
 
     /**
-     * @brief Compute scores for entire row with stride (highly optimized)
-     *
-     * Processes all X positions in a row at once with specified stride.
-     * Uses SIMD to compute multiple positions in parallel.
-     *
-     * @param rotatedFeatures Pre-rotated features
-     * @param level Pyramid level
-     * @param xStart Starting X position
-     * @param xEnd Ending X position (inclusive)
-     * @param y Y position
-     * @param stride Step size between positions
-     * @param threshold Minimum score threshold
-     * @param xPositionsOut Output: X positions that pass threshold
-     * @param scoresOut Output: Scores for positions that pass threshold
-     */
-    void ComputeScoresRow(const std::vector<LinemodFeature>& rotatedFeatures,
-                          int32_t level, int32_t xStart, int32_t xEnd, int32_t y,
-                          int32_t stride, double threshold,
-                          std::vector<int32_t>& xPositionsOut,
-                          std::vector<double>& scoresOut) const;
-
-    /**
      * @brief Get spread image data for direct access
      * @return Pointer to spread bitmask image data
      */
@@ -364,10 +348,8 @@ private:
 
     // Internal methods
     bool BuildLevel(const QImage& image, int32_t levelIdx);
-    bool BuildLevelFromQuantized(int32_t levelIdx, const LinemodLevelData& prevLevel);
-    void QuantizeOrientations(LinemodLevelData& level);
     void ApplyNeighborVoting(LinemodLevelData& level);
-    void ApplyORSpreading(LinemodLevelData& level);
+    void ApplyORSpreading(LinemodLevelData& level, int32_t levelIdx);
     void BuildResponseMaps(LinemodLevelData& level);
     void ExtractLevelFeatures(LinemodLevelData& level);
 

@@ -4,12 +4,19 @@
 #include <QiVision/Internal/LinemodPyramid.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace Qi::Vision::Matching {
 
@@ -21,43 +28,106 @@ constexpr double K_SMOOTH_SIGMA = 1.0;
 constexpr float K_FEATURE_MIN_DISTANCE = 2.0f;
 
 constexpr double K_COARSE_MIN_SCORE_FLOOR = 0.40;
-constexpr double K_COARSE_MIN_SCORE_SCALE = 0.68;
-constexpr double K_COARSE_DIVERSITY_DIST_SCALE = 0.10;
-constexpr double K_COARSE_DIVERSITY_ANGLE_DEG = 8.0;
-constexpr int32_t K_COARSE_CANDIDATE_CAP = 420;
-constexpr double K_FINE_ANGLE_RADIUS_DEG = 5.0;
-constexpr double K_FINE_ANGLE_STEP_DEG = 2.0;
+constexpr double K_COARSE_MIN_SCORE_SCALE = 0.65;
+constexpr int32_t K_COARSE_STEP_SIZE = 1;
 constexpr int32_t K_REFINE_SEARCH_RADIUS_FINE = 3;
 constexpr int32_t K_REFINE_SEARCH_RADIUS_COARSE = 2;
-constexpr double K_REFINE_ANGLE_RADIUS_FINE = 0.05;
-constexpr double K_REFINE_ANGLE_RADIUS_COARSE = 0.10;
-constexpr double K_REFINE_ANGLE_STEP_FINE = 0.01;
-constexpr double K_REFINE_ANGLE_STEP_COARSE = 0.025;
-constexpr int32_t K_REFINE_CANDIDATE_CAP_FINE = 120;
-constexpr int32_t K_REFINE_CANDIDATE_CAP_COARSE = 240;
-constexpr double K_REFINE_ACCEPT_SCALE = 0.72;
-constexpr double K_REFINE_DIVERSITY_DIST_SCALE = 0.08;
-constexpr double K_REFINE_DIVERSITY_ANGLE_DEG = 6.0;
-constexpr double K_NMS_MIN_DIST_SCALE = 0.20;
-constexpr double K_NMS_OVERLAP_MIN_AREA = 0.45;
+constexpr double K_REFINE_ANGLE_RADIUS_FINE = 0.08;
+constexpr double K_REFINE_ANGLE_RADIUS_COARSE = 0.14;
+constexpr double K_REFINE_ANGLE_STEP_FINE = 0.015;
+constexpr double K_REFINE_ANGLE_STEP_COARSE = 0.03;
+constexpr int32_t K_REFINE_CANDIDATE_CAP_FINE = 80;
+constexpr int32_t K_REFINE_CANDIDATE_CAP_COARSE = 180;
+constexpr double K_REFINE_ACCEPT_SCALE = 0.70;
+constexpr int32_t K_COARSE_CANDIDATE_CAP = 420;
+constexpr int32_t K_MIN_START_LEVEL_FEATURES = 32;
 
 struct Candidate {
     int32_t x = 0;
     int32_t y = 0;
     double angle = 0.0;
+    double scale = 1.0;
     double score = 0.0;
 };
+
+inline bool CompareCandidate(const Candidate& a, const Candidate& b) {
+    if (a.score != b.score) {
+        return a.score > b.score;
+    }
+    if (a.y != b.y) {
+        return a.y < b.y;
+    }
+    if (a.x != b.x) {
+        return a.x < b.x;
+    }
+    return a.angle < b.angle;
+}
+
+inline std::vector<double> BuildScaleList(double scaleMin, double scaleMax, double scaleStep) {
+    const double sMin = std::max(0.05, std::min(scaleMin, scaleMax));
+    const double sMax = std::max(0.05, std::max(scaleMin, scaleMax));
+    if (scaleStep <= 0.0 || (sMax - sMin) < 1e-9) {
+        return {std::clamp(1.0, sMin, sMax)};
+    }
+
+    const double step = std::max(1e-4, scaleStep);
+    std::vector<double> scales;
+    for (double s = sMin; s <= sMax + 1e-9; s += step) {
+        scales.push_back(s);
+    }
+    if (scales.empty()) {
+        scales.push_back(std::clamp(1.0, sMin, sMax));
+    }
+    return scales;
+}
+
+std::vector<Qi::Vision::Internal::LinemodFeature> ScaleFeatures(
+    const std::vector<Qi::Vision::Internal::LinemodFeature>& features,
+    double scale)
+{
+    if (features.empty()) {
+        return {};
+    }
+    if (std::abs(scale - 1.0) < 1e-9) {
+        return features;
+    }
+
+    std::vector<Qi::Vision::Internal::LinemodFeature> out;
+    out.reserve(features.size());
+    for (const auto& f : features) {
+        const int32_t sx = static_cast<int32_t>(std::lround(static_cast<double>(f.x) * scale));
+        const int32_t sy = static_cast<int32_t>(std::lround(static_cast<double>(f.y) * scale));
+        out.emplace_back(
+            static_cast<int16_t>(std::clamp(sx, -32768, 32767)),
+            static_cast<int16_t>(std::clamp(sy, -32768, 32767)),
+            f.ori);
+    }
+    return out;
+}
+
+inline bool IsFastShapeProfileEnabled() {
+    static int cached = -1;
+    if (cached >= 0) {
+        return cached != 0;
+    }
+    const char* env = std::getenv("QIVISION_FAST_SHAPE_PROFILE");
+    if (env == nullptr || env[0] == '\0' || env[0] == '0') {
+        cached = 0;
+    } else {
+        cached = 1;
+    }
+    return cached != 0;
+}
+
+inline double DurationMs(const std::chrono::steady_clock::time_point& t0,
+                         const std::chrono::steady_clock::time_point& t1) {
+    return std::chrono::duration<double, std::milli>(t1 - t0).count();
+}
 
 inline double NormalizeAngle(double a) {
     while (a < 0.0) a += 2.0 * K_PI;
     while (a >= 2.0 * K_PI) a -= 2.0 * K_PI;
     return a;
-}
-
-inline double AngleDistance(double a, double b) {
-    double d = std::abs(NormalizeAngle(a) - NormalizeAngle(b));
-    if (d > K_PI) d = 2.0 * K_PI - d;
-    return d;
 }
 
 void ComputeFeatureBounds(const std::vector<Qi::Vision::Internal::LinemodFeature>& features,
@@ -84,22 +154,24 @@ void ComputeFeatureBounds(const std::vector<Qi::Vision::Internal::LinemodFeature
     }
 }
 
-double ComputeIoUAxisAligned(const Candidate& a, const Candidate& b, double w, double h) {
-    double ax1 = a.x - w * 0.5;
-    double ay1 = a.y - h * 0.5;
-    double ax2 = a.x + w * 0.5;
-    double ay2 = a.y + h * 0.5;
-    double bx1 = b.x - w * 0.5;
-    double by1 = b.y - h * 0.5;
-    double bx2 = b.x + w * 0.5;
-    double by2 = b.y + h * 0.5;
+double ComputeIoUAabb(const Candidate& a, const Candidate& b,
+                      double wa, double ha, double wb, double hb) {
+    double ax1 = a.x - wa * 0.5;
+    double ay1 = a.y - ha * 0.5;
+    double ax2 = a.x + wa * 0.5;
+    double ay2 = a.y + ha * 0.5;
+    double bx1 = b.x - wb * 0.5;
+    double by1 = b.y - hb * 0.5;
+    double bx2 = b.x + wb * 0.5;
+    double by2 = b.y + hb * 0.5;
 
     double ix1 = std::max(ax1, bx1);
     double iy1 = std::max(ay1, by1);
     double ix2 = std::min(ax2, bx2);
     double iy2 = std::min(ay2, by2);
-
-    if (ix2 <= ix1 || iy2 <= iy1) return 0.0;
+    if (ix2 <= ix1 || iy2 <= iy1) {
+        return 0.0;
+    }
     double inter = (ix2 - ix1) * (iy2 - iy1);
     double areaA = (ax2 - ax1) * (ay2 - ay1);
     double areaB = (bx2 - bx1) * (by2 - by1);
@@ -107,65 +179,70 @@ double ComputeIoUAxisAligned(const Candidate& a, const Candidate& b, double w, d
     return (uni > 1e-9) ? (inter / uni) : 0.0;
 }
 
-double ComputeOverlapMinArea(const Candidate& a, const Candidate& b, double w, double h) {
-    double ax1 = a.x - w * 0.5;
-    double ay1 = a.y - h * 0.5;
-    double ax2 = a.x + w * 0.5;
-    double ay2 = a.y + h * 0.5;
-    double bx1 = b.x - w * 0.5;
-    double by1 = b.y - h * 0.5;
-    double bx2 = b.x + w * 0.5;
-    double by2 = b.y + h * 0.5;
+double ComputeOverlapMinAreaAabb(const Candidate& a, const Candidate& b,
+                                 double wa, double ha, double wb, double hb) {
+    double ax1 = a.x - wa * 0.5;
+    double ay1 = a.y - ha * 0.5;
+    double ax2 = a.x + wa * 0.5;
+    double ay2 = a.y + ha * 0.5;
+    double bx1 = b.x - wb * 0.5;
+    double by1 = b.y - hb * 0.5;
+    double bx2 = b.x + wb * 0.5;
+    double by2 = b.y + hb * 0.5;
 
     double ix1 = std::max(ax1, bx1);
     double iy1 = std::max(ay1, by1);
     double ix2 = std::min(ax2, bx2);
     double iy2 = std::min(ay2, by2);
-
-    if (ix2 <= ix1 || iy2 <= iy1) return 0.0;
+    if (ix2 <= ix1 || iy2 <= iy1) {
+        return 0.0;
+    }
     double inter = (ix2 - ix1) * (iy2 - iy1);
-    double area = w * h;
-    return (area > 1e-9) ? (inter / area) : 0.0;
+    const double areaA = std::max(1.0, wa * ha);
+    const double areaB = std::max(1.0, wb * hb);
+    double area = std::max(1.0, std::min(areaA, areaB));
+    return inter / area;
 }
 
 void ApplyNMS(std::vector<Candidate>& cands,
               double maxOverlap,
-              double modelW,
-              double modelH,
-              double nmsMinDistScale,
-              double nmsOverlapMinArea) {
-    std::sort(cands.begin(), cands.end(),
-              [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
+              double baseModelW,
+              double baseModelH) {
+    std::sort(cands.begin(), cands.end(), CompareCandidate);
 
     std::vector<Candidate> keep;
     keep.reserve(cands.size());
 
-    // LINEMOD archived search used distance-based NMS (~10 px). Keep this behavior
-    // as primary suppression to avoid duplicate detections on the same object.
-    const double diag = std::sqrt(modelW * modelW + modelH * modelH);
-    const double minDist = std::max(10.0, diag * nmsMinDistScale);
-    const double minDistSq = minDist * minDist;
+    const bool enableOverlap = (maxOverlap < 1.0 - 1e-9);
 
     for (const auto& c : cands) {
         bool suppressed = false;
         for (const auto& k : keep) {
+            const double wc = std::max(2.0, baseModelW * c.scale);
+            const double hc = std::max(2.0, baseModelH * c.scale);
+            const double wk = std::max(2.0, baseModelW * k.scale);
+            const double hk = std::max(2.0, baseModelH * k.scale);
             double dx = static_cast<double>(c.x - k.x);
             double dy = static_cast<double>(c.y - k.y);
-            if (dx * dx + dy * dy < minDistSq) {
+            double d2 = dx * dx + dy * dy;
+            const double minDist =
+                std::max(4.0, std::max({wc, hc, wk, hk}) * 0.5 *
+                                   std::clamp(1.0 - maxOverlap, 0.0, 1.0));
+            const double minDistSq = minDist * minDist;
+            if (d2 < minDistSq) {
                 suppressed = true;
                 break;
             }
 
-            // Keep overlap-based check as secondary rule for close-size duplicates.
-            if (ComputeIoUAxisAligned(c, k, modelW, modelH) > maxOverlap) {
-                suppressed = true;
-                break;
-            }
-            // Additional suppression for near-duplicate detections even when IoU is
-            // not high enough under very loose maxOverlap settings.
-            if (ComputeOverlapMinArea(c, k, modelW, modelH) > nmsOverlapMinArea) {
-                suppressed = true;
-                break;
+            if (enableOverlap) {
+                if (ComputeOverlapMinAreaAabb(c, k, wc, hc, wk, hk) > maxOverlap) {
+                    suppressed = true;
+                    break;
+                }
+                if (ComputeIoUAabb(c, k, wc, hc, wk, hk) > std::min(0.90, maxOverlap + 0.15)) {
+                    suppressed = true;
+                    break;
+                }
             }
         }
         if (!suppressed) {
@@ -176,36 +253,50 @@ void ApplyNMS(std::vector<Candidate>& cands,
     cands.swap(keep);
 }
 
-void KeepTopDiverse(std::vector<Candidate>& cands,
-                    size_t cap,
-                    double minDist,
-                    double minAngleDiff) {
-    if (cands.empty()) return;
-    std::sort(cands.begin(), cands.end(),
-              [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
-    if (cap == 0) {
-        cands.clear();
+void ApplyFinalDedup(std::vector<Candidate>& cands,
+                     double maxOverlap,
+                     double baseModelW,
+                     double baseModelH) {
+    if (cands.size() <= 1) {
         return;
     }
 
-    const double minDistSq = minDist * minDist;
+    std::sort(cands.begin(), cands.end(), CompareCandidate);
+
+    const double strictOverlap = std::clamp(maxOverlap + 0.05, 0.35, 0.75);
+    const double strictIou = std::clamp(maxOverlap + 0.12, 0.45, 0.85);
+
     std::vector<Candidate> keep;
-    keep.reserve(std::min(cap, cands.size()));
+    keep.reserve(cands.size());
 
     for (const auto& c : cands) {
-        bool nearDuplicate = false;
+        bool merged = false;
         for (const auto& k : keep) {
-            double dx = static_cast<double>(c.x - k.x);
-            double dy = static_cast<double>(c.y - k.y);
-            if (dx * dx + dy * dy < minDistSq &&
-                AngleDistance(c.angle, k.angle) < minAngleDiff) {
-                nearDuplicate = true;
+            const double wc = std::max(2.0, baseModelW * c.scale);
+            const double hc = std::max(2.0, baseModelH * c.scale);
+            const double wk = std::max(2.0, baseModelW * k.scale);
+            const double hk = std::max(2.0, baseModelH * k.scale);
+            const double strictDist = std::max(
+                8.0, std::min({wc, hc, wk, hk}) *
+                         (0.28 + 0.30 * (1.0 - std::clamp(maxOverlap, 0.0, 1.0))));
+            const double strictDistSq = strictDist * strictDist;
+            const double dx = static_cast<double>(c.x - k.x);
+            const double dy = static_cast<double>(c.y - k.y);
+            if (dx * dx + dy * dy < strictDistSq) {
+                merged = true;
+                break;
+            }
+            if (ComputeOverlapMinAreaAabb(c, k, wc, hc, wk, hk) > strictOverlap) {
+                merged = true;
+                break;
+            }
+            if (ComputeIoUAabb(c, k, wc, hc, wk, hk) > strictIou) {
+                merged = true;
                 break;
             }
         }
-        if (!nearDuplicate) {
+        if (!merged) {
             keep.push_back(c);
-            if (keep.size() >= cap) break;
         }
     }
 
@@ -228,12 +319,13 @@ public:
     double coarseAngleStep = K_PI / 18.0; // 10 degrees
 
     FastShapeModelStrategy strategy;
-    float weakThreshold = 10.0f;
-    float strongThreshold = 55.0f;
+    float weakThreshold = 20.0f;
+    float strongThreshold = 60.0f;
     int32_t numFeatures = 63;
 
     std::vector<std::vector<Qi::Vision::Internal::LinemodFeature>> levelFeatures;
     std::vector<double> templateAngles;
+    std::vector<double> templateScales;
     std::vector<std::vector<std::vector<Qi::Vision::Internal::LinemodFeature>>> rotatedTemplates;
 
     std::unique_ptr<FastShapeModelImpl> Clone() const {
@@ -295,6 +387,9 @@ void CreateFastShapeModel(
     if (strategy.tAtLevel.empty()) {
         throw InvalidArgumentException("CreateFastShapeModel: tAtLevel must not be empty");
     }
+    if (strategy.scaleMin <= 0.0 || strategy.scaleMax <= 0.0) {
+        throw InvalidArgumentException("CreateFastShapeModel: scaleMin/scaleMax must be > 0");
+    }
 
     FastShapeModelStrategy st = strategy;
     st.numFeatures = std::max(16, st.numFeatures);
@@ -303,6 +398,11 @@ void CreateFastShapeModel(
     }
     st.weakThreshold = std::max(1.0, st.weakThreshold);
     st.strongThreshold = std::max(st.weakThreshold, st.strongThreshold);
+    st.scaleMin = std::max(0.05, st.scaleMin);
+    st.scaleMax = std::max(0.05, st.scaleMax);
+    if (st.scaleStep > 0.0) {
+        st.scaleStep = std::max(1e-4, st.scaleStep);
+    }
 
     QImage templ = image.SubImage(roi.x, roi.y, roi.width, roi.height);
     if (templ.Empty()) {
@@ -329,9 +429,9 @@ void CreateFastShapeModel(
     impl->strategy = st;
 
     if (angleStep <= 0.0) {
-        angleStep = K_PI / 18.0; // 10 degrees, aligned with coarse template strategy
+        angleStep = K_PI / 18.0; // 10 degrees
     }
-    impl->coarseAngleStep = std::max(angleStep, K_PI / 180.0);
+    impl->coarseAngleStep = std::max(angleStep, K_PI / 360.0);
 
     impl->weakThreshold = static_cast<float>(st.weakThreshold);
     impl->strongThreshold = static_cast<float>(st.strongThreshold);
@@ -342,6 +442,7 @@ void CreateFastShapeModel(
     pyramidParams.numLevels = impl->numLevels;
     pyramidParams.minMagnitude = impl->strongThreshold;
     pyramidParams.spreadT = st.tAtLevel.front();
+    pyramidParams.spreadTAtLevel = st.tAtLevel;
     pyramidParams.neighborThreshold = K_NEIGHBOR_THRESHOLD;
     pyramidParams.smoothSigma = K_SMOOTH_SIGMA;
     pyramidParams.extractFeatures = true;
@@ -370,25 +471,37 @@ void CreateFastShapeModel(
     }
 
     impl->templateAngles.clear();
-    for (double angle = impl->angleStart;
-         angle <= impl->angleStart + impl->angleExtent + 1e-9;
-         angle += impl->coarseAngleStep) {
-        impl->templateAngles.push_back(angle);
+    const int32_t numAngleTemplates = std::max(
+        1, static_cast<int32_t>(std::ceil(impl->angleExtent / impl->coarseAngleStep)));
+    impl->templateAngles.reserve(static_cast<size_t>(numAngleTemplates));
+    for (int32_t ai = 0; ai < numAngleTemplates; ++ai) {
+        impl->templateAngles.push_back(impl->angleStart + ai * impl->coarseAngleStep);
     }
     if (impl->templateAngles.empty()) {
         impl->templateAngles.push_back(impl->angleStart);
     }
 
+    const std::vector<double> scaleList = BuildScaleList(st.scaleMin, st.scaleMax, st.scaleStep);
+    impl->templateScales.clear();
     impl->rotatedTemplates.clear();
-    impl->rotatedTemplates.resize(impl->templateAngles.size());
-    for (size_t ai = 0; ai < impl->templateAngles.size(); ++ai) {
-        auto& byLevel = impl->rotatedTemplates[ai];
-        byLevel.resize(static_cast<size_t>(impl->numLevels));
-        for (int32_t level = 0; level < impl->numLevels; ++level) {
-            byLevel[static_cast<size_t>(level)] =
-                Qi::Vision::Internal::LinemodPyramid::RotateFeatures(
+    impl->templateScales.reserve(scaleList.size() * impl->templateAngles.size());
+    impl->rotatedTemplates.reserve(scaleList.size() * impl->templateAngles.size());
+
+    for (double scale : scaleList) {
+        for (size_t ai = 0; ai < impl->templateAngles.size(); ++ai) {
+            impl->templateScales.push_back(scale);
+            impl->rotatedTemplates.push_back({});
+            auto& byLevel = impl->rotatedTemplates.back();
+            byLevel.resize(static_cast<size_t>(impl->numLevels));
+            for (int32_t level = 0; level < impl->numLevels; ++level) {
+                auto scaledFeatures = ScaleFeatures(
                     impl->levelFeatures[static_cast<size_t>(level)],
-                    impl->templateAngles[ai]);
+                    scale);
+                byLevel[static_cast<size_t>(level)] =
+                    Qi::Vision::Internal::LinemodPyramid::RotateFeatures(
+                        scaledFeatures,
+                        impl->templateAngles[ai]);
+            }
         }
     }
 
@@ -405,12 +518,53 @@ void FindFastShapeModel(
     std::vector<double>& rows,
     std::vector<double>& cols,
     std::vector<double>& angles,
-    std::vector<double>& scores)
+    std::vector<double>& scores,
+    std::vector<double>* scales)
 {
+    using Clock = std::chrono::steady_clock;
+    const bool enableProfile = IsFastShapeProfileEnabled();
+    const auto tAll0 = Clock::now();
+    auto tBuild1 = tAll0;
+    auto tCoarse1 = tAll0;
+    auto tRefine1 = tAll0;
+    auto tPost1 = tAll0;
+    size_t coarseRawCount = 0;
+    size_t coarseNmsCount = 0;
+    size_t finalPreNmsCount = 0;
+    size_t finalCount = 0;
+
+    auto printTiming = [&](const char* status,
+                           int32_t startLevel,
+                           int32_t stepSize,
+                           size_t angleCount) {
+        if (!enableProfile) {
+            return;
+        }
+        const auto tNow = Clock::now();
+        std::printf("[FastShapeTiming] status=%s build=%.3fms coarse=%.3fms refine=%.3fms post=%.3fms total=%.3fms | "
+                    "startLevel=%d step=%d angles=%zu coarse=%zu->%zu final=%zu->%zu\n",
+                    status,
+                    DurationMs(tAll0, tBuild1),
+                    DurationMs(tBuild1, tCoarse1),
+                    DurationMs(tCoarse1, tRefine1),
+                    DurationMs(tRefine1, tPost1),
+                    DurationMs(tAll0, tNow),
+                    startLevel,
+                    stepSize,
+                    angleCount,
+                    coarseRawCount,
+                    coarseNmsCount,
+                    finalPreNmsCount,
+                    finalCount);
+    };
+
     rows.clear();
     cols.clear();
     angles.clear();
     scores.clear();
+    if (scales != nullptr) {
+        scales->clear();
+    }
 
     if (image.Empty()) {
         throw InvalidArgumentException("FindFastShapeModel: image is empty");
@@ -427,15 +581,17 @@ void FindFastShapeModel(
     if (maxOverlap < 0.0 || maxOverlap > 1.0) {
         throw InvalidArgumentException("FindFastShapeModel: maxOverlap must be in [0,1]");
     }
-    greediness = std::clamp(greediness, 0.0, 1.0);
+    const double greedy = std::clamp(greediness, 0.0, 1.0);
 
     const auto* impl = model.Impl();
     const auto& st = impl->strategy;
+    const size_t templateCount = impl->rotatedTemplates.size();
     Qi::Vision::Internal::LinemodPyramid targetPyramid;
     Qi::Vision::Internal::LinemodPyramidParams targetParams;
     targetParams.numLevels = impl->numLevels;
     targetParams.minMagnitude = impl->weakThreshold;
     targetParams.spreadT = st.tAtLevel.empty() ? 4 : st.tAtLevel.front();
+    targetParams.spreadTAtLevel = st.tAtLevel;
     targetParams.neighborThreshold = K_NEIGHBOR_THRESHOLD;
     targetParams.smoothSigma = K_SMOOTH_SIGMA;
     targetParams.extractFeatures = false;
@@ -443,52 +599,64 @@ void FindFastShapeModel(
     if (!targetPyramid.Build(image, targetParams)) {
         throw InvalidArgumentException("FindFastShapeModel: failed to build target LINEMOD pyramid");
     }
+    tBuild1 = Clock::now();
 
     const int32_t levels = std::min<int32_t>(impl->numLevels, targetPyramid.NumLevels());
     if (levels <= 0) {
+        tCoarse1 = tBuild1;
+        tRefine1 = tCoarse1;
+        tPost1 = tRefine1;
+        printTiming("no_levels", -1, 0, templateCount);
         return;
     }
 
     int32_t startLevel = levels - 1;
     while (startLevel > 0 &&
            (startLevel >= static_cast<int32_t>(impl->levelFeatures.size()) ||
-            static_cast<int32_t>(impl->levelFeatures[static_cast<size_t>(startLevel)].size()) < 32)) {
+            static_cast<int32_t>(impl->levelFeatures[static_cast<size_t>(startLevel)].size()) <
+                K_MIN_START_LEVEL_FEATURES)) {
         startLevel--;
     }
 
     if (startLevel < 0 ||
         startLevel >= static_cast<int32_t>(impl->levelFeatures.size()) ||
         impl->levelFeatures[static_cast<size_t>(startLevel)].empty()) {
+        tCoarse1 = tBuild1;
+        tRefine1 = tCoarse1;
+        tPost1 = tRefine1;
+        printTiming("no_start_level", startLevel, 0, templateCount);
         return;
     }
 
-    int32_t kStepSize = 4;
+    int32_t stepSize = K_COARSE_STEP_SIZE;
     if (!st.tAtLevel.empty()) {
-        int32_t stepIndex = std::clamp(startLevel, 0, static_cast<int32_t>(st.tAtLevel.size()) - 1);
-        kStepSize = std::max(1, st.tAtLevel[static_cast<size_t>(stepIndex)]);
+        const int32_t idx = std::clamp(startLevel, 0, static_cast<int32_t>(st.tAtLevel.size()) - 1);
+        // Faster coarse scan: keep alignment with T but preserve recall with /2.
+        stepSize = std::max(stepSize, std::max(1, st.tAtLevel[static_cast<size_t>(idx)] / 2));
     }
+    const double coarseScale = std::clamp(K_COARSE_MIN_SCORE_SCALE + (greedy - 0.5) * 0.12, 0.55, 0.75);
     const double coarseThreshold = std::max(
         K_COARSE_MIN_SCORE_FLOOR,
-        minScore * (K_COARSE_MIN_SCORE_SCALE + 0.08 * greediness));
+        minScore * coarseScale);
 
     std::vector<Candidate> candidates;
     candidates.reserve(2048);
 
-    for (size_t ai = 0; ai < impl->templateAngles.size(); ++ai) {
-        if (ai >= impl->rotatedTemplates.size() ||
+    auto coarseSearchForAngle = [&](size_t ai, std::vector<Candidate>& out) {
+        if (ai >= templateCount ||
             startLevel >= static_cast<int32_t>(impl->rotatedTemplates[ai].size())) {
-            continue;
+            return;
         }
 
         const auto& rotatedFeatures = impl->rotatedTemplates[ai][static_cast<size_t>(startLevel)];
         if (rotatedFeatures.empty()) {
-            continue;
+            return;
         }
 
         int32_t rotMinX = 0, rotMaxX = 0, rotMinY = 0, rotMaxY = 0;
         ComputeFeatureBounds(rotatedFeatures, rotMinX, rotMaxX, rotMinY, rotMaxY);
         if (rotMinX > rotMaxX || rotMinY > rotMaxY) {
-            continue;
+            return;
         }
 
         int32_t targetW = targetPyramid.GetWidth(startLevel);
@@ -500,81 +668,72 @@ void FindFastShapeModel(
         int32_t searchYMax = std::min(targetH - 1, targetH - 1 - rotMaxY);
 
         if (searchXMin > searchXMax || searchYMin > searchYMax) {
-            continue;
+            return;
         }
 
-        for (int32_t y = searchYMin; y <= searchYMax; y += kStepSize) {
-            std::vector<int32_t> xPositions;
-            std::vector<double> rowScores;
-            targetPyramid.ComputeScoresRow(rotatedFeatures, startLevel,
-                                           searchXMin, searchXMax, y,
-                                           kStepSize, coarseThreshold,
-                                           xPositions, rowScores);
+        alignas(32) double scores8[8];
+        for (int32_t y = searchYMin; y <= searchYMax; y += stepSize) {
+            int32_t x = searchXMin;
 
-            for (size_t i = 0; i < xPositions.size() && i < rowScores.size(); ++i) {
-                candidates.push_back({xPositions[i], y, impl->templateAngles[ai], rowScores[i]});
-            }
-        }
-    }
-
-    if (candidates.empty()) {
-        return;
-    }
-
-    const double modelWCoarse =
-        std::max(8.0, static_cast<double>(impl->templateWidth) / static_cast<double>(1 << startLevel));
-    const double modelHCoarse =
-        std::max(8.0, static_cast<double>(impl->templateHeight) / static_cast<double>(1 << startLevel));
-    const double coarseDist = std::max(
-        5.0, std::sqrt(modelWCoarse * modelWCoarse + modelHCoarse * modelHCoarse) * K_COARSE_DIVERSITY_DIST_SCALE);
-    const size_t coarseCap = static_cast<size_t>(std::max(
-        16, static_cast<int32_t>(std::lround(K_COARSE_CANDIDATE_CAP * (1.15 - 0.55 * greediness)))));
-    KeepTopDiverse(candidates, coarseCap, coarseDist, K_COARSE_DIVERSITY_ANGLE_DEG * K_PI / 180.0);
-
-    // Fine angle refinement around coarse candidates (aligned with archived LINEMOD flow).
-    const double kFineAngleRadius = K_FINE_ANGLE_RADIUS_DEG * K_PI / 180.0;
-    const double kFineAngleStep = K_FINE_ANGLE_STEP_DEG * K_PI / 180.0;
-    const auto& startLevelFeatures = impl->levelFeatures[static_cast<size_t>(startLevel)];
-
-    std::vector<Candidate> refinedCandidates;
-    refinedCandidates.reserve(candidates.size());
-
-    for (const auto& c : candidates) {
-        Candidate best = c;
-
-        for (double dAngle = -kFineAngleRadius; dAngle <= kFineAngleRadius + 1e-9; dAngle += kFineAngleStep) {
-            if (std::abs(dAngle) < 1e-9) {
-                continue;
-            }
-
-            double fineAngle = c.angle + dAngle;
-            auto rotated = Qi::Vision::Internal::LinemodPyramid::RotateFeatures(startLevelFeatures, fineAngle);
-
-            for (int32_t dy = -1; dy <= 1; ++dy) {
-                for (int32_t dx = -1; dx <= 1; ++dx) {
-                    int32_t px = c.x + dx;
-                    int32_t py = c.y + dy;
-
-                    if (px < 0 || px >= targetPyramid.GetWidth(startLevel) ||
-                        py < 0 || py >= targetPyramid.GetHeight(startLevel)) {
-                        continue;
-                    }
-
-                    double s = targetPyramid.ComputeScorePrecomputed(rotated, startLevel, px, py);
-                    if (s > best.score) {
-                        best.x = px;
-                        best.y = py;
-                        best.angle = fineAngle;
-                        best.score = s;
+            for (; x + 7 <= searchXMax; x += 8) {
+                targetPyramid.ComputeScoresBatch8(rotatedFeatures, startLevel, x, y, scores8);
+                for (int32_t i = 0; i < 8; ++i) {
+                    if (scores8[i] >= coarseThreshold) {
+                        out.push_back({x + i, y, impl->templateAngles[ai], impl->templateScales[ai], scores8[i]});
                     }
                 }
             }
+
+            for (; x <= searchXMax; ++x) {
+                double score = targetPyramid.ComputeScorePrecomputed(rotatedFeatures, startLevel, x, y);
+                if (score >= coarseThreshold) {
+                    out.push_back({x, y, impl->templateAngles[ai], impl->templateScales[ai], score});
+                }
+            }
+        }
+    };
+
+#ifdef _OPENMP
+#pragma omp parallel
+    {
+        std::vector<Candidate> localCandidates;
+        localCandidates.reserve(1024);
+
+#pragma omp for schedule(dynamic)
+        for (int32_t ai = 0; ai < static_cast<int32_t>(templateCount); ++ai) {
+            coarseSearchForAngle(static_cast<size_t>(ai), localCandidates);
         }
 
-        refinedCandidates.push_back(best);
+#pragma omp critical
+        {
+            candidates.insert(candidates.end(),
+                              localCandidates.begin(), localCandidates.end());
+        }
+    }
+#else
+    for (size_t ai = 0; ai < templateCount; ++ai) {
+        coarseSearchForAngle(ai, candidates);
+    }
+#endif
+
+    if (candidates.empty()) {
+        tCoarse1 = Clock::now();
+        tRefine1 = tCoarse1;
+        tPost1 = tRefine1;
+        printTiming("no_coarse_candidate", startLevel, stepSize, templateCount);
+        return;
     }
 
-    candidates.swap(refinedCandidates);
+    coarseRawCount = candidates.size();
+    const double startScale = std::ldexp(1.0, -startLevel);
+    ApplyNMS(candidates, maxOverlap,
+             std::max(4.0, static_cast<double>(impl->templateWidth) * startScale),
+             std::max(4.0, static_cast<double>(impl->templateHeight) * startScale));
+    if (static_cast<int32_t>(candidates.size()) > K_COARSE_CANDIDATE_CAP) {
+        candidates.resize(static_cast<size_t>(K_COARSE_CANDIDATE_CAP));
+    }
+    coarseNmsCount = candidates.size();
+    tCoarse1 = Clock::now();
 
     // Coarse-to-fine pyramid refinement.
     for (int32_t level = startLevel - 1; level >= 0; --level) {
@@ -598,17 +757,21 @@ void FindFastShapeModel(
 
         std::vector<Candidate> refined;
         refined.reserve(candidates.size());
+        const double acceptScale = std::clamp(K_REFINE_ACCEPT_SCALE + (greedy - 0.5) * 0.10, 0.62, 0.82);
+        const double acceptThreshold = minScore * acceptScale;
 
-        for (const auto& c : candidates) {
+        auto refineOne = [&](const Candidate& c,
+                             std::vector<std::vector<Qi::Vision::Internal::LinemodFeature>>& rotatedTemplates,
+                             std::vector<Candidate>& out) {
             double baseX = c.x * 2.0;
             double baseY = c.y * 2.0;
             double baseAngle = c.angle;
+            double baseScale = c.scale;
+            auto scaledLevelFeatures = ScaleFeatures(levelFeatures, baseScale);
 
-            std::vector<std::vector<Qi::Vision::Internal::LinemodFeature>> rotatedTemplates;
-            rotatedTemplates.resize(refineAngles.size());
             for (size_t ai = 0; ai < refineAngles.size(); ++ai) {
                 rotatedTemplates[ai] = Qi::Vision::Internal::LinemodPyramid::RotateFeatures(
-                    levelFeatures, baseAngle + refineAngles[ai]);
+                    scaledLevelFeatures, baseAngle + refineAngles[ai]);
             }
 
             Candidate best;
@@ -629,36 +792,61 @@ void FindFastShapeModel(
                             best.x = px;
                             best.y = py;
                             best.angle = baseAngle + refineAngles[ai];
+                            best.scale = baseScale;
                             best.score = s;
                         }
                     }
                 }
             }
 
-            const double refineAccept = std::clamp(K_REFINE_ACCEPT_SCALE + 0.08 * greediness, 0.0, 1.0);
-            if (best.score >= minScore * refineAccept) {
-                refined.push_back(best);
+            if (best.score >= acceptThreshold) {
+                out.push_back(best);
+            }
+        };
+
+#ifdef _OPENMP
+#pragma omp parallel
+        {
+            std::vector<Candidate> localRefined;
+            localRefined.reserve(candidates.size() / 4 + 8);
+            std::vector<std::vector<Qi::Vision::Internal::LinemodFeature>> rotatedTemplates(refineAngles.size());
+
+#pragma omp for schedule(static)
+            for (int32_t ci = 0; ci < static_cast<int32_t>(candidates.size()); ++ci) {
+                refineOne(candidates[static_cast<size_t>(ci)], rotatedTemplates, localRefined);
+            }
+
+#pragma omp critical
+            {
+                refined.insert(refined.end(), localRefined.begin(), localRefined.end());
             }
         }
+#else
+        std::vector<std::vector<Qi::Vision::Internal::LinemodFeature>> rotatedTemplates(refineAngles.size());
+        for (const auto& c : candidates) {
+            refineOne(c, rotatedTemplates, refined);
+        }
+#endif
 
         candidates.swap(refined);
         if (candidates.empty()) {
             break;
         }
 
-        const double levelModelW =
-            std::max(8.0, static_cast<double>(impl->templateWidth) / static_cast<double>(1 << level));
-        const double levelModelH =
-            std::max(8.0, static_cast<double>(impl->templateHeight) / static_cast<double>(1 << level));
-        const double levelDist = std::max(
-            4.0, std::sqrt(levelModelW * levelModelW + levelModelH * levelModelH) * K_REFINE_DIVERSITY_DIST_SCALE);
-        int32_t capBase = (level == 0) ? K_REFINE_CANDIDATE_CAP_FINE : K_REFINE_CANDIDATE_CAP_COARSE;
-        size_t limit = static_cast<size_t>(std::max(
-            8, static_cast<int32_t>(std::lround(capBase * (1.15 - 0.50 * greediness)))));
-        KeepTopDiverse(candidates, limit, levelDist, K_REFINE_DIVERSITY_ANGLE_DEG * K_PI / 180.0);
+        const double levelScale = std::ldexp(1.0, -level);
+        ApplyNMS(candidates, maxOverlap,
+                 std::max(4.0, static_cast<double>(impl->templateWidth) * levelScale),
+                 std::max(4.0, static_cast<double>(impl->templateHeight) * levelScale));
+        const int32_t levelCap = (level == 0) ? K_REFINE_CANDIDATE_CAP_FINE : K_REFINE_CANDIDATE_CAP_COARSE;
+        if (static_cast<int32_t>(candidates.size()) > levelCap) {
+            candidates.resize(static_cast<size_t>(levelCap));
+        }
     }
+    tRefine1 = Clock::now();
 
     if (candidates.empty()) {
+        tPost1 = tRefine1;
+        printTiming("empty_after_refine", startLevel, stepSize, templateCount);
         return;
     }
 
@@ -673,17 +861,22 @@ void FindFastShapeModel(
     }
 
     if (results.empty()) {
+        tPost1 = Clock::now();
+        finalPreNmsCount = 0;
+        finalCount = 0;
+        printTiming("below_min_score", startLevel, stepSize, templateCount);
         return;
     }
+    finalPreNmsCount = results.size();
 
     ApplyNMS(results, maxOverlap,
              static_cast<double>(impl->templateWidth),
-             static_cast<double>(impl->templateHeight),
-             K_NMS_MIN_DIST_SCALE,
-             K_NMS_OVERLAP_MIN_AREA);
-
-    std::sort(results.begin(), results.end(),
-              [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
+             static_cast<double>(impl->templateHeight));
+    ApplyFinalDedup(results, maxOverlap,
+                    static_cast<double>(impl->templateWidth),
+                    static_cast<double>(impl->templateHeight));
+    finalCount = results.size();
+    tPost1 = Clock::now();
 
     if (numMatches > 0 && static_cast<int32_t>(results.size()) > numMatches) {
         results.resize(static_cast<size_t>(numMatches));
@@ -693,13 +886,21 @@ void FindFastShapeModel(
     cols.reserve(results.size());
     angles.reserve(results.size());
     scores.reserve(results.size());
+    if (scales != nullptr) {
+        scales->reserve(results.size());
+    }
 
     for (const auto& r : results) {
         rows.push_back(r.y);
         cols.push_back(r.x);
         angles.push_back(r.angle);
         scores.push_back(r.score);
+        if (scales != nullptr) {
+            scales->push_back(r.scale);
+        }
     }
+
+    printTiming("ok", startLevel, stepSize, templateCount);
 }
 
 void GetFastShapeModelFeaturePoints(

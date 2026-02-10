@@ -124,6 +124,12 @@ inline double InterpolateAngleXLD(double a1, double a2, double t) {
     return result;
 }
 
+inline double AngularDistance(double a, double b) {
+    double diff = std::abs(a - b);
+    if (diff > PI) diff = 2.0 * PI - diff;
+    return diff;
+}
+
 /**
  * @brief Filter edge points by connected component size (8-connectivity)
  *
@@ -262,8 +268,8 @@ std::vector<XLDContourSegment> TraceContoursXLD(
     // 8-neighbor offsets (ordered for smooth traversal)
     static const int32_t dx8[8] = {1, 1, 0, -1, -1, -1, 0, 1};
     static const int32_t dy8[8] = {0, 1, 1, 1, 0, -1, -1, -1};
-    constexpr double MAX_DIR_DIFF = PI * 0.17;  // ~30 degrees
-    constexpr double MIN_MAG_RATIO = 0.4;       // Neighbor must be reasonably strong
+    constexpr double MAX_DIR_DIFF = PI * 0.31;  // ~55 degrees
+    constexpr double MIN_MAG_RATIO = 0.2;       // Keep weaker but connected edges
 
     std::vector<bool> visited(edgePoints.size(), false);
     std::vector<XLDContourSegment> contours;
@@ -316,8 +322,7 @@ std::vector<XLDContourSegment> TraceContoursXLD(
 
                 // Score: direction consistency + magnitude
                 double neighborEdgeDir = edgePoints[neighborIdx].angle + PI * 0.5;
-                double dirDiff = std::abs(edgeDir - neighborEdgeDir);
-                if (dirDiff > PI) dirDiff = 2.0 * PI - dirDiff;
+                double dirDiff = AngularDistance(edgeDir, neighborEdgeDir);
 
                 if (dirDiff > MAX_DIR_DIFF) {
                     continue;
@@ -327,7 +332,13 @@ std::vector<XLDContourSegment> TraceContoursXLD(
                     continue;
                 }
 
-                double score = (1.0 - dirDiff / PI) + edgePoints[neighborIdx].magnitude * 0.001;
+                // Prefer candidates that continue both tangent direction and local path direction.
+                double stepDir = std::atan2(static_cast<double>(ny - py), static_cast<double>(nx - px));
+                double stepDiff = AngularDistance(edgeDir, stepDir);
+                double score = 0.55 * (1.0 - dirDiff / PI)
+                             + 0.30 * (1.0 - stepDiff / PI)
+                             + 0.15 * std::min(1.0, edgePoints[neighborIdx].magnitude /
+                                                      std::max(1e-6, ep.magnitude));
 
                 if (score > bestScore) {
                     bestScore = score;
@@ -368,8 +379,7 @@ std::vector<XLDContourSegment> TraceContoursXLD(
                 if (visited[neighborIdx]) continue;
 
                 double neighborEdgeDir = edgePoints[neighborIdx].angle - PI * 0.5;
-                double dirDiff = std::abs(edgeDir - neighborEdgeDir);
-                if (dirDiff > PI) dirDiff = 2.0 * PI - dirDiff;
+                double dirDiff = AngularDistance(edgeDir, neighborEdgeDir);
 
                 if (dirDiff > MAX_DIR_DIFF) {
                     continue;
@@ -379,7 +389,12 @@ std::vector<XLDContourSegment> TraceContoursXLD(
                     continue;
                 }
 
-                double score = (1.0 - dirDiff / PI) + edgePoints[neighborIdx].magnitude * 0.001;
+                double stepDir = std::atan2(static_cast<double>(ny - py), static_cast<double>(nx - px));
+                double stepDiff = AngularDistance(edgeDir, stepDir);
+                double score = 0.55 * (1.0 - dirDiff / PI)
+                             + 0.30 * (1.0 - stepDiff / PI)
+                             + 0.15 * std::min(1.0, edgePoints[neighborIdx].magnitude /
+                                                      std::max(1e-6, ep.magnitude));
 
                 if (score > bestScore) {
                     bestScore = score;
@@ -864,18 +879,19 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
         pyramidParams.minContrast = (params_.contrastLow > 0) ? params_.contrastLow : params_.contrastHigh;
     }
 
-    // Extract ROI if specified (with edge-guided expansion for better context)
+    // Extract ROI if specified
     QImage templateImg;
     int32_t roiOffsetX = 0;
     int32_t roiOffsetY = 0;
+    QRegion templateRegion;
     if (roi.width > 0 && roi.height > 0) {
         templateImg = image.SubImage(roi.x, roi.y, roi.width, roi.height);
         templateSize_ = Size2i{roi.width, roi.height};
-        roiOffsetX = 0;
-        roiOffsetY = 0;
+        templateRegion = QRegion(Rect2i(0, 0, roi.width, roi.height));
     } else {
         templateImg = image;
         templateSize_ = Size2i{image.Width(), image.Height()};
+        templateRegion = QRegion(Rect2i(0, 0, image.Width(), image.Height()));
     }
 
     if (templateImg.Empty()) {
@@ -1033,10 +1049,12 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const Rect2i& roi, const P
         origin_.y += roiOffsetY;
     }
 
-    // Extract model points from pyramid using XLD contour extraction (Halcon-style)
-    // XLD flow: Sobel → NMS → Threshold → 8-neighbor tracing → Resample (spacing ≈ 1px)
+    // Extract model points from pyramid using region-constrained XLD extraction.
+    // This keeps template semantics stable when ROI size changes.
     tStep = std::chrono::high_resolution_clock::now();
-    ExtractModelPointsXLD(templateImg, pyramid);
+    int32_t dilateSize = std::max(1, std::min(templateSize_.width, templateSize_.height) / 48);
+    QRegion edgeRegion = templateRegion.Dilate(dilateSize * 2 + 1, dilateSize * 2 + 1);
+    ExtractModelPointsXLDWithRegion(templateImg, pyramid, edgeRegion);
     if (timingParams_.enableTiming) {
         createTiming_.extractPointsMs = elapsedMs(tStep);
     }
@@ -1774,8 +1792,9 @@ void ShapeModelImpl::ExtractModelPointsXLDWithRegion(const QImage& templateImg, 
             tileMags[ty * tilesX + tx].push_back(static_cast<float>(ep.magnitude));
         }
 
-        std::vector<float> tileHigh(static_cast<size_t>(tilesX * tilesY),
-                                    static_cast<float>(levelContrastHigh));
+        const float globalHigh = static_cast<float>(levelContrastHigh);
+        const float globalLow = static_cast<float>(levelContrastLow);
+        std::vector<float> tileHigh(static_cast<size_t>(tilesX * tilesY), globalHigh);
         for (int32_t ty = 0; ty < tilesY; ++ty) {
             for (int32_t tx = 0; tx < tilesX; ++tx) {
                 auto& mags = tileMags[ty * tilesX + tx];
@@ -1783,10 +1802,12 @@ void ShapeModelImpl::ExtractModelPointsXLDWithRegion(const QImage& templateImg, 
                     continue;
                 }
                 std::sort(mags.begin(), mags.end());
-                size_t idx = mags.size() * 85 / 100;  // p85
+                size_t idx = mags.size() * 90 / 100;  // p90
                 idx = std::min(idx, mags.size() - 1);
-                float localHigh = mags[idx];
-                tileHigh[ty * tilesX + tx] = std::max(tileHigh[ty * tilesX + tx], localHigh);
+                float localP90 = mags[idx];
+                float adaptiveHigh = globalHigh * 0.65f + localP90 * 0.35f;
+                adaptiveHigh = std::clamp(adaptiveHigh, globalHigh * 0.70f, globalHigh * 1.25f);
+                tileHigh[ty * tilesX + tx] = adaptiveHigh;
             }
         }
 
@@ -1797,7 +1818,7 @@ void ShapeModelImpl::ExtractModelPointsXLDWithRegion(const QImage& templateImg, 
             int32_t tx = std::clamp(static_cast<int32_t>(ep.x) / tileSize, 0, tilesX - 1);
             int32_t ty = std::clamp(static_cast<int32_t>(ep.y) / tileSize, 0, tilesY - 1);
             float localHigh = tileHigh[ty * tilesX + tx];
-            float localLow = std::max(static_cast<float>(levelContrastLow), localHigh * 0.5f);
+            float localLow = std::max(globalLow, std::min(localHigh * 0.45f, localHigh - 1.0f));
             if (ep.magnitude >= localLow) {
                 edgePoints.push_back(ep);
             }
@@ -1827,7 +1848,7 @@ void ShapeModelImpl::ExtractModelPointsXLDWithRegion(const QImage& templateImg, 
                 int32_t tx = std::clamp(static_cast<int32_t>(ep.x) / tileSize, 0, tilesX - 1);
                 int32_t ty = std::clamp(static_cast<int32_t>(ep.y) / tileSize, 0, tilesY - 1);
                 float localHigh = tileHigh[ty * tilesX + tx];
-                float localLow = std::max(static_cast<float>(levelContrastLow), localHigh * 0.5f);
+                float localLow = std::max(globalLow, std::min(localHigh * 0.45f, localHigh - 1.0f));
                 if (ep.magnitude > levelContrastMax) continue;
 
                 if (ep.magnitude >= localHigh) {
@@ -1896,7 +1917,10 @@ void ShapeModelImpl::ExtractModelPointsXLDWithRegion(const QImage& templateImg, 
             }
         } else {
             for (const auto& ep : edgePoints) {
-                if (ep.magnitude >= levelContrastHigh && ep.magnitude <= levelContrastMax) {
+                int32_t tx = std::clamp(static_cast<int32_t>(ep.x) / tileSize, 0, tilesX - 1);
+                int32_t ty = std::clamp(static_cast<int32_t>(ep.y) / tileSize, 0, tilesY - 1);
+                float localHigh = tileHigh[ty * tilesX + tx];
+                if (ep.magnitude >= localHigh && ep.magnitude <= levelContrastMax) {
                     filteredPoints.push_back(ep);
                 }
             }

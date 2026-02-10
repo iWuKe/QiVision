@@ -33,6 +33,10 @@ int main() {
     strategy.weakThreshold = 20.0;
     strategy.strongThreshold = 60.0;
     strategy.numFeatures = 63;
+    // Optional multi-scale training (meiqua-style):
+    // strategy.scaleMin = 0.9;
+    // strategy.scaleMax = 1.1;
+    // strategy.scaleStep = 0.02;
     CreateFastShapeModel(
         gray, roi, model,
         0,             // auto levels

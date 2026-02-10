@@ -160,6 +160,11 @@ Tests    █████████████████░░░ 87%
 | Internal/AnglePyramid.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 角度预计算模型（新增依赖） |
 | Internal/IntegralImage.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | 积分图（NCCModel依赖） |
 
+**2026-02-10 增量更新（FastShapeModel）**:
+- 新增训练阶段多尺度模板参数：`scaleMin/scaleMax/scaleStep`（与 meiqua/line2Dup 思路一致）
+- `FindFastShapeModel` 新增可选 `scales` 输出参数（保持旧调用兼容）
+- `samples/matching/fast_shape_match.cpp` 增加多尺度参数示例注释
+
 ---
 
 ## Phase 9: Feature 层 - Metrology

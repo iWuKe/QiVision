@@ -1,7 +1,7 @@
 # QiVision API Reference
 
 > Version: 0.16.0
-> Last Updated: 2026-02-08
+> Last Updated: 2026-02-10
 > Namespace: `Qi::Vision`
 
 Professional industrial machine vision library.
@@ -336,6 +336,139 @@ void DetermineShapeModelParams(
 |------|------|-------------|
 | numLevels | int32_t& | [out] Recommended pyramid levels |
 | contrast | double& | [out] Recommended contrast threshold |
+
+---
+
+### FastShapeModel
+
+Fast orientation-based template matching (line2Dup/meiqua-style pipeline).
+
+```cpp
+class FastShapeModel {
+public:
+    FastShapeModel();
+    bool IsValid() const;
+};
+```
+
+**Methods**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| IsValid() | bool | True if model contains valid data |
+
+---
+
+### FastShapeModelStrategy
+
+Fast model strategy parameters.
+
+```cpp
+struct FastShapeModelStrategy {
+    int32_t numFeatures = 63;
+    std::vector<int32_t> tAtLevel{5, 8};
+    double weakThreshold = 20.0;
+    double strongThreshold = 60.0;
+    double scaleMin = 1.0;
+    double scaleMax = 1.0;
+    double scaleStep = 0.0;   // <=0 means single-scale
+};
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| numFeatures | int32_t | Feature count at level 0 |
+| tAtLevel | std::vector<int32_t> | Pyramid spread step per level |
+| weakThreshold | double | Search-side magnitude threshold |
+| strongThreshold | double | Template-side magnitude threshold |
+| scaleMin | double | Training-time minimum scale |
+| scaleMax | double | Training-time maximum scale |
+| scaleStep | double | Scale step (`<=0` uses single-scale) |
+
+---
+
+### CreateFastShapeModel
+
+Creates a FastShapeModel from rectangular ROI.
+
+```cpp
+void CreateFastShapeModel(
+    const QImage& image,
+    const Rect2i& roi,
+    FastShapeModel& model,
+    int32_t numLevels,
+    double angleStart,
+    double angleExtent,
+    double angleStep,
+    const FastShapeModelStrategy& strategy = FastShapeModelStrategy()
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Template image (grayscale) |
+| roi | const Rect2i& | Template ROI |
+| model | FastShapeModel& | [out] Output model handle |
+| numLevels | int32_t | Pyramid levels (0 = auto from `strategy.tAtLevel`) |
+| angleStart | double | Minimum search angle [rad] |
+| angleExtent | double | Search extent [rad] |
+| angleStep | double | Search step [rad] (0 = auto) |
+| strategy | const FastShapeModelStrategy& | Fast matching strategy |
+
+---
+
+### FindFastShapeModel
+
+Finds fast-shape matches in image.
+
+```cpp
+void FindFastShapeModel(
+    const QImage& image,
+    const FastShapeModel& model,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    double greediness,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scores,
+    std::vector<double>* scales = nullptr
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Search image (grayscale) |
+| model | const FastShapeModel& | Model handle |
+| minScore | double | Minimum score [0,1] |
+| numMatches | int32_t | Maximum matches (`0` = all) |
+| maxOverlap | double | Maximum overlap [0,1] |
+| greediness | double | Search pruning [0,1] |
+| rows | std::vector<double>& | [out] Match Y |
+| cols | std::vector<double>& | [out] Match X |
+| angles | std::vector<double>& | [out] Match angle [rad] |
+| scores | std::vector<double>& | [out] Match score [0,1] |
+| scales | std::vector<double>* | [out,opt] Match scale; null means no output |
+
+---
+
+### GetFastShapeModelFeaturePoints / GetFastShapeModelTemplateSize
+
+```cpp
+void GetFastShapeModelFeaturePoints(
+    const FastShapeModel& model,
+    std::vector<Point2d>& points
+);
+
+void GetFastShapeModelTemplateSize(
+    const FastShapeModel& model,
+    int32_t& width,
+    int32_t& height
+);
+```
 
 ---
 

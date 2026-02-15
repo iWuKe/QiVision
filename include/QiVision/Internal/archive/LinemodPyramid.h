@@ -124,6 +124,14 @@ struct LinemodLevelData {
     /// Response maps for each orientation [8][height][stride]
     std::array<std::vector<uint8_t>, LINEMOD_NUM_BINS> responseMaps;
 
+    /// Linearized response maps for cache-friendly access during search.
+    /// Layout: linearized[bin][(dy*T+dx) * numBlocks + blockIdx]
+    /// where numBlocks = ceil(H/T) * ceil(W/T), blockIdx = (y/T)*bw + (x/T)
+    std::array<std::vector<uint8_t>, LINEMOD_NUM_BINS> linearized;
+    int32_t linearT = 0;       ///< T value used for linearization
+    int32_t linearBW = 0;      ///< Number of blocks per row (ceil(W/T))
+    int32_t linearBH = 0;      ///< Number of blocks per column (ceil(H/T))
+
     /// Extracted features for template
     std::vector<LinemodFeature> features;
 };
@@ -290,10 +298,13 @@ public:
      * @param level Pyramid level
      * @param x Search X position
      * @param y Search Y position
+     * @param earlyRejectThreshold If > 0, enable early termination when
+     *        accumulated score + remaining max possible < threshold
      * @return Normalized score in [0, 1]
      */
     double ComputeScorePrecomputed(const std::vector<LinemodFeature>& rotatedFeatures,
-                                    int32_t level, int32_t x, int32_t y) const;
+                                    int32_t level, int32_t x, int32_t y,
+                                    double earlyRejectThreshold = -1.0) const;
 
     /**
      * @brief Compute scores for 8 consecutive X positions (SIMD optimized)
@@ -306,10 +317,13 @@ public:
      * @param x Starting X position (must have at least 8 valid positions after it)
      * @param y Y position
      * @param scoresOut Output array for 8 scores (must be at least 8 elements)
+     * @param earlyRejectThreshold If > 0, enable early termination when
+     *        best of 8 positions + remaining max possible < threshold
      */
     void ComputeScoresBatch8(const std::vector<LinemodFeature>& rotatedFeatures,
                              int32_t level, int32_t x, int32_t y,
-                             double* scoresOut) const;
+                             double* scoresOut,
+                             double earlyRejectThreshold = -1.0) const;
 
     /**
      * @brief Get spread image data for direct access
@@ -351,6 +365,7 @@ private:
     void ApplyNeighborVoting(LinemodLevelData& level);
     void ApplyORSpreading(LinemodLevelData& level, int32_t levelIdx);
     void BuildResponseMaps(LinemodLevelData& level);
+    void Linearize(LinemodLevelData& level, int32_t T);
     void ExtractLevelFeatures(LinemodLevelData& level);
 
     /// Ensure buffer has at least 'size' elements

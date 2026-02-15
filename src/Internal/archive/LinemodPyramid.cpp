@@ -54,17 +54,18 @@ SimilarityLUT::SimilarityLUT() {
     // 135°: cos(135) = -0.707 -> 3 (absolute value)
     // 180°: cos(180) = -1.000 -> 4 (absolute value)
 
-    // Circular similarity by orientation-bin distance (single-peak at 0 deg).
-    // This avoids 180-degree ambiguity from absolute-cosine scoring.
+    // Similarity by orientation-bin distance using round(|cos(diff * 22.5°)| * 4).
+    // Uses 16→8 bin folding (bin16 & 7), so each bin covers 22.5° effective range.
+    // More tolerant than floor-based scoring, improving recall for small angle diffs.
     static const uint8_t cosTable[8] = {
-        4,  // 0 bins difference
-        3,  // 1 bin  (45 deg)
-        2,  // 2 bins (90 deg)
-        1,  // 3 bins (135 deg)
-        0,  // 4 bins (180 deg)
-        1,  // 5 bins
-        2,  // 6 bins
-        3   // 7 bins
+        4,  // 0 bins (0°):    cos(0)    = 1.000 → round(4.00) = 4
+        4,  // 1 bin  (22.5°): cos(22.5) = 0.924 → round(3.70) = 4
+        3,  // 2 bins (45°):   cos(45)   = 0.707 → round(2.83) = 3
+        2,  // 3 bins (67.5°): cos(67.5) = 0.383 → round(1.53) = 2
+        0,  // 4 bins (90°):   cos(90)   = 0.000 → round(0.00) = 0
+        2,  // 5 bins (112.5°): symmetric to 3
+        3,  // 6 bins (135°):   symmetric to 2
+        4   // 7 bins (157.5°): symmetric to 1
     };
 
     for (int32_t ori = 0; ori < 8; ++ori) {
@@ -405,6 +406,18 @@ bool LinemodPyramid::BuildLevel(const QImage& image, int32_t levelIdx) {
     ApplyORSpreading(level, levelIdx);
     BuildResponseMaps(level);
 
+    // Linearize response maps for cache-friendly search access
+    {
+        int32_t spreadT = params_.spreadT;
+        if (!params_.spreadTAtLevel.empty() &&
+            levelIdx >= 0 &&
+            levelIdx < static_cast<int32_t>(params_.spreadTAtLevel.size())) {
+            spreadT = params_.spreadTAtLevel[static_cast<size_t>(levelIdx)];
+        }
+        int32_t linT = std::max(1, spreadT);
+        Linearize(level, linT);
+    }
+
     // 提取特征 (模板创建时)
     if (params_.extractFeatures) {
         ExtractLevelFeatures(level);
@@ -528,15 +541,36 @@ void LinemodPyramid::ApplyORSpreading(LinemodLevelData& level, int32_t levelIdx)
 
     // OR spreading (single direction, line2Dup-style):
     // spread[y][x] |= quantized[y + dy][x + dx], dy/dx in [0, T).
+    // Inner x loop uses SIMD for batch OR operations.
     for (int32_t dy = 0; dy < T; ++dy) {
         for (int32_t dx = 0; dx < T; ++dx) {
             if (dy == 0 && dx == 0) continue;
 
-            // OR src[y+dy][x+dx] into dst[y][x]
+            const int32_t xLimit = W - dx;
 #pragma omp parallel for schedule(static) if(W * H > 100000)
             for (int32_t y = 0; y < H - dy; ++y) {
-                for (int32_t x = 0; x < W - dx; ++x) {
-                    dst[y * dstStride + x] |= src[(y + dy) * srcStride + (x + dx)];
+                uint8_t* dstRow = dst + y * dstStride;
+                const uint8_t* srcRow = src + (y + dy) * srcStride + dx;
+                int32_t x = 0;
+
+#ifdef __AVX2__
+                for (; x + 32 <= xLimit; x += 32) {
+                    __m256i a = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dstRow + x));
+                    __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(srcRow + x));
+                    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dstRow + x), _mm256_or_si256(a, b));
+                }
+#endif
+
+#ifdef __SSE2__
+                for (; x + 16 <= xLimit; x += 16) {
+                    __m128i a = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstRow + x));
+                    __m128i b = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcRow + x));
+                    _mm_storeu_si128(reinterpret_cast<__m128i*>(dstRow + x), _mm_or_si128(a, b));
+                }
+#endif
+
+                for (; x < xLimit; ++x) {
+                    dstRow[x] |= srcRow[x];
                 }
             }
         }
@@ -566,6 +600,53 @@ void LinemodPyramid::BuildResponseMaps(LinemodLevelData& level) {
             uint8_t* dstRow = response.data() + y * stride;
             for (int32_t x = 0; x < W; ++x) {
                 dstRow[x] = g_SimilarityLUT.Get(bin, srcRow[x]);
+            }
+        }
+    }
+}
+
+void LinemodPyramid::Linearize(LinemodLevelData& level, int32_t T) {
+    const int32_t W = level.width;
+    const int32_t H = level.height;
+    const int32_t stride = static_cast<int32_t>(level.spread.Stride());
+
+    if (T <= 0 || W <= 0 || H <= 0 || level.responseMaps[0].empty()) {
+        level.linearT = 0;
+        return;
+    }
+
+    const int32_t BW = (W + T - 1) / T;
+    const int32_t BH = (H + T - 1) / T;
+    const int32_t numBlocks = BW * BH;
+    const int32_t numPhases = T * T;
+    const size_t totalSize = static_cast<size_t>(numPhases) * numBlocks;
+
+    level.linearT = T;
+    level.linearBW = BW;
+    level.linearBH = BH;
+
+    for (int32_t bin = 0; bin < LINEMOD_NUM_BINS; ++bin) {
+        auto& lin = level.linearized[static_cast<size_t>(bin)];
+        lin.assign(totalSize, 0);
+
+        const auto& resp = level.responseMaps[static_cast<size_t>(bin)];
+
+        for (int32_t dy = 0; dy < T; ++dy) {
+            for (int32_t dx = 0; dx < T; ++dx) {
+                const int32_t phaseOffset = (dy * T + dx) * numBlocks;
+
+                for (int32_t by = 0; by < BH; ++by) {
+                    const int32_t srcY = by * T + dy;
+                    if (srcY >= H) break;
+
+                    for (int32_t bx = 0; bx < BW; ++bx) {
+                        const int32_t srcX = bx * T + dx;
+                        if (srcX >= W) continue;
+
+                        lin[static_cast<size_t>(phaseOffset + by * BW + bx)] =
+                            resp[static_cast<size_t>(srcY * stride + srcX)];
+                    }
+                }
             }
         }
     }
@@ -871,7 +952,8 @@ double LinemodPyramid::ComputeScoreRotated(const std::vector<LinemodFeature>& fe
 }
 
 double LinemodPyramid::ComputeScorePrecomputed(const std::vector<LinemodFeature>& rotatedFeatures,
-                                               int32_t level, int32_t x, int32_t y) const
+                                               int32_t level, int32_t x, int32_t y,
+                                               double earlyRejectThreshold) const
 {
     if (!valid_ || level < 0 || level >= numLevels_ || rotatedFeatures.empty()) {
         return 0.0;
@@ -885,9 +967,15 @@ double LinemodPyramid::ComputeScorePrecomputed(const std::vector<LinemodFeature>
     const uint8_t* spreadData = hasResponseMap ? nullptr
                                                : static_cast<const uint8_t*>(levelData.spread.Data());
 
+    const int32_t N = static_cast<int32_t>(rotatedFeatures.size());
+    const int32_t earlyRejectScore = (earlyRejectThreshold > 0.0)
+        ? static_cast<int32_t>(earlyRejectThreshold * N * LINEMOD_MAX_RESPONSE)
+        : -1;
+
     int32_t totalScore = 0;
 
-    for (const auto& f : rotatedFeatures) {
+    for (int32_t i = 0; i < N; ++i) {
+        const auto& f = rotatedFeatures[static_cast<size_t>(i)];
         int32_t fx = x + f.x;
         int32_t fy = y + f.y;
 
@@ -902,15 +990,24 @@ double LinemodPyramid::ComputeScorePrecomputed(const std::vector<LinemodFeature>
         } else {
             totalScore += g_SimilarityLUT.Get(f.ori, spreadData[idx]);
         }
+
+        // Early termination: accumulated + remaining max possible < threshold
+        if (earlyRejectScore > 0) {
+            int32_t remaining = (N - i - 1) * LINEMOD_MAX_RESPONSE;
+            if (totalScore + remaining < earlyRejectScore) {
+                return 0.0;
+            }
+        }
     }
 
     return static_cast<double>(totalScore) /
-           (static_cast<double>(rotatedFeatures.size()) * LINEMOD_MAX_RESPONSE);
+           (static_cast<double>(N) * LINEMOD_MAX_RESPONSE);
 }
 
 void LinemodPyramid::ComputeScoresBatch8(const std::vector<LinemodFeature>& rotatedFeatures,
                                           int32_t level, int32_t x, int32_t y,
-                                          double* scoresOut) const
+                                          double* scoresOut,
+                                          double earlyRejectThreshold) const
 {
     for (int32_t i = 0; i < 8; ++i) {
         scoresOut[i] = 0.0;
@@ -928,11 +1025,18 @@ void LinemodPyramid::ComputeScoresBatch8(const std::vector<LinemodFeature>& rota
     const uint8_t* spreadData = hasResponseMap ? nullptr
                                                : static_cast<const uint8_t*>(levelData.spread.Data());
 
+    const int32_t N = static_cast<int32_t>(rotatedFeatures.size());
+    const int32_t earlyRejectScore = (earlyRejectThreshold > 0.0)
+        ? static_cast<int32_t>(earlyRejectThreshold * N * LINEMOD_MAX_RESPONSE)
+        : -1;
+    constexpr int32_t EARLY_CHECK_INTERVAL = 16;
+
 #ifdef __AVX2__
     __m256i vTotals = _mm256_setzero_si256();
     alignas(32) int32_t totals[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
-    for (const auto& f : rotatedFeatures) {
+    for (int32_t fi = 0; fi < N; ++fi) {
+        const auto& f = rotatedFeatures[static_cast<size_t>(fi)];
         const int32_t fy = y + f.y;
         const int32_t fx = x + f.x;
         if (fy < 0 || fy >= H || fx < 0 || fx + 7 >= W) {
@@ -955,19 +1059,45 @@ void LinemodPyramid::ComputeScoresBatch8(const std::vector<LinemodFeature>& rota
                 totals[i] += g_SimilarityLUT.Get(f.ori, ptr[i]);
             }
         }
+
+        // Early termination check every EARLY_CHECK_INTERVAL features
+        if (earlyRejectScore > 0 && ((fi + 1) % EARLY_CHECK_INTERVAL == 0)) {
+            int32_t remaining = (N - fi - 1) * LINEMOD_MAX_RESPONSE;
+            if (hasResponseMap) {
+                // Extract current max from vTotals
+                alignas(32) int32_t tmpTotals[8];
+                _mm256_store_si256(reinterpret_cast<__m256i*>(tmpTotals), vTotals);
+                int32_t maxVal = tmpTotals[0];
+                for (int32_t i = 1; i < 8; ++i) {
+                    if (tmpTotals[i] > maxVal) maxVal = tmpTotals[i];
+                }
+                if (maxVal + remaining < earlyRejectScore) {
+                    return;  // All 8 positions will be below threshold
+                }
+            } else {
+                int32_t maxVal = totals[0];
+                for (int32_t i = 1; i < 8; ++i) {
+                    if (totals[i] > maxVal) maxVal = totals[i];
+                }
+                if (maxVal + remaining < earlyRejectScore) {
+                    return;
+                }
+            }
+        }
     }
 
     if (hasResponseMap) {
         _mm256_store_si256(reinterpret_cast<__m256i*>(totals), vTotals);
     }
 
-    const double denom = static_cast<double>(rotatedFeatures.size() * LINEMOD_MAX_RESPONSE);
+    const double denom = static_cast<double>(N * LINEMOD_MAX_RESPONSE);
     for (int32_t i = 0; i < 8; ++i) {
         scoresOut[i] = static_cast<double>(totals[i]) / denom;
     }
 #else
     int32_t totals[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-    for (const auto& f : rotatedFeatures) {
+    for (int32_t fi = 0; fi < N; ++fi) {
+        const auto& f = rotatedFeatures[static_cast<size_t>(fi)];
         const int32_t fy = y + f.y;
         const int32_t fx = x + f.x;
         if (fy < 0 || fy >= H || fx < 0 || fx + 7 >= W) {
@@ -985,9 +1115,21 @@ void LinemodPyramid::ComputeScoresBatch8(const std::vector<LinemodFeature>& rota
                 totals[i] += g_SimilarityLUT.Get(f.ori, ptr[i]);
             }
         }
+
+        // Early termination check every EARLY_CHECK_INTERVAL features
+        if (earlyRejectScore > 0 && ((fi + 1) % EARLY_CHECK_INTERVAL == 0)) {
+            int32_t remaining = (N - fi - 1) * LINEMOD_MAX_RESPONSE;
+            int32_t maxVal = totals[0];
+            for (int32_t i = 1; i < 8; ++i) {
+                if (totals[i] > maxVal) maxVal = totals[i];
+            }
+            if (maxVal + remaining < earlyRejectScore) {
+                return;
+            }
+        }
     }
 
-    const double denom = static_cast<double>(rotatedFeatures.size() * LINEMOD_MAX_RESPONSE);
+    const double denom = static_cast<double>(N * LINEMOD_MAX_RESPONSE);
     for (int32_t i = 0; i < 8; ++i) {
         scoresOut[i] = static_cast<double>(totals[i]) / denom;
     }

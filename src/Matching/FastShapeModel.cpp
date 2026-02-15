@@ -437,6 +437,8 @@ void CreateFastShapeModel(
     impl->strongThreshold = static_cast<float>(st.strongThreshold);
     impl->numFeatures = st.numFeatures;
 
+    // Build pyramid on original (angle=0) template for levelFeatures
+    // (used by GetFastShapeModelFeaturePoints and refinement)
     Qi::Vision::Internal::LinemodPyramid templatePyramid;
     Qi::Vision::Internal::LinemodPyramidParams pyramidParams;
     pyramidParams.numLevels = impl->numLevels;
@@ -676,7 +678,7 @@ void FindFastShapeModel(
             int32_t x = searchXMin;
 
             for (; x + 7 <= searchXMax; x += 8) {
-                targetPyramid.ComputeScoresBatch8(rotatedFeatures, startLevel, x, y, scores8);
+                targetPyramid.ComputeScoresBatch8(rotatedFeatures, startLevel, x, y, scores8, coarseThreshold);
                 for (int32_t i = 0; i < 8; ++i) {
                     if (scores8[i] >= coarseThreshold) {
                         out.push_back({x + i, y, impl->templateAngles[ai], impl->templateScales[ai], scores8[i]});
@@ -685,7 +687,7 @@ void FindFastShapeModel(
             }
 
             for (; x <= searchXMax; ++x) {
-                double score = targetPyramid.ComputeScorePrecomputed(rotatedFeatures, startLevel, x, y);
+                double score = targetPyramid.ComputeScorePrecomputed(rotatedFeatures, startLevel, x, y, coarseThreshold);
                 if (score >= coarseThreshold) {
                     out.push_back({x, y, impl->templateAngles[ai], impl->templateScales[ai], score});
                 }
@@ -787,7 +789,7 @@ void FindFastShapeModel(
                     }
 
                     for (size_t ai = 0; ai < refineAngles.size(); ++ai) {
-                        double s = targetPyramid.ComputeScorePrecomputed(rotatedTemplates[ai], level, px, py);
+                        double s = targetPyramid.ComputeScorePrecomputed(rotatedTemplates[ai], level, px, py, acceptThreshold);
                         if (s > best.score) {
                             best.x = px;
                             best.y = py;

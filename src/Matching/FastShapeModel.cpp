@@ -1,6 +1,7 @@
 #include <QiVision/Matching/FastShapeModel.h>
 
 #include <QiVision/Core/Exception.h>
+#include <QiVision/Internal/EdgeLinking.h>
 #include <QiVision/Internal/LinemodPyramid.h>
 
 #include <algorithm>
@@ -41,6 +42,9 @@ constexpr int32_t K_REFINE_CANDIDATE_CAP_COARSE = 180;
 constexpr double K_REFINE_ACCEPT_SCALE = 0.70;
 constexpr int32_t K_COARSE_CANDIDATE_CAP = 420;
 constexpr int32_t K_MIN_START_LEVEL_FEATURES = 32;
+constexpr int32_t K_DISPLAY_CONTOUR_MIN_POINTS = 8;
+constexpr int32_t K_DISPLAY_CONTOUR_MAX_CHAINS = 64;
+constexpr int32_t K_DISPLAY_CONTOUR_MAX_POINTS = 4096;
 
 struct Candidate {
     int32_t x = 0;
@@ -130,29 +134,130 @@ inline double NormalizeAngle(double a) {
     return a;
 }
 
-void ComputeFeatureBounds(const std::vector<Qi::Vision::Internal::LinemodFeature>& features,
-                          int32_t& minX, int32_t& maxX,
-                          int32_t& minY, int32_t& maxY) {
-    if (features.empty()) {
-        minX = 0;
-        maxX = -1;
-        minY = 0;
-        maxY = -1;
-        return;
+int32_t QuantizedMaskToOri(uint8_t mask) {
+    for (int32_t b = 0; b < 8; ++b) {
+        if ((mask & (1 << b)) != 0) {
+            return b;
+        }
     }
-
-    minX = std::numeric_limits<int32_t>::max();
-    maxX = std::numeric_limits<int32_t>::min();
-    minY = std::numeric_limits<int32_t>::max();
-    maxY = std::numeric_limits<int32_t>::min();
-
-    for (const auto& f : features) {
-        minX = std::min(minX, static_cast<int32_t>(f.x));
-        maxX = std::max(maxX, static_cast<int32_t>(f.x));
-        minY = std::min(minY, static_cast<int32_t>(f.y));
-        maxY = std::max(maxY, static_cast<int32_t>(f.y));
-    }
+    return 0;
 }
+
+std::vector<std::vector<Point2d>> BuildDisplayContours(
+    const Qi::Vision::Internal::LinemodPyramid& pyramid)
+{
+    std::vector<std::vector<Point2d>> contours;
+    if (pyramid.NumLevels() <= 0) {
+        return contours;
+    }
+
+    const auto& level = pyramid.GetLevel(0);
+    if (level.quantized.Empty()) {
+        return contours;
+    }
+
+    const int32_t width = level.width;
+    const int32_t height = level.height;
+    if (width < 3 || height < 3) {
+        return contours;
+    }
+
+    const auto* quantData = static_cast<const uint8_t*>(level.quantized.Data());
+    const int32_t quantStride = static_cast<int32_t>(level.quantized.Stride());
+
+    const bool hasGradMag = !level.gradMag.Empty();
+    const auto* magData = hasGradMag ? static_cast<const float*>(level.gradMag.Data()) : nullptr;
+    const int32_t magStride = hasGradMag ? static_cast<int32_t>(level.gradMag.Stride() / sizeof(float)) : 0;
+
+    const double cx = static_cast<double>(width) * 0.5;
+    const double cy = static_cast<double>(height) * 0.5;
+
+    std::vector<Qi::Vision::Internal::EdgePoint> edgePoints;
+    edgePoints.reserve(static_cast<size_t>(width * height / 6));
+    int32_t pointId = 0;
+
+    for (int32_t y = 1; y < height - 1; ++y) {
+        for (int32_t x = 1; x < width - 1; ++x) {
+            const uint8_t q = quantData[y * quantStride + x];
+            if (q == 0) {
+                continue;
+            }
+
+            const int32_t ori = QuantizedMaskToOri(q);
+            const double direction = static_cast<double>(ori) * (K_PI / 4.0);
+            const double magnitude = hasGradMag ? magData[y * magStride + x] : 1.0;
+
+            edgePoints.emplace_back(
+                static_cast<double>(x) - cx,
+                static_cast<double>(y) - cy,
+                direction,
+                magnitude,
+                pointId++);
+        }
+    }
+
+    if (edgePoints.empty()) {
+        return contours;
+    }
+
+    Qi::Vision::Internal::EdgeLinkingParams linkParams;
+    linkParams.maxGap = 2.5;
+    linkParams.maxAngleDiff = 0.8;
+    linkParams.minChainLength = 10.0;
+    linkParams.minChainPoints = K_DISPLAY_CONTOUR_MIN_POINTS;
+    linkParams.closedContours = true;
+    linkParams.closureMaxGap = 2.5;
+    linkParams.closureMaxAngle = 1.0;
+
+    auto chains = Qi::Vision::Internal::LinkEdgePoints(edgePoints, linkParams);
+    if (chains.empty()) {
+        return contours;
+    }
+
+    std::sort(chains.begin(), chains.end(),
+              [](const auto& a, const auto& b) {
+                  if (a.length != b.length) {
+                      return a.length > b.length;
+                  }
+                  return a.pointIds.size() > b.pointIds.size();
+              });
+
+    contours.reserve(std::min<size_t>(chains.size(), K_DISPLAY_CONTOUR_MAX_CHAINS));
+    int32_t totalPoints = 0;
+    for (const auto& chain : chains) {
+        if (static_cast<int32_t>(chain.pointIds.size()) < K_DISPLAY_CONTOUR_MIN_POINTS) {
+            continue;
+        }
+
+        std::vector<Point2d> polyline;
+        polyline.reserve(chain.pointIds.size() + (chain.isClosed ? 1U : 0U));
+        for (int32_t pid : chain.pointIds) {
+            if (pid < 0 || pid >= static_cast<int32_t>(edgePoints.size())) {
+                continue;
+            }
+            const auto& p = edgePoints[static_cast<size_t>(pid)];
+            polyline.emplace_back(p.x, p.y);
+        }
+
+        if (static_cast<int32_t>(polyline.size()) < K_DISPLAY_CONTOUR_MIN_POINTS) {
+            continue;
+        }
+        if (chain.isClosed && polyline.size() > 2) {
+            polyline.push_back(polyline.front());
+        }
+
+        totalPoints += static_cast<int32_t>(polyline.size());
+        contours.push_back(std::move(polyline));
+        if (static_cast<int32_t>(contours.size()) >= K_DISPLAY_CONTOUR_MAX_CHAINS ||
+            totalPoints >= K_DISPLAY_CONTOUR_MAX_POINTS) {
+            break;
+        }
+    }
+
+    return contours;
+}
+
+
 
 double ComputeIoUAabb(const Candidate& a, const Candidate& b,
                       double wa, double ha, double wb, double hb) {
@@ -324,9 +429,11 @@ public:
     int32_t numFeatures = 63;
 
     std::vector<std::vector<Qi::Vision::Internal::LinemodFeature>> levelFeatures;
+    std::vector<std::vector<Point2d>> displayContours;
     std::vector<double> templateAngles;
     std::vector<double> templateScales;
     std::vector<std::vector<std::vector<Qi::Vision::Internal::LinemodFeature>>> rotatedTemplates;
+
 
     std::unique_ptr<FastShapeModelImpl> Clone() const {
         auto out = std::make_unique<FastShapeModelImpl>();
@@ -471,6 +578,8 @@ void CreateFastShapeModel(
     if (impl->levelFeatures.empty() || impl->levelFeatures[0].size() < 24) {
         throw InvalidArgumentException("CreateFastShapeModel: insufficient template features");
     }
+
+    impl->displayContours = BuildDisplayContours(templatePyramid);
 
     impl->templateAngles.clear();
     const int32_t numAngleTemplates = std::max(
@@ -630,11 +739,11 @@ void FindFastShapeModel(
         return;
     }
 
-    int32_t stepSize = K_COARSE_STEP_SIZE;
+    // Step size for profiling: similarity-map search uses T as natural step.
+    int32_t stepSize = 1;
     if (!st.tAtLevel.empty()) {
         const int32_t idx = std::clamp(startLevel, 0, static_cast<int32_t>(st.tAtLevel.size()) - 1);
-        // Faster coarse scan: keep alignment with T but preserve recall with /2.
-        stepSize = std::max(stepSize, std::max(1, st.tAtLevel[static_cast<size_t>(idx)] / 2));
+        stepSize = std::max(1, st.tAtLevel[static_cast<size_t>(idx)]);
     }
     const double coarseScale = std::clamp(K_COARSE_MIN_SCORE_SCALE + (greedy - 0.5) * 0.12, 0.55, 0.75);
     const double coarseThreshold = std::max(
@@ -655,41 +764,31 @@ void FindFastShapeModel(
             return;
         }
 
-        int32_t rotMinX = 0, rotMaxX = 0, rotMinY = 0, rotMaxY = 0;
-        ComputeFeatureBounds(rotatedFeatures, rotMinX, rotMaxX, rotMinY, rotMaxY);
-        if (rotMinX > rotMaxX || rotMinY > rotMaxY) {
+        // Compute similarity map using per-feature full-image accumulate pattern
+        std::vector<uint16_t> similarityMap;
+        int32_t mapBW = 0, mapBH = 0;
+        targetPyramid.ComputeSimilarityMap(rotatedFeatures, startLevel,
+                                           similarityMap, mapBW, mapBH);
+        if (similarityMap.empty()) {
             return;
         }
 
-        int32_t targetW = targetPyramid.GetWidth(startLevel);
-        int32_t targetH = targetPyramid.GetHeight(startLevel);
+        const int32_t T = targetPyramid.GetLevel(startLevel).linearT;
+        const int32_t N = static_cast<int32_t>(rotatedFeatures.size());
+        const uint16_t rawThreshold = static_cast<uint16_t>(
+            coarseThreshold * N * Qi::Vision::Internal::LINEMOD_MAX_RESPONSE);
 
-        int32_t searchXMin = std::max(0, -rotMinX);
-        int32_t searchXMax = std::min(targetW - 1, targetW - 1 - rotMaxX);
-        int32_t searchYMin = std::max(0, -rotMinY);
-        int32_t searchYMax = std::min(targetH - 1, targetH - 1 - rotMaxY);
-
-        if (searchXMin > searchXMax || searchYMin > searchYMax) {
-            return;
-        }
-
-        alignas(32) double scores8[8];
-        for (int32_t y = searchYMin; y <= searchYMax; y += stepSize) {
-            int32_t x = searchXMin;
-
-            for (; x + 7 <= searchXMax; x += 8) {
-                targetPyramid.ComputeScoresBatch8(rotatedFeatures, startLevel, x, y, scores8, coarseThreshold);
-                for (int32_t i = 0; i < 8; ++i) {
-                    if (scores8[i] >= coarseThreshold) {
-                        out.push_back({x + i, y, impl->templateAngles[ai], impl->templateScales[ai], scores8[i]});
-                    }
-                }
-            }
-
-            for (; x <= searchXMax; ++x) {
-                double score = targetPyramid.ComputeScorePrecomputed(rotatedFeatures, startLevel, x, y, coarseThreshold);
-                if (score >= coarseThreshold) {
-                    out.push_back({x, y, impl->templateAngles[ai], impl->templateScales[ai], score});
+        // Extract candidates from similarity map
+        const size_t numAngles = impl->templateAngles.size();
+        for (int32_t by = 0; by < mapBH; ++by) {
+            for (int32_t bx = 0; bx < mapBW; ++bx) {
+                uint16_t raw = similarityMap[static_cast<size_t>(by * mapBW + bx)];
+                if (raw >= rawThreshold) {
+                    double score = static_cast<double>(raw) /
+                                   (N * Qi::Vision::Internal::LINEMOD_MAX_RESPONSE);
+                    out.push_back({bx * T, by * T,
+                                   impl->templateAngles[ai % numAngles],
+                                   impl->templateScales[ai], score});
                 }
             }
         }
@@ -924,6 +1023,18 @@ void GetFastShapeModelFeaturePoints(
     for (const auto& f : feats) {
         points.emplace_back(static_cast<double>(f.x), static_cast<double>(f.y));
     }
+}
+
+void GetFastShapeModelDisplayContours(
+    const FastShapeModel& model,
+    std::vector<std::vector<Point2d>>& contours)
+{
+    contours.clear();
+    if (!model.IsValid() || model.Impl() == nullptr || !model.Impl()->valid) {
+        return;
+    }
+
+    contours = model.Impl()->displayContours;
 }
 
 void GetFastShapeModelTemplateSize(

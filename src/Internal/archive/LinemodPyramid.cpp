@@ -1136,6 +1136,98 @@ void LinemodPyramid::ComputeScoresBatch8(const std::vector<LinemodFeature>& rota
 #endif
 }
 
+void LinemodPyramid::ComputeSimilarityMap(const std::vector<LinemodFeature>& features,
+                                          int32_t level,
+                                          std::vector<uint16_t>& similarityMap,
+                                          int32_t& mapBW, int32_t& mapBH) const
+{
+    mapBW = 0;
+    mapBH = 0;
+    similarityMap.clear();
+
+    if (!valid_ || level < 0 || level >= numLevels_ || features.empty()) {
+        return;
+    }
+
+    const auto& levelData = levels_[level];
+    const int32_t T = levelData.linearT;
+    const int32_t BW = levelData.linearBW;
+    const int32_t BH = levelData.linearBH;
+
+    if (T <= 0 || BW <= 0 || BH <= 0 || levelData.linearized[0].empty()) {
+        return;
+    }
+
+    const int32_t numBlocks = BW * BH;
+    mapBW = BW;
+    mapBH = BH;
+    similarityMap.assign(static_cast<size_t>(numBlocks), 0);
+
+    for (const auto& f : features) {
+        // Compute phase (offset within T×T cell) using floor-modulo for negative coords
+        const int32_t fxMod = ((static_cast<int32_t>(f.x) % T) + T) % T;
+        const int32_t fyMod = ((static_cast<int32_t>(f.y) % T) + T) % T;
+
+        // Block offset of this feature
+        // Use floor division (not truncation) for negative values
+        const int32_t fxBlk = (f.x >= 0) ? (f.x / T) : ((f.x - T + 1) / T);
+        const int32_t fyBlk = (f.y >= 0) ? (f.y / T) : ((f.y - T + 1) / T);
+
+        const int32_t phase = fyMod * T + fxMod;
+        const uint8_t* lm = levelData.linearized[f.ori & 7].data()
+                             + static_cast<size_t>(phase) * numBlocks;
+
+        // Valid block ranges: dst block (by) reads from lm block (by + fyBlk)
+        // src index = (by + fyBlk) must be in [0, BH)
+        // dst index = by must be in [0, BH)
+        const int32_t byMin = std::max(0, -fyBlk);
+        const int32_t byMax = std::min(BH, BH - fyBlk) - 1;
+        const int32_t bxMin = std::max(0, -fxBlk);
+        const int32_t bxMax = std::min(BW, BW - fxBlk) - 1;
+
+        if (byMin > byMax || bxMin > bxMax) {
+            continue;
+        }
+
+        const int32_t spanW = bxMax - bxMin + 1;
+
+        for (int32_t by = byMin; by <= byMax; ++by) {
+            const uint8_t* src = lm + static_cast<size_t>((by + fyBlk) * BW + (bxMin + fxBlk));
+            uint16_t* dst = similarityMap.data() + static_cast<size_t>(by * BW + bxMin);
+
+            int32_t i = 0;
+
+#ifdef __AVX2__
+            // AVX2: process 16 positions at a time
+            // Load 16 uint8 -> 2x 8 uint16, add to dst
+            for (; i + 16 <= spanW; i += 16) {
+                __m128i v8 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
+                __m256i v16 = _mm256_cvtepu8_epi16(v8);
+                __m256i d16 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dst + i));
+                _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + i),
+                                    _mm256_add_epi16(d16, v16));
+            }
+#endif
+
+#ifdef __SSE2__
+            // SSE2: process 8 positions at a time
+            for (; i + 8 <= spanW; i += 8) {
+                __m128i v8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src + i));
+                __m128i v16 = _mm_unpacklo_epi8(v8, _mm_setzero_si128());
+                __m128i d16 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dst + i));
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i),
+                                 _mm_add_epi16(d16, v16));
+            }
+#endif
+
+            // Scalar fallback
+            for (; i < spanW; ++i) {
+                dst[i] += static_cast<uint16_t>(src[i]);
+            }
+        }
+    }
+}
+
 LinemodFeature LinemodPyramid::RotateFeature(const LinemodFeature& f, double angle) {
     const double cosA = std::cos(angle);
     const double sinA = std::sin(angle);

@@ -13,6 +13,7 @@
 #include <QiVision/Display/Draw.h>
 #include <QiVision/GUI/Window.h>
 #include <QiVision/IO/ImageIO.h>
+#include <QiVision/Matching/DrawFastShapeModel.h>
 #include <QiVision/Matching/FastShapeModel.h>
 
 #include <algorithm>
@@ -198,9 +199,6 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "Model creation time: " << ms(tModel0, tModel1) << " ms\n";
 
-    std::vector<Point2d> modelFeat;
-    GetFastShapeModelFeaturePoints(model, modelFeat);
-
     bool uiExitRequested = false;
 
     std::vector<std::string> targets;
@@ -244,24 +242,7 @@ int main(int argc, char* argv[]) {
         const auto tDraw0 = now();
         QImage vis;
         Color::GrayToRgb(gray, vis);
-        for (size_t i = 0; i < rows.size(); ++i) {
-            const double scale = (i < scales.size()) ? scales[i] : 1.0;
-            Draw::RotatedRectangle(vis, Point2d(cols[i], rows[i]),
-                                   static_cast<double>(roi.width) * scale,
-                                   static_cast<double>(roi.height) * scale,
-                                   angles[i], Scalar::Green(), 1);
-
-            double c = std::cos(angles[i]);
-            double s = std::sin(angles[i]);
-            for (const auto& p : modelFeat) {
-                Point2d pt{
-                    c * p.x - s * p.y + cols[i],
-                    s * p.x + c * p.y + rows[i]
-                };
-                Draw::Cross(vis, pt, 3, Scalar::Green(), 1);
-            }
-        }
-
+        DrawFastShapeModelResults(vis, model, rows, cols, angles, scores, scales);
         Draw::Text(vis, 12, 12, "Keys: Enter=Next, Q/Esc=Exit", Scalar::Yellow(), 1);
         const auto tDraw1 = now();
         totalDrawMs += ms(tDraw0, tDraw1);

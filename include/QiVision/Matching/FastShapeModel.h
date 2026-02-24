@@ -117,6 +117,19 @@ QIVISION_API void GetFastShapeModelFeaturePoints(
 );
 
 /**
+ * @brief Get display contours (ordered edge chains) at level 0.
+ *
+ * Returned contours are template-relative coordinates centered at (0,0),
+ * same coordinate convention as GetFastShapeModelFeaturePoints().
+ * These contours are for visualization only and are independent from
+ * sparse matching feature points.
+ */
+QIVISION_API void GetFastShapeModelDisplayContours(
+    const FastShapeModel& model,
+    std::vector<std::vector<Point2d>>& contours
+);
+
+/**
  * @brief Get template size stored in the model.
  */
 QIVISION_API void GetFastShapeModelTemplateSize(

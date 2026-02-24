@@ -326,6 +326,26 @@ public:
                              double earlyRejectThreshold = -1.0) const;
 
     /**
+     * @brief Compute similarity map for all T-grid positions using linearized response maps.
+     *
+     * Uses "per-feature full-image accumulate" pattern (line2Dup-style):
+     * for each feature, its linearized response is added to all grid positions at once.
+     * This is cache-friendly and SIMD-efficient compared to per-position scoring.
+     *
+     * Output is a BW*BH map where element (bx,by) = raw score at pixel (bx*T, by*T).
+     *
+     * @param features Pre-rotated template features
+     * @param level Pyramid level
+     * @param similarityMap Output raw scores (NOT normalized, sum of per-feature responses)
+     * @param mapBW Output width in blocks (ceil(W/T))
+     * @param mapBH Output height in blocks (ceil(H/T))
+     */
+    void ComputeSimilarityMap(const std::vector<LinemodFeature>& features,
+                              int32_t level,
+                              std::vector<uint16_t>& similarityMap,
+                              int32_t& mapBW, int32_t& mapBH) const;
+
+    /**
      * @brief Get spread image data for direct access
      * @return Pointer to spread bitmask image data
      */

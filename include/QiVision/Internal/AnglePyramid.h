@@ -18,6 +18,7 @@
 #include <QiVision/Core/QImage.h>
 #include <QiVision/Core/QRegion.h>
 #include <QiVision/Core/Types.h>
+#include <QiVision/Internal/EdgesSubPix.h>  // EdgePoint (canonical definition)
 
 #include <cstdint>
 #include <cstdio>
@@ -45,24 +46,8 @@ constexpr double DEFAULT_MIN_CONTRAST = 10.0;
 /// Maximum pyramid levels for angle pyramid
 constexpr int32_t ANGLE_PYRAMID_MAX_LEVELS = 10;
 
-// =============================================================================
-// Edge Point Structure
-// =============================================================================
-
-/**
- * @brief Edge point with gradient direction for shape matching
- */
-struct EdgePoint {
-    double x = 0.0;           ///< X coordinate (column)
-    double y = 0.0;           ///< Y coordinate (row)
-    double angle = 0.0;       ///< Gradient direction (radians, 0 to 2*PI)
-    double magnitude = 0.0;   ///< Gradient magnitude
-    int32_t angleBin = 0;     ///< Quantized angle bin index
-
-    EdgePoint() = default;
-    EdgePoint(double x_, double y_, double ang, double mag, int32_t bin)
-        : x(x_), y(y_), angle(ang), magnitude(mag), angleBin(bin) {}
-};
+// EdgePoint is defined in EdgesSubPix.h and included above.
+// AnglePyramid uses it directly via that header.
 
 // =============================================================================
 // Angle Pyramid Parameters

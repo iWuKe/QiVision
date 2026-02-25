@@ -59,6 +59,7 @@ set(QIVISION_SOURCES
     Internal/Homography.cpp
     Internal/Eigen.cpp
     Internal/Hough.cpp
+    Internal/EdgesSubPix.cpp
     Internal/AnglePyramid.cpp
     Internal/archive/LinemodPyramid.cpp
     # Internal/ResponseMap.cpp     # Archived - using XLD method
@@ -200,6 +201,7 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Homography.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Eigen.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/Hough.h
+    ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/EdgesSubPix.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/AnglePyramid.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/LinemodPyramid.h
     # ${CMAKE_SOURCE_DIR}/include/QiVision/Internal/ResponseMap.h     # Archived

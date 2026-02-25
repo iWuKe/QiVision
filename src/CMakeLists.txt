@@ -75,9 +75,6 @@ set(QIVISION_SOURCES
     Matching/NCCModelSearch.cpp
     Matching/NCCModelScore.cpp
     Matching/ComponentModel.cpp
-    Matching/FastShapeModel.cpp
-    $<$<BOOL:${QIVISION_BUILD_DISPLAY}>:Matching/DrawFastShapeModel.cpp>
-    Matching/FastShapeDetector.cpp
     # Measure (Feature Layer)
     Measure/MeasureHandle.cpp
     Measure/Caliper.cpp
@@ -214,9 +211,6 @@ set(QIVISION_HEADERS
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/ShapeModel.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/NCCModel.h
     ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/ComponentModel.h
-    ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/FastShapeModel.h
-    $<$<BOOL:${QIVISION_BUILD_DISPLAY}>:${CMAKE_SOURCE_DIR}/include/QiVision/Matching/DrawFastShapeModel.h>
-    ${CMAKE_SOURCE_DIR}/include/QiVision/Matching/FastShapeDetector.h
     # Matching internal headers (in src/)
     ${CMAKE_SOURCE_DIR}/src/Matching/ShapeModelImpl.h
     ${CMAKE_SOURCE_DIR}/src/Matching/NCCModelImpl.h

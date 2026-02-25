@@ -37,9 +37,6 @@
 #include <QiVision/Segment/Segment.h>
 #include <QiVision/Color/ColorConvert.h>
 #include <QiVision/Color/ColorDetect.h>
-#include <QiVision/Matching/FastShapeModel.h>
-#include <QiVision/Matching/DrawFastShapeModel.h>
-#include <QiVision/Matching/FastShapeDetector.h>
 #include <QiVision/Morphology/Morphology.h>
 #include <QiVision/Display/Display.h>
 #include <QiVision/Display/Draw.h>

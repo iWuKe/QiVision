@@ -1,7 +1,7 @@
 # QiVision API Reference
 
-> Version: 0.16.0
-> Last Updated: 2026-02-10
+> Version: 0.17.0
+> Last Updated: 2026-02-27
 > Namespace: `Qi::Vision`
 
 Professional industrial machine vision library.
@@ -98,23 +98,9 @@ void CreateShapeModel(
 
 ### CreateShapeModel (with ROI)
 
-Creates a shape model using a rectangular or region-based ROI.
+Creates a shape model using a region-based ROI.
 
 ```cpp
-void CreateShapeModel(
-    const QImage& templateImage,
-    const Rect2i& roi,
-    ShapeModel& model,
-    int32_t numLevels,
-    double angleStart,
-    double angleExtent,
-    double angleStep,
-    const std::string& optimization,
-    const std::string& metric,
-    const std::string& contrast,
-    double minContrast
-);
-
 void CreateShapeModel(
     const QImage& templateImage,
     const QRegion& region,
@@ -133,8 +119,7 @@ void CreateShapeModel(
 **Parameters**
 | Name | Type | Description |
 |------|------|-------------|
-| roi | const Rect2i& | Rectangular region of interest |
-| region | const QRegion& | Arbitrary shape region |
+| region | const QRegion& | Arbitrary shape region (empty = full image) |
 
 ---
 

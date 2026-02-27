@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-08 (测量可解释性与绘图统一更新)
+> 最后更新: 2026-02-27 (ShapeModel 创建流程重构，对齐反编译)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -268,6 +268,24 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-27 (ShapeModel 创建流程重构，对齐反编译)
+
+- **src/Matching/ShapeModelCreate.cpp** (重构)
+  - ExtractEdgeLevels 拆分 3 个 helper: DownsampleMaskPyrDown, BuildLevelModelPoints, GenerateGridPoints
+  - 循环体从 ~200 行降到 ~80 行，可读性大幅提升
+  - 空边缘改为正常停止条件（不再返回错误码）
+  - QRegion 版本 CreateModel 自包含（不再委托 Rect2i 版本）
+- **include/QiVision/Matching/ShapeModel.h** (API 精简)
+  - 删除 `CreateShapeModel(Rect2i)` 重载
+  - 删除 `CreateScaledShapeModel(Rect2i)` 重载
+  - 删除 `DetermineShapeModelParams(Rect2i)` 重载
+  - 统一为 QRegion 路径（空 QRegion = 全图）
+- **src/Matching/ShapeModel.cpp**: 无 ROI 版本改为委托 `QRegion{}` 而非 `Rect2i{}`
+- **src/Matching/ShapeModelImpl.h**: 删除 `templateROI_` 成员和 Rect2i CreateModel 声明
+- **samples/**: 删除 4 个旧样例 (shape_match, shape_match_clip_gui, test_create_model, test_scaled_match)
+- **samples/matching/test_create_m1.cpp**: 新增可视化测试（反编译 demo 风格绿色像素点，GUI 显示）
+- **docs/API_Reference.md**: 删除 Rect2i ROI 相关 API 文档
 
 ### 2026-02-26 (EdgesSubPix 反编译还原 — 8项修复)
 

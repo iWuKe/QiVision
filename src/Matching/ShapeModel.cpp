@@ -41,8 +41,8 @@ OptimizationMode ParseOptimization(const std::string& str) {
     for (char c : str) {
         lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
     }
-    if (lower.empty() || lower == "auto") return OptimizationMode::Auto;
-    if (lower == "none") return OptimizationMode::None;
+    if (lower.empty() || lower == "none") return OptimizationMode::None;
+    if (lower == "auto") return OptimizationMode::Auto;
     if (lower == "point_reduction_low") return OptimizationMode::PointReductionLow;
     if (lower == "point_reduction_medium") return OptimizationMode::PointReductionMedium;
     if (lower == "point_reduction_high") return OptimizationMode::PointReductionHigh;
@@ -156,31 +156,22 @@ inline void ValidateAngleStep(double angleStep, const char* funcName) {
     Validate::RequireNonNegative(angleStep, "angleStep", funcName);
 }
 
-void ValidateRoi(const QImage& image, const Rect2i& roi, const char* funcName) {
-    if (roi.width <= 0 || roi.height <= 0) {
-        throw InvalidArgumentException(std::string(funcName) + ": ROI width/height must be > 0");
-    }
-    if (roi.x < 0 || roi.y < 0 ||
-        roi.x + roi.width > image.Width() ||
-        roi.y + roi.height > image.Height()) {
-        throw InvalidArgumentException(std::string(funcName) + ": ROI out of bounds");
-    }
-}
+
 
 /**
  * @brief Parse contrast parameter string
  *
  * Supports Halcon-style contrast formats:
- * - "auto" or "auto_contrast": Auto-detect threshold
- * - "auto_contrast_hyst": Auto-detect hysteresis thresholds
- * - "auto_min_size": Auto with minimum component size filter
+ * - "auto" / "auto_contrast" / "auto_contrast_hyst" / "auto_min_size":
+ *   All map to ContrastMode::Auto with contrastHigh=0. ExtractEdgeLevels
+ *   uses decompiled default thresholds (high=2.0, low=1.0).
  * - Numeric string (e.g., "30"): Manual single threshold
  * - "[low,high]" (e.g., "[10,30]"): Manual hysteresis thresholds
  * - "[low,high,minSize]" (e.g., "[10,30,15]"): Hysteresis + min component filter
  *
  * @param str Contrast parameter string
  * @param[out] mode Contrast mode
- * @param[out] contrastHigh High threshold value
+ * @param[out] contrastHigh High threshold value (0 for auto modes)
  * @param[out] contrastLow Low threshold value (for hysteresis)
  * @param[out] minComponentSize Minimum component size (for filtering)
  */
@@ -200,22 +191,25 @@ void ParseContrast(const std::string& str, ContrastMode& mode,
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     // Check for auto modes
+    // Note: all auto variants currently resolve to the same behavior —
+    // contrastHigh=0 → ExtractEdgeLevels uses decompiled default thresholds (high=2, low=1).
+    // Separate ContrastMode enums are preserved for future auto-contrast implementation.
     if (lower == "auto" || lower == "auto_contrast") {
         mode = ContrastMode::Auto;
-        contrastHigh = 0.0;  // Will be auto-detected
+        contrastHigh = 0.0;
         contrastLow = 0.0;
         return;
     }
 
     if (lower == "auto_contrast_hyst" || lower == "auto_hyst") {
-        mode = ContrastMode::AutoHysteresis;
+        mode = ContrastMode::Auto;  // same as "auto" (no independent hysteresis auto-detect yet)
         contrastHigh = 0.0;
         contrastLow = 0.0;
         return;
     }
 
     if (lower == "auto_min_size") {
-        mode = ContrastMode::AutoMinSize;
+        mode = ContrastMode::Auto;  // same as "auto" (no independent min-size auto-detect yet)
         contrastHigh = 0.0;
         contrastLow = 0.0;
         return;
@@ -303,38 +297,16 @@ void CreateShapeModel(
     const std::string& optimization,
     const std::string& metric,
     const std::string& contrast,
-    double minContrast)
+    double minContrast,
+    int32_t numAngleBins)
 {
     RequireTemplateImage(templateImage, "CreateShapeModel");
     ValidateLevels(numLevels, "CreateShapeModel");
     ValidateAngleStep(angleStep, "CreateShapeModel");
-    CreateShapeModel(templateImage, Rect2i{}, model, numLevels,
-                     angleStart, angleExtent, angleStep,
-                     optimization, metric, contrast, minContrast);
-}
 
-void CreateShapeModel(
-    const QImage& templateImage,
-    const Rect2i& roi,
-    ShapeModel& model,
-    int32_t numLevels,
-    double angleStart,
-    double angleExtent,
-    double angleStep,
-    const std::string& optimization,
-    const std::string& metric,
-    const std::string& contrast,
-    double minContrast)
-{
-    RequireTemplateImage(templateImage, "CreateShapeModel");
-    ValidateLevels(numLevels, "CreateShapeModel");
-    ValidateAngleStep(angleStep, "CreateShapeModel");
-    if (roi.width > 0 || roi.height > 0) {
-        ValidateRoi(templateImage, roi, "CreateShapeModel");
-    }
+    // No-ROI version: pass empty QRegion (CreateModel handles full-image path internally)
     model = ShapeModel();
 
-    // Set up parameters
     ModelParams params;
     params.numLevels = numLevels;
     params.angleStart = angleStart;
@@ -343,17 +315,16 @@ void CreateShapeModel(
     params.optimization = ParseOptimization(optimization);
     params.metric = ParseMetric(metric);
 
-    // Parse contrast parameter (supports "auto", numeric, "[low,high]", or "[low,high,minSize]")
     ParseContrast(contrast, params.contrastMode, params.contrastHigh, params.contrastLow, params.minComponentSize);
     params.minContrast = minContrast;
+    params.numAngleBins = std::clamp(numAngleBins, 1, 128);
 
     model.Impl()->params_ = params;
     model.Impl()->timingParams_.debugCreateModel = g_debugCreateModel;
 
-    // Create model
-    Point2d origin{0, 0};
-    if (!model.Impl()->CreateModel(templateImage, roi, origin)) {
-        model = ShapeModel();  // Set to invalid model
+    Point2d origin{templateImage.Width() / 2.0, templateImage.Height() / 2.0};
+    if (!model.Impl()->CreateModel(templateImage, QRegion{}, origin)) {
+        model = ShapeModel();
     }
 }
 
@@ -368,7 +339,8 @@ void CreateShapeModel(
     const std::string& optimization,
     const std::string& metric,
     const std::string& contrast,
-    double minContrast)
+    double minContrast,
+    int32_t numAngleBins)
 {
     RequireTemplateImage(templateImage, "CreateShapeModel");
     if (region.Empty()) {
@@ -390,11 +362,14 @@ void CreateShapeModel(
     // Parse contrast parameter
     ParseContrast(contrast, params.contrastMode, params.contrastHigh, params.contrastLow, params.minComponentSize);
     params.minContrast = minContrast;
+    params.numAngleBins = std::clamp(numAngleBins, 1, 128);
 
     model.Impl()->params_ = params;
 
-    // Create model with QRegion
-    Point2d origin{0, 0};
+    // Region path uses local template coordinates (bbox-cropped), so default
+    // origin should be the local template center instead of full-image center.
+    const Rect2i bbox = region.BoundingBox();
+    Point2d origin{bbox.width / 2.0, bbox.height / 2.0};
     if (!model.Impl()->CreateModel(templateImage, region, origin)) {
         model = ShapeModel();  // Set to invalid model
     }
@@ -420,46 +395,27 @@ void CreateScaledShapeModel(
     const std::string& optimization,
     const std::string& metric,
     const std::string& contrast,
-    double minContrast)
+    double minContrast,
+    int32_t numAngleBins)
 {
     RequireTemplateImage(templateImage, "CreateScaledShapeModel");
     ValidateLevels(numLevels, "CreateScaledShapeModel");
     ValidateAngleStep(angleStep, "CreateScaledShapeModel");
-    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0 || scaleMax < scaleMin) {
+    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep < 0.0 || scaleMax < scaleMin) {
         throw InvalidArgumentException("CreateScaledShapeModel: invalid scale range");
     }
-    CreateScaledShapeModel(templateImage, Rect2i{}, model, numLevels,
-                           angleStart, angleExtent, angleStep,
-                           scaleMin, scaleMax, scaleStep,
-                           optimization, metric, contrast, minContrast);
-}
-
-void CreateScaledShapeModel(
-    const QImage& templateImage,
-    const Rect2i& roi,
-    ShapeModel& model,
-    int32_t numLevels,
-    double angleStart,
-    double angleExtent,
-    double angleStep,
-    double scaleMin,
-    double scaleMax,
-    double scaleStep,
-    const std::string& optimization,
-    const std::string& metric,
-    const std::string& contrast,
-    double minContrast)
-{
-    RequireTemplateImage(templateImage, "CreateScaledShapeModel");
-    ValidateLevels(numLevels, "CreateScaledShapeModel");
-    ValidateAngleStep(angleStep, "CreateScaledShapeModel");
-    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0 || scaleMax < scaleMin) {
-        throw InvalidArgumentException("CreateScaledShapeModel: invalid scale range");
-    }
-    if (roi.width > 0 || roi.height > 0) {
-        ValidateRoi(templateImage, roi, "CreateScaledShapeModel");
-    }
+    // No-ROI version: pass empty QRegion (CreateModel handles full-image path internally)
     model = ShapeModel();
+
+    double actualScaleStep = scaleStep;
+    if (actualScaleStep <= 0.0) {
+        if (scaleMax > scaleMin) {
+            actualScaleStep = (scaleMax - scaleMin) / 10.0;
+            actualScaleStep = std::max(0.01, actualScaleStep);
+        } else {
+            actualScaleStep = 0.01;
+        }
+    }
 
     ModelParams params;
     params.numLevels = numLevels;
@@ -468,19 +424,19 @@ void CreateScaledShapeModel(
     params.angleStep = angleStep;
     params.scaleMin = scaleMin;
     params.scaleMax = scaleMax;
-    params.scaleStep = scaleStep;
+    params.scaleStep = actualScaleStep;
     params.optimization = ParseOptimization(optimization);
     params.metric = ParseMetric(metric);
 
-    // Parse contrast parameter (supports "auto", numeric, "[low,high]", or "[low,high,minSize]")
     ParseContrast(contrast, params.contrastMode, params.contrastHigh, params.contrastLow, params.minComponentSize);
     params.minContrast = minContrast;
+    params.numAngleBins = std::clamp(numAngleBins, 1, 128);
 
     model.Impl()->params_ = params;
     model.Impl()->timingParams_.debugCreateModel = g_debugCreateModel;
 
-    Point2d origin{0, 0};
-    if (!model.Impl()->CreateModel(templateImage, roi, origin)) {
+    Point2d origin{templateImage.Width() / 2.0, templateImage.Height() / 2.0};
+    if (!model.Impl()->CreateModel(templateImage, QRegion{}, origin)) {
         model = ShapeModel();
     }
 }
@@ -499,7 +455,8 @@ void CreateScaledShapeModel(
     const std::string& optimization,
     const std::string& metric,
     const std::string& contrast,
-    double minContrast)
+    double minContrast,
+    int32_t numAngleBins)
 {
     RequireTemplateImage(templateImage, "CreateScaledShapeModel");
     if (region.Empty()) {
@@ -507,10 +464,21 @@ void CreateScaledShapeModel(
     }
     ValidateLevels(numLevels, "CreateScaledShapeModel");
     ValidateAngleStep(angleStep, "CreateScaledShapeModel");
-    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep <= 0.0 || scaleMax < scaleMin) {
+    if (scaleMin <= 0.0 || scaleMax <= 0.0 || scaleStep < 0.0 || scaleMax < scaleMin) {
         throw InvalidArgumentException("CreateScaledShapeModel: invalid scale range");
     }
     model = ShapeModel();
+
+    // Auto-compute scaleStep if 0 (Halcon convention: 0 = auto)
+    double actualScaleStep = scaleStep;
+    if (actualScaleStep <= 0.0) {
+        if (scaleMax > scaleMin) {
+            actualScaleStep = (scaleMax - scaleMin) / 10.0;
+            actualScaleStep = std::max(0.01, actualScaleStep);
+        } else {
+            actualScaleStep = 0.01;
+        }
+    }
 
     ModelParams params;
     params.numLevels = numLevels;
@@ -519,18 +487,20 @@ void CreateScaledShapeModel(
     params.angleStep = angleStep;
     params.scaleMin = scaleMin;
     params.scaleMax = scaleMax;
-    params.scaleStep = scaleStep;
+    params.scaleStep = actualScaleStep;
     params.optimization = ParseOptimization(optimization);
     params.metric = ParseMetric(metric);
 
     // Parse contrast parameter (supports "auto", numeric, "[low,high]", or "[low,high,minSize]")
     ParseContrast(contrast, params.contrastMode, params.contrastHigh, params.contrastLow, params.minComponentSize);
     params.minContrast = minContrast;
+    params.numAngleBins = std::clamp(numAngleBins, 1, 128);
 
     model.Impl()->params_ = params;
     model.Impl()->timingParams_.debugCreateModel = g_debugCreateModel;
 
-    Point2d origin{0, 0};
+    const Rect2i bbox = region.BoundingBox();
+    Point2d origin{bbox.width / 2.0, bbox.height / 2.0};
     if (!model.Impl()->CreateModel(templateImage, region, origin)) {
         model = ShapeModel();
     }
@@ -855,6 +825,51 @@ void FindScaledShapeModel(
 }
 
 // =============================================================================
+// GetModelTransform (aligned with decompiled get_model_transform)
+// =============================================================================
+
+std::vector<ModelPoint> GetModelTransform(
+    const ShapeModel& model,
+    int32_t level,
+    double angle,
+    double scale)
+{
+    if (!model.IsValid()) {
+        throw InvalidArgumentException("GetModelTransform: invalid ShapeModel");
+    }
+
+    auto* impl = model.Impl();
+    int32_t actualLevel = (level >= 1) ? level - 1 : 0;
+
+    if (actualLevel < 0 || actualLevel >= static_cast<int32_t>(impl->levels_.size())) {
+        throw InvalidArgumentException("GetModelTransform: level out of range");
+    }
+
+    const auto& src = impl->levels_[actualLevel].points;
+    if (src.empty()) return {};
+
+    // Identity case: no transform needed
+    if (std::abs(angle) < 1e-12 && std::abs(scale - 1.0) < 1e-12) {
+        return src;
+    }
+
+    double cosA = std::cos(angle);
+    double sinA = std::sin(angle);
+
+    std::vector<ModelPoint> out;
+    out.reserve(src.size());
+
+    for (const auto& pt : src) {
+        double rx = (cosA * pt.x - sinA * pt.y) * scale;
+        double ry = (sinA * pt.x + cosA * pt.y) * scale;
+        double ra = pt.angle + angle;
+        out.emplace_back(rx, ry, ra, pt.magnitude, pt.angleBin, pt.weight);
+    }
+
+    return out;
+}
+
+// =============================================================================
 // Model Property Functions
 // =============================================================================
 
@@ -1034,7 +1049,7 @@ void WriteShapeModel(
 
     // Magic number and version
     const uint32_t MAGIC = 0x4D495351;  // "QISM"
-    const uint32_t VERSION = 4;
+    const uint32_t VERSION = 5;
     writer.Write(MAGIC);
     writer.Write(VERSION);
 
@@ -1057,6 +1072,7 @@ void WriteShapeModel(
     writer.Write(impl->params_.scaleMax);
     writer.Write(impl->params_.scaleStep);
     writer.Write(static_cast<int32_t>(impl->params_.polarity));
+    writer.Write(impl->numAngleBins_);  // v5: angle quantization bins
 
     // Origin and template size
     writer.Write(impl->origin_.x);
@@ -1117,7 +1133,7 @@ void ReadShapeModel(
     }
 
     uint32_t version = reader.Read<uint32_t>();
-    if (version < 1 || version > 4) {
+    if (version < 1 || version > 5) {
         throw VersionMismatchException("Unsupported shape model version");
     }
 
@@ -1147,6 +1163,12 @@ void ReadShapeModel(
             impl->params_.scaleStep = 0.0;
         }
         impl->params_.polarity = static_cast<MatchPolarity>(reader.Read<int32_t>());
+        if (version >= 5) {
+            impl->numAngleBins_ = std::clamp(reader.Read<int32_t>(), 1, 128);
+        } else {
+            impl->numAngleBins_ = 16;  // default for v3/v4
+        }
+        impl->params_.numAngleBins = impl->numAngleBins_;
     } else {
         // Legacy v1/v2 format
         double minContrast = reader.Read<double>();
@@ -1179,6 +1201,8 @@ void ReadShapeModel(
 
         impl->params_.polarity = static_cast<MatchPolarity>(reader.Read<int32_t>());
         impl->params_.metric = MetricMode::UsePolarity;
+        impl->numAngleBins_ = 16;  // default for v1/v2
+        impl->params_.numAngleBins = 16;
     }
 
     impl->origin_.x = reader.Read<double>();
@@ -1220,6 +1244,11 @@ void ReadShapeModel(
     }
 
     impl->valid_ = true;
+
+    // Rebuild search structures from loaded parameters
+    impl->BuildCosLUT(impl->numAngleBins_);
+    double angleExtent = (impl->params_.angleExtent > 0) ? impl->params_.angleExtent : 2.0 * 3.14159265358979323846;
+    impl->BuildSearchAngleCache(impl->params_.angleStart, angleExtent, impl->params_.angleStep);
 }
 
 void ClearShapeModel(ShapeModel& model)
@@ -1229,57 +1258,6 @@ void ClearShapeModel(ShapeModel& model)
         model.Impl()->scaledModels_.clear();
         model.Impl()->valid_ = false;
     }
-}
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-void DetermineShapeModelParams(
-    const QImage& templateImage,
-    const Rect2i& roi,
-    int32_t& numLevels,
-    double& angleStart,
-    double& angleExtent,
-    double& angleStep,
-    double& scaleMin,
-    double& scaleMax,
-    double& scaleStep,
-    double& contrast,
-    double& minContrast)
-{
-    // Determine ROI dimensions
-    int32_t roiWidth = (roi.width > 0) ? roi.width : templateImage.Width();
-    int32_t roiHeight = (roi.height > 0) ? roi.height : templateImage.Height();
-    int32_t minDim = std::min(roiWidth, roiHeight);
-
-    // Auto-determine pyramid levels (stop when top level ~30px)
-    numLevels = 1;
-    int32_t dim = minDim;
-    while (dim > 30 && numLevels < 6) {
-        dim /= 2;
-        numLevels++;
-    }
-
-    // Default angle parameters (full rotation)
-    angleStart = 0.0;
-    angleExtent = 2.0 * 3.14159265358979323846;
-
-    // Auto-determine angle step based on model size
-    double maxRadius = minDim / 2.0;
-    if (maxRadius < 1.0) maxRadius = 1.0;
-    angleStep = 2.0 * std::asin(1.0 / (2.0 * maxRadius));
-    angleStep = std::clamp(angleStep, 0.0087, 0.175);  // ~0.5° to ~10°
-
-    // Default scale (no scaling)
-    scaleMin = 1.0;
-    scaleMax = 1.0;
-    scaleStep = 0.0;
-
-    // Auto-determine contrast (simple heuristic)
-    // TODO: Implement proper auto-contrast using histogram analysis
-    contrast = 30.0;
-    minContrast = 10.0;
 }
 
 void InspectShapeModel(

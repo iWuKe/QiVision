@@ -87,6 +87,7 @@ Tests    █████████████████░░░ 87%
 | Steger.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | Steger 亚像素边缘 |
 | EdgeLinking.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | 边缘点连接 |
 | Canny.h | ✅ | ✅ | ✅ | ⬜ | ⬜ | Canny 边缘检测（含亚像素精化、自动阈值） |
+| EdgesSubPix.h | ✅ | ✅ | ⬜ | ⬜ | ⬜ | HALCON-compatible edges_sub_pix_gray（反编译还原） |
 
 ---
 
@@ -267,6 +268,21 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-02-26 (EdgesSubPix 反编译还原 — 8项修复)
+
+- **Internal/EdgesSubPix.cpp** (反编译还原修复)
+  - BUG #1: Sub-pixel threshold 从 L2 范数改为 L∞ 范数 (per-axis |sub| ≤ 0.5)
+  - BUG #2: 角度从 Hessian eigenvector atan2(ny,nx) 计算，不再用 Sobel gradient
+  - BUG #3: angleBin 改为 4-bin tangent quantization [0,π)，不再用 numAngleBins [0,2π)
+  - BUG #4: 新增 angle_90 概念 (tangent direction = angle mod π + π/2)
+  - Diff #5: 方向感知邻居生成 (direction-based neighbor generation，匹配 sub_18002E940)
+  - Diff #6: 两步角度一致性检查 (90° dot product + 67.5° threshold)
+  - Diff #7: 沿切线方向双向链扩展 (forward/backward along tangent)
+  - Diff #8: Hessian eigenvector 方向 + gradient consistency adjustment
+  - StegerSubPixel 输出 eigenvector (nx, ny)
+  - Candidate 结构体新增 angle90 字段
+- **include/QiVision/Internal/EdgesSubPix.h**: angleBin 注释更新为 4 bins [0,π)
 
 ### 2026-02-06 (Fisheye 模型接入与健壮性修复)
 

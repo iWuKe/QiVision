@@ -4,7 +4,7 @@
  *
  * This file contains:
  * - LevelModel: Model data for a single pyramid level
- * - AngleData, RotatedPoint: Precomputed data structures
+ * - SearchAngleData: Precomputed search angle data
  * - FastCosTable: Fast cosine lookup table
  * - ShapeModelImpl: Implementation class
  */
@@ -14,6 +14,7 @@
 #include <QiVision/Matching/ShapeModel.h>
 #include <QiVision/Matching/MatchTypes.h>
 #include <QiVision/Internal/AnglePyramid.h>
+#include <QiVision/Internal/EdgesSubPix.h>
 #include <QiVision/Core/Types.h>
 #include <QiVision/Core/Constants.h>
 
@@ -43,6 +44,17 @@ using Qi::Vision::Internal::AnglePyramid;
 using Qi::Vision::Internal::AnglePyramidParams;
 using Qi::Vision::Internal::PyramidLevelData;
 using Qi::Vision::Internal::EdgePoint;
+
+// =============================================================================
+// LevelCreateData: Per-level creation metadata (MinAreaRect alignment)
+// =============================================================================
+
+struct LevelCreateData {
+    double alignmentAngle = 0.0;   ///< Alignment angle from MinAreaRect (radians)
+    double bboxMinX = 0, bboxMaxX = 0;  ///< Rotated AABB bounds
+    double bboxMinY = 0, bboxMaxY = 0;
+    double maxRadius = 0.0;        ///< Max distance from center to edge point
+};
 
 // =============================================================================
 // LevelModel: Model data for a single pyramid level
@@ -77,6 +89,7 @@ struct LevelModel {
     int32_t width = 0;
     int32_t height = 0;
     double scale = 1.0;
+    int32_t numAngleBins = 16;  ///< Angle bins at this level (halves per level, min=2)
 
     // SoA for Block 1 (subpixel points)
     std::vector<float> soaX;
@@ -107,25 +120,6 @@ private:
 // =============================================================================
 // Supporting Structures
 // =============================================================================
-
-/**
- * @brief Precomputed data for angle search
- */
-struct AngleData {
-    double angle = 0.0;
-    double cosA = 1.0;
-    double sinA = 0.0;
-};
-
-/**
- * @brief Precomputed rotated model point for fast score computation
- */
-struct RotatedPoint {
-    double offsetX;      // cosA * pt.x - sinA * pt.y
-    double offsetY;      // sinA * pt.x + cosA * pt.y
-    double expectedAngle; // pt.angle + angle
-    double weight;
-};
 
 /**
  * @brief Precomputed search angle data with rotated bounds per level
@@ -197,59 +191,52 @@ public:
         double searchAngleStep = 0.0;
     };
 
-    // Model data
-    std::vector<LevelModel> levels_;
-    ModelParams params_;
-    Point2d origin_;
-    Size2i templateSize_;
-    bool valid_ = false;
+    // ==========================================================================
+    // Create-side fields (populated by CreateModel / FinalizeModel)
+    // ==========================================================================
 
-    // Saved template image for scale model creation
-    // (scaled models need to re-extract edges from scaled image)
-    QImage templateImage_;
-    Rect2i templateROI_;  // Original ROI (if any)
+    std::vector<LevelModel> levels_;               ///< Model data per pyramid level
+    std::vector<LevelCreateData> levelCreateData_;  ///< Per-level creation metadata
+    ModelParams params_;                            ///< User-supplied model parameters
+    Point2d origin_;                                ///< Model origin (template coords)
+    Size2i templateSize_;                           ///< Template image size
+    bool valid_ = false;                            ///< True after successful CreateModel
 
-    // Timing configuration and results
-    ShapeModelTimingParams timingParams_;
-    ShapeModelCreateTiming createTiming_;
-    mutable ShapeModelFindTiming findTiming_;  // mutable for const Find()
+    QImage templateImage_;                          ///< Saved template for scale model creation
 
-    // Model bounding box (cached)
-    double modelMinX_ = 0, modelMaxX_ = 0;
+    ShapeModelTimingParams timingParams_;            ///< Timing configuration
+    ShapeModelCreateTiming createTiming_;            ///< Create timing results
+    mutable ShapeModelFindTiming findTiming_;        ///< Find timing results (mutable for const Find)
+
+    double modelMinX_ = 0, modelMaxX_ = 0;          ///< Model bounding box (cached)
     double modelMinY_ = 0, modelMaxY_ = 0;
 
-    // Precomputed angle data for common angles
-    std::vector<std::vector<AngleData>> angleCache_;
+    int32_t numAngleBins_ = 0;                       ///< Angle quantization bins (top level)
 
-    // Direction quantization lookup table for fast scoring
-    std::vector<float> cosLUT_;
-    int32_t numAngleBins_ = 0;
+    double minCoverage_ = 0.7;                       ///< Dynamic coverage threshold
 
-    // Pregenerated search data (Halcon pregeneration strategy)
+    std::vector<ScaledModelData> scaledModels_;      ///< Cached scaled models for scale search
+
+    // ==========================================================================
+    // Search-side fields (used by SearchPyramid / ComputeScore)
+    // ==========================================================================
+
+    std::vector<float> cosLUT_;                      ///< Direction quantization lookup table
+
     std::vector<SearchAngleData> searchAngleCache_;  ///< Precomputed angle data for search
     double searchAngleStart_ = 0.0;                  ///< Search angle range start
     double searchAngleExtent_ = 2.0 * PI;            ///< Search angle range extent
     double searchAngleStep_ = 0.0;                   ///< Search angle step (0 = auto)
 
-    // Dynamic coverage threshold (computed from model complexity)
-    // Simple models (few points) need higher coverage to avoid false matches
-    double minCoverage_ = 0.7;                       ///< Minimum coverage for valid match
-
-    // Cached scaled models for scale search
-    std::vector<ScaledModelData> scaledModels_;
-
     // ==========================================================================
     // Model Creation (ShapeModelCreate.cpp)
     // ==========================================================================
 
-    bool CreateModel(const QImage& image, const Rect2i& roi, const Point2d& origin);
     bool CreateModel(const QImage& image, const QRegion& region, const Point2d& origin);
-    void ExtractModelPointsXLD(const QImage& templateImg, const AnglePyramid& pyramid);
-    void ExtractModelPointsXLDWithRegion(const QImage& templateImg, const AnglePyramid& pyramid,
-                                          const QRegion& region);
-    void OptimizeModel();
+    void OptimizeModel(std::vector<LevelModel>& levels);
+    bool FinalizeModel();
+    void ComputeMinCoverage();
     void BuildCosLUT(int32_t numBins);
-    void BuildAngleCache(double angleStart, double angleExtent, double angleStep);
     void BuildSearchAngleCache(double angleStart, double angleExtent, double angleStep);
     void ComputeModelBounds();
     static void ComputeRotatedBounds(const std::vector<ModelPoint>& points, double angle,

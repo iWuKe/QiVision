@@ -324,7 +324,7 @@ struct QIVISION_API ModelParams {
     // =========================================================================
     // Optimization (point reduction)
     // =========================================================================
-    OptimizationMode optimization = OptimizationMode::Auto;
+    OptimizationMode optimization = OptimizationMode::None;
     bool pregeneration = true;      ///< Pre-generate rotated models (memory vs speed, default ON)
 
     // =========================================================================
@@ -342,6 +342,7 @@ struct QIVISION_API ModelParams {
     // =========================================================================
     int32_t numLevels = 0;          ///< Pyramid levels (0 = auto, typically 4-6)
     int32_t startLevel = 0;         ///< Starting search level (0 = finest)
+    int32_t numAngleBins = 16;      ///< Angle quantization bins (clamped to [1, 128])
 
     // =========================================================================
     // Angle Parameters
@@ -395,14 +396,20 @@ struct QIVISION_API ModelParams {
     }
 
     /// Set auto contrast detection
+    /// All auto variants use the same path: contrastHigh=0 → ExtractEdgeLevels
+    /// applies decompiled default thresholds (high=2.0, low=1.0).
     ModelParams& SetContrastAuto() {
         contrastMode = ContrastMode::Auto;
+        contrastHigh = 0.0;
+        contrastLow = 0.0;
         return *this;
     }
 
-    /// Set auto contrast with hysteresis
+    /// Set auto contrast with hysteresis (currently same behavior as SetContrastAuto)
     ModelParams& SetContrastAutoHysteresis() {
-        contrastMode = ContrastMode::AutoHysteresis;
+        contrastMode = ContrastMode::Auto;
+        contrastHigh = 0.0;
+        contrastLow = 0.0;
         return *this;
     }
 
@@ -477,15 +484,24 @@ struct QIVISION_API ModelParams {
     bool ValidateAndFixContrast() {
         bool wasValid = true;
 
-        // Ensure contrastHigh is positive
-        if (contrastHigh <= 0) {
-            contrastHigh = 10.0;  // Minimal default
+        // Decompiled: contrastHigh < 1.0 → ExtractEdgeLevels uses default
+        // thresholds (high=2.0, low=1.0). Only clamp negative to 0.
+        if (contrastHigh < 0) {
+            contrastHigh = 0.0;
             wasValid = false;
         }
 
         // Ensure contrastLow > 0 when using hysteresis
         if (contrastLow < 0) {
             contrastLow = 0.0;  // Disable hysteresis
+            wasValid = false;
+        }
+
+        // When contrastHigh is in the "use defaults" range (< 1.0),
+        // clear contrastLow to prevent swap from pulling it up.
+        // Decompiled has no hysteresis concept — single threshold or defaults.
+        if (contrastHigh < 1.0 && contrastLow > 0) {
+            contrastLow = 0.0;
             wasValid = false;
         }
 
@@ -499,7 +515,8 @@ struct QIVISION_API ModelParams {
         }
 
         // Ensure minContrast < contrastHigh for valid search semantics
-        if (minContrast > 0 && minContrast >= contrastHigh) {
+        // Skip when contrastHigh <= 0 (Auto mode: threshold determined at extraction time)
+        if (contrastHigh > 0 && minContrast > 0 && minContrast >= contrastHigh) {
             minContrast = contrastHigh * 0.5;
             wasValid = false;
         }
@@ -517,10 +534,11 @@ struct QIVISION_API ModelParams {
      * @brief Check if parameters are valid without fixing
      */
     bool IsContrastValid() const {
-        if (contrastHigh <= 0) return false;
+        // contrastHigh < 1.0 is valid: ExtractEdgeLevels uses decompiled defaults
+        if (contrastHigh < 0) return false;
         if (contrastLow < 0) return false;
-        if (contrastLow > 0 && contrastHigh < contrastLow) return false;
-        if (minContrast > 0 && minContrast >= contrastHigh) return false;
+        if (contrastLow > 0 && contrastHigh > 0 && contrastHigh < contrastLow) return false;
+        if (contrastHigh > 0 && minContrast > 0 && minContrast >= contrastHigh) return false;
         if (minComponentSize < 1) return false;
         return true;
     }

@@ -23,6 +23,7 @@
 #include <QiVision/Core/QContourArray.h>
 #include <QiVision/Core/Types.h>
 #include <QiVision/Core/Export.h>
+#include <QiVision/Matching/MatchTypes.h>
 
 #include <cstdint>
 #include <memory>
@@ -113,36 +114,8 @@ QIVISION_API void CreateShapeModel(
     const std::string& optimization,
     const std::string& metric,
     const std::string& contrast,
-    double minContrast
-);
-
-/**
- * @brief Create a shape model from rectangular ROI
- *
- * @param templateImage Source image
- * @param roi           Rectangular region of interest
- * @param model         [out] Created shape model handle
- * @param numLevels     Number of pyramid levels (0 = auto)
- * @param angleStart    Smallest rotation angle [rad]
- * @param angleExtent   Extent of rotation angles [rad]
- * @param angleStep     Step length of angles [rad] (0 = auto)
- * @param optimization  Point reduction mode
- * @param metric        Match metric
- * @param contrast      Threshold for edge extraction
- * @param minContrast   Minimum contrast in search images
- */
-QIVISION_API void CreateShapeModel(
-    const QImage& templateImage,
-    const Rect2i& roi,
-    ShapeModel& model,
-    int32_t numLevels,
-    double angleStart,
-    double angleExtent,
-    double angleStep,
-    const std::string& optimization,
-    const std::string& metric,
-    const std::string& contrast,
-    double minContrast
+    double minContrast,
+    int32_t numAngleBins = 16
 );
 
 /**
@@ -186,7 +159,8 @@ QIVISION_API void CreateShapeModel(
     const std::string& optimization,
     const std::string& metric,
     const std::string& contrast,
-    double minContrast
+    double minContrast,
+    int32_t numAngleBins = 16
 );
 
 /**
@@ -221,44 +195,8 @@ QIVISION_API void CreateScaledShapeModel(
     const std::string& optimization,
     const std::string& metric,
     const std::string& contrast,
-    double minContrast
-);
-
-/**
- * @brief Create a shape model with scale search (isotropic) from ROI
- *
- * Equivalent to Halcon's create_scaled_shape_model operator with ROI.
- *
- * @param templateImage Template image
- * @param roi           Rectangular ROI for model creation
- * @param model         [out] Created shape model handle
- * @param numLevels     Number of pyramid levels (0 = auto)
- * @param angleStart    Smallest rotation angle [rad]
- * @param angleExtent   Extent of rotation angles [rad]
- * @param angleStep     Step length of angles [rad] (0 = auto)
- * @param scaleMin      Minimum scale factor
- * @param scaleMax      Maximum scale factor
- * @param scaleStep     Scale step (0 = auto)
- * @param optimization  Point reduction mode
- * @param metric        Match metric
- * @param contrast      Threshold for edge extraction
- * @param minContrast   Minimum contrast in search images
- */
-QIVISION_API void CreateScaledShapeModel(
-    const QImage& templateImage,
-    const Rect2i& roi,
-    ShapeModel& model,
-    int32_t numLevels,
-    double angleStart,
-    double angleExtent,
-    double angleStep,
-    double scaleMin,
-    double scaleMax,
-    double scaleStep,
-    const std::string& optimization,
-    const std::string& metric,
-    const std::string& contrast,
-    double minContrast
+    double minContrast,
+    int32_t numAngleBins = 16
 );
 
 /**
@@ -295,7 +233,8 @@ QIVISION_API void CreateScaledShapeModel(
     const std::string& optimization,
     const std::string& metric,
     const std::string& contrast,
-    double minContrast
+    double minContrast,
+    int32_t numAngleBins = 16
 );
 
 // =============================================================================
@@ -422,6 +361,29 @@ QIVISION_API void GetShapeModelXLD(
 );
 
 /**
+ * @brief Get model feature points transformed by angle and scale
+ *
+ * Aligned with decompiled get_model_transform(). Returns the model's
+ * internal feature points at the specified pyramid level, optionally
+ * rotated and scaled.
+ *
+ * Feature positions are relative to the model origin (template center).
+ * To get absolute image coordinates: imageX = cx + feature.x
+ *
+ * @param model     Shape model handle
+ * @param level     Pyramid level (1 = highest resolution, 1-based)
+ * @param angle     Rotation angle [rad] (0 = no rotation)
+ * @param scale     Scale factor (1.0 = original size)
+ * @return Vector of transformed model points
+ */
+QIVISION_API std::vector<ModelPoint> GetModelTransform(
+    const ShapeModel& model,
+    int32_t level = 1,
+    double angle = 0.0,
+    double scale = 1.0
+);
+
+/**
  * @brief Get the parameters of a shape model
  *
  * Equivalent to Halcon's get_shape_model_params operator.
@@ -523,36 +485,6 @@ QIVISION_API void ClearShapeModel(
 // Utility Functions
 // =============================================================================
 
-/**
- * @brief Determine optimal shape model parameters automatically
- *
- * Equivalent to Halcon's determine_shape_model_params operator.
- *
- * @param templateImage Template image
- * @param roi           Region of interest (empty = full image)
- * @param numLevels     [out] Recommended pyramid levels
- * @param angleStart    [out] Recommended angle start
- * @param angleExtent   [out] Recommended angle extent
- * @param angleStep     [out] Recommended angle step
- * @param scaleMin      [out] Recommended scale min
- * @param scaleMax      [out] Recommended scale max
- * @param scaleStep     [out] Recommended scale step
- * @param contrast      [out] Recommended contrast threshold
- * @param minContrast   [out] Recommended min contrast
- */
-QIVISION_API void DetermineShapeModelParams(
-    const QImage& templateImage,
-    const Rect2i& roi,
-    int32_t& numLevels,
-    double& angleStart,
-    double& angleExtent,
-    double& angleStep,
-    double& scaleMin,
-    double& scaleMax,
-    double& scaleStep,
-    double& contrast,
-    double& minContrast
-);
 
 /**
  * @brief Inspect a shape model (for debugging)

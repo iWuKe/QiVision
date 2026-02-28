@@ -392,6 +392,20 @@ void LevelModel::BuildSoA() {
 
     // Build SoA for Block 2 (grid points)
     BuildSoAForPoints(gridPoints, gridSoaX, gridSoaY, gridSoaCosAngle, gridSoaSinAngle, gridSoaWeight, gridSoaAngleBin);
+
+    // Pre-compute fixed 16-bin angleBin for response map LUT
+    // (independent of per-level numAngleBins which halves at each pyramid level)
+    const size_t n = gridPoints.size();
+    const size_t paddedN = (n + 7) & ~7;
+    gridSoaAngleBin16.resize(paddedN, 0);
+    for (size_t i = 0; i < n; ++i) {
+        double angle = std::atan2(
+            static_cast<double>(gridSoaSinAngle[i]),
+            static_cast<double>(gridSoaCosAngle[i]));
+        if (angle < 0) angle += TWO_PI;
+        int bin = static_cast<int>(angle * 16.0 / TWO_PI);
+        gridSoaAngleBin16[i] = static_cast<int16_t>(std::clamp(bin, 0, 15));
+    }
 }
 
 void LevelModel::RegenerateGridPoints() {
@@ -467,17 +481,12 @@ static void ComputeBoundsForLevels(const std::vector<LevelModel>& levels,
     }
 }
 
-static double ComputeMinCoverageForLevels(const std::vector<LevelModel>& levels) {
-    if (levels.empty() || levels[0].points.empty()) {
-        return 0.7;
-    }
-
-    size_t numModelPoints = levels[0].points.size();
-    if (numModelPoints < 200) {
-        double val = 0.7 + 0.15 * std::max(0.0, (200.0 - static_cast<double>(numModelPoints)) / 150.0);
-        return std::min(0.85, val);
-    }
-    return 0.7;
+static double ComputeMinCoverageForLevels(const std::vector<LevelModel>& /*levels*/) {
+    // Halcon-aligned: no coverage gate at coarse search.
+    // The response map + LUT scoring and float dot-product scoring already use
+    // fixed denominator (numPoints), so low-coverage matches naturally get low scores.
+    // Coverage filtering is disabled to avoid extra heuristic suppression.
+    return 0.0;
 }
 
 static void BuildSearchAngleCacheForLevels(const std::vector<LevelModel>& levels,
@@ -672,23 +681,33 @@ static int32_t ExtractEdgeLevels(const std::vector<float>& floatData,
         // Decompiled: a4=0 (no Gaussian pre-smoothing) — pyrDown already smooths
         // Decompiled: a7=levelAngleBins, a8=1.0 (contrastScale, no-op)
         const uint8_t* maskPtr = currentMask.empty() ? nullptr : currentMask.data();
+        int32_t edgeStatus = 0;
         auto edges = EdgesSubPixGray(currentImage.data(), currentW, currentH,
                                      edgeHigh, edgeLow, 0.0,
                                      maskPtr, currentW,
-                                     levelAngleBins, 1.0);
+                                     levelAngleBins, 1.0, &edgeStatus);
 
         if (debugPrint) {
             std::printf("[ExtractEdgeLevels] Level %d (%dx%d, scale=%.3f): %zu edges, "
-                        "threshold=[%.1f, %.1f], angleBins=%d%s\n",
+                        "threshold=[%.1f, %.1f], angleBins=%d%s%s\n",
                         level, currentW, currentH, levelScale,
                         edges.size(), edgeLow, edgeHigh,
-                        levelAngleBins, maskPtr ? " (masked)" : "");
+                        levelAngleBins, maskPtr ? " (masked)" : "",
+                        edgeStatus != 0 ? " [EDGE ERROR]" : "");
             std::fflush(stdout);
         }
 
+        // Distinguish "algorithm error" (edgeStatus!=0) from "normal stop" (too few edges)
+        // Decompiled: non-zero rc → error path, model creation fails
+        if (edgeStatus != 0) {
+            if (debugPrint) {
+                std::printf("[ExtractEdgeLevels] Level %d: EdgesSubPix returned error %d\n",
+                            level, edgeStatus);
+            }
+            return -3;  // algorithm error (hard failure)
+        }
+
         // Decompiled: numEdgePoints < 20 stops pyramid expansion for this model.
-        // EdgesSubPixGray wrapper does not expose status code separately, so
-        // treat empty output as a normal stop condition here.
         if (edges.size() < 20) break;
 
         // Build model points (centered at image center, angle re-quantized)
@@ -791,9 +810,6 @@ bool ShapeModelImpl::CreateModel(const QImage& image, const QRegion& region, con
 
     if (templateImg.Empty()) return false;
 
-    // Save template image for scale model creation
-    templateImage_ = templateImg;
-
     // Convert to float buffer for EdgesSubPixGray
     std::vector<float> floatBuf;
     if (!ImageToFloatBuffer(templateImg, floatBuf)) return false;
@@ -890,7 +906,6 @@ bool ShapeModelImpl::FinalizeModel() {
     BuildSearchAngleCache(params_.angleStart, angleExtent, params_.angleStep);
 
     valid_ = true;
-    BuildScaledModels();
     return true;
 }
 
@@ -899,12 +914,21 @@ bool ShapeModelImpl::FinalizeModel() {
 // =============================================================================
 
 void ShapeModelImpl::OptimizeModel(std::vector<LevelModel>& levels) {
-    // Optimization controls storage/search optimization, not edge extraction
+    // Set all weights to 1.0 unconditionally (Halcon-aligned: fixed weight)
+    for (auto& level : levels) {
+        for (auto& pt : level.points) {
+            pt.weight = 1.0;
+        }
+    }
+
+    // None = strict alignment path, skip all point reduction
+    if (params_.optimization == OptimizationMode::None) {
+        return;
+    }
+
+    // Point reduction modes (optional, for performance optimization)
     double minSpacing = 1.0;
     switch (params_.optimization) {
-        case OptimizationMode::None:
-            minSpacing = 0.0;  // Keep all points
-            break;
         case OptimizationMode::PointReductionLow:
             minSpacing = 2.0;
             break;
@@ -916,16 +940,19 @@ void ShapeModelImpl::OptimizeModel(std::vector<LevelModel>& levels) {
             break;
         case OptimizationMode::Auto:
         default:
-            // Auto: adaptive spacing based on template size
-            int32_t templateDim = std::max(templateSize_.width, templateSize_.height);
-            if (templateDim <= 100) {
-                minSpacing = 2.0;
-            } else if (templateDim <= 300) {
-                minSpacing = 2.5;
-            } else {
-                minSpacing = 3.0;
+            {
+                int32_t templateDim = std::max(templateSize_.width, templateSize_.height);
+                if (templateDim <= 100) {
+                    minSpacing = 2.0;
+                } else if (templateDim <= 300) {
+                    minSpacing = 2.5;
+                } else {
+                    minSpacing = 3.0;
+                }
             }
             break;
+        case OptimizationMode::None:
+            return;  // Already handled above, but silence compiler warning
     }
 
     if (minSpacing > 0.5) {
@@ -1032,20 +1059,6 @@ void ShapeModelImpl::OptimizeModel(std::vector<LevelModel>& levels) {
         }
     }
 
-    // Normalize weights
-    for (auto& level : levels) {
-        if (level.points.empty()) continue;
-
-        double totalWeight = 0.0;
-        for (const auto& pt : level.points) {
-            totalWeight += pt.weight;
-        }
-        if (totalWeight > 0) {
-            for (auto& pt : level.points) {
-                pt.weight /= totalWeight;
-            }
-        }
-    }
 }
 
 // =============================================================================
@@ -1128,169 +1141,6 @@ void ShapeModelImpl::BuildSearchAngleCache(double angleStart, double angleExtent
             data.levelBounds[level].maxY = static_cast<int32_t>(std::ceil(maxY));
         }
     }
-}
-
-// =============================================================================
-// ShapeModelImpl::BuildScaledModels
-// =============================================================================
-
-void ShapeModelImpl::BuildScaledModels() {
-    scaledModels_.clear();
-
-    if (levels_.empty() || !valid_) {
-        return;
-    }
-
-    // Check if template image is available for proper scaling
-    if (templateImage_.Empty()) {
-        if (timingParams_.debugCreateModel) {
-            std::printf("[BuildScaledModels] Warning: No template image saved, skipping scale models\n");
-        }
-        return;
-    }
-
-    double scaleMin = params_.scaleMin;
-    double scaleMax = params_.scaleMax;
-    double scaleStep = params_.scaleStep;
-
-    if (scaleMin <= 0 || scaleMax <= 0 || scaleMin > scaleMax) {
-        return;
-    }
-
-    if (scaleStep <= 0.0) {
-        scaleStep = 0.02;
-        if (scaleMax > scaleMin) {
-            scaleStep = std::max(0.01, (scaleMax - scaleMin) / 10.0);
-        }
-        params_.scaleStep = scaleStep;
-    }
-
-    if (timingParams_.debugCreateModel) {
-        std::printf("[BuildScaledModels] Building scaled models: scale=[%.3f, %.3f], step=%.3f\n",
-                    scaleMin, scaleMax, scaleStep);
-    }
-
-    constexpr double SCALE_TOLERANCE = 1e-6;
-    for (double scale = scaleMin; scale <= scaleMax + SCALE_TOLERANCE; scale += scaleStep) {
-        // Skip scale=1.0 as it's the base model (already in levels_)
-        if (std::abs(scale - 1.0) < SCALE_TOLERANCE) {
-            continue;
-        }
-
-        ScaledModelData sm;
-        sm.scale = scale;
-
-        // Step 1: Scale the template image using bilinear interpolation
-        int32_t scaledWidth = static_cast<int32_t>(std::round(templateImage_.Width() * scale));
-        int32_t scaledHeight = static_cast<int32_t>(std::round(templateImage_.Height() * scale));
-
-        if (scaledWidth < 8 || scaledHeight < 8) {
-            if (timingParams_.debugCreateModel) {
-                std::printf("[BuildScaledModels] Scale %.3f: image too small (%dx%d), skipping\n",
-                            scale, scaledWidth, scaledHeight);
-            }
-            continue;
-        }
-
-        QImage scaledImg = ScaleImageBilinear(templateImage_, scale);
-
-        if (scaledImg.Empty()) {
-            if (timingParams_.debugCreateModel) {
-                std::printf("[BuildScaledModels] Scale %.3f: failed to scale image, skipping\n", scale);
-            }
-            continue;
-        }
-
-        if (timingParams_.debugCreateModel) {
-            std::printf("[BuildScaledModels] Scale %.3f: templateImage_=%dx%d -> scaledImg=%dx%d\n",
-                        scale, templateImage_.Width(), templateImage_.Height(),
-                        scaledImg.Width(), scaledImg.Height());
-        }
-
-        sm.templateSize.width = scaledWidth;
-        sm.templateSize.height = scaledHeight;
-
-        // Step 2: Convert scaled image to float buffer
-        std::vector<float> scaledFloat;
-        if (!ImageToFloatBuffer(scaledImg, scaledFloat)) {
-            if (timingParams_.debugCreateModel) {
-                std::printf("[BuildScaledModels] Scale %.3f: failed to convert to float, skipping\n", scale);
-            }
-            continue;
-        }
-
-        // Step 3: Compute pyramid levels for scaled image (max 10, matching decompiled)
-        int32_t numLevels = std::min(static_cast<int32_t>(levels_.size()), 10);
-
-        // Step 4: Extract edges using EdgesSubPixGray pyramid loop
-        // Uses image center for centering (handled inside ExtractEdgeLevels)
-        double contrastLow = (params_.contrastLow > 0) ? params_.contrastLow : 0.0;
-
-        ExtractEdgeLevels(
-            scaledFloat, scaledWidth, scaledHeight, numAngleBins_,
-            params_.contrastHigh, contrastLow,
-            numLevels,
-            sm.levels, nullptr,
-            timingParams_.debugCreateModel,
-            nullptr,  // no region
-            false);   // not auto-detecting levels (use model's existing count)
-
-        if (sm.levels.empty() || sm.levels[0].points.empty()) {
-            if (timingParams_.debugCreateModel) {
-                std::printf("[BuildScaledModels] Scale %.3f: no points extracted, skipping\n", scale);
-            }
-            continue;
-        }
-
-        // Apply optimization if enabled
-        if (params_.optimization != OptimizationMode::None) {
-            OptimizeModel(sm.levels);
-        }
-
-        // Build SoA data for the scaled levels
-        for (auto& level : sm.levels) {
-            level.BuildSoA();
-        }
-
-        // Step 6: Compute bounds and coverage for the scaled model
-        ComputeBoundsForLevels(sm.levels, sm.modelMinX, sm.modelMaxX, sm.modelMinY, sm.modelMaxY);
-        sm.minCoverage = ComputeMinCoverageForLevels(sm.levels);
-
-        // Step 7: Build search angle cache for the scaled model
-        double angleExtent = params_.angleExtent;
-        if (angleExtent <= 0) {
-            angleExtent = 2.0 * PI;
-        }
-        BuildSearchAngleCacheForLevels(sm.levels, sm.templateSize,
-                                       params_.angleStart, angleExtent, params_.angleStep,
-                                       sm.searchAngleCache, sm.searchAngleStep);
-        sm.searchAngleStart = params_.angleStart;
-        sm.searchAngleExtent = angleExtent;
-
-        if (timingParams_.debugCreateModel) {
-            std::printf("[BuildScaledModels] Scale %.3f: %zu levels, %zu points at level 0\n",
-                        scale, sm.levels.size(), sm.levels[0].points.size());
-        }
-
-        scaledModels_.push_back(std::move(sm));
-    }
-
-    if (timingParams_.debugCreateModel) {
-        std::printf("[BuildScaledModels] Created %zu scaled models\n", scaledModels_.size());
-    }
-}
-
-const ShapeModelImpl::ScaledModelData* ShapeModelImpl::GetScaledModelData(double scale) const {
-    if (scaledModels_.empty()) {
-        return nullptr;
-    }
-    const double tol = 1e-6;
-    for (const auto& sm : scaledModels_) {
-        if (std::abs(sm.scale - scale) <= tol) {
-            return &sm;
-        }
-    }
-    return nullptr;
 }
 
 // =============================================================================

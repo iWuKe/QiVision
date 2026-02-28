@@ -223,9 +223,37 @@ public:
         // Create graphics context
         gc_ = XCreateGC(display_, window_, 0, nullptr);
 
+        // Set WM hints for proper window placement (important for WSLg)
+        XSizeHints* sizeHints = XAllocSizeHints();
+        if (sizeHints) {
+            sizeHints->flags = PPosition | PSize;
+            sizeHints->x = 100;
+            sizeHints->y = 100;
+            sizeHints->width = width_;
+            sizeHints->height = height_;
+            XSetWMNormalHints(display_, window_, sizeHints);
+            XFree(sizeHints);
+        }
+
+        // Set WM class hints (helps window manager identify the application)
+        XClassHint* classHint = XAllocClassHint();
+        if (classHint) {
+            classHint->res_name = const_cast<char*>("qivision");
+            classHint->res_class = const_cast<char*>("QiVision");
+            XSetClassHint(display_, window_, classHint);
+            XFree(classHint);
+        }
+
         // Show window
         XMapWindow(display_, window_);
-        // Use XSync to ensure window is mapped before returning
+        XSync(display_, False);
+
+        // Wait for MapNotify to ensure window is actually visible
+        XEvent mapEvent;
+        XMaskEvent(display_, StructureNotifyMask, &mapEvent);
+
+        // Raise window to front
+        XRaiseWindow(display_, window_);
         XSync(display_, False);
 
         // Register in global registry
@@ -281,7 +309,7 @@ public:
         srcImageWidth_ = srcWidth;
         srcImageHeight_ = srcHeight;
 
-        // Auto-resize window to fit image
+        // Auto-resize: set window size to match image (clamped to screen)
         if (autoResize_) {
             int32_t maxW = (maxWidth_ > 0) ? maxWidth_ : (screenWidth_ - 100);
             int32_t maxH = (maxHeight_ > 0) ? maxHeight_ : (screenHeight_ - 100);
@@ -296,6 +324,10 @@ public:
                 double scale = std::min(scaleW, scaleH);
                 newWidth = static_cast<int32_t>(srcWidth * scale);
                 newHeight = static_cast<int32_t>(srcHeight * scale);
+                // Image exceeds screen — force Fit mode so it's fully visible
+                if (scaleMode == ScaleMode::None) {
+                    scaleMode = ScaleMode::Fit;
+                }
             }
 
             // Resize window if size changed
@@ -303,7 +335,6 @@ public:
                 width_ = newWidth;
                 height_ = newHeight;
                 XResizeWindow(display_, window_, width_, height_);
-                // Use XSync to ensure window resize completes before drawing
                 XSync(display_, False);
             }
         }
@@ -316,8 +347,9 @@ public:
 
         switch (scaleMode) {
             case ScaleMode::None:
-                dstWidth = srcWidth;
-                dstHeight = srcHeight;
+                // Window already matches image size (via autoResize or manual Resize)
+                dstWidth = std::min(srcWidth, width_);
+                dstHeight = std::min(srcHeight, height_);
                 break;
 
             case ScaleMode::Fit: {
@@ -1676,7 +1708,7 @@ public:
         srcImageWidth_ = srcWidth;
         srcImageHeight_ = srcHeight;
 
-        // Auto-resize window to fit image
+        // Auto-resize: set window size to match image (clamped to screen)
         if (autoResize_) {
             int32_t maxW = (maxWidth_ > 0) ? maxWidth_ : (screenWidth_ - 100);
             int32_t maxH = (maxHeight_ > 0) ? maxHeight_ : (screenHeight_ - 100);
@@ -1691,6 +1723,10 @@ public:
                 double scale = std::min(scaleW, scaleH);
                 newWidth = static_cast<int32_t>(srcWidth * scale);
                 newHeight = static_cast<int32_t>(srcHeight * scale);
+                // Image exceeds screen — force Fit mode so it's fully visible
+                if (scaleMode == ScaleMode::None) {
+                    scaleMode = ScaleMode::Fit;
+                }
             }
 
             // Resize window if size changed
@@ -1712,8 +1748,9 @@ public:
 
         switch (scaleMode) {
             case ScaleMode::None:
-                dstWidth = srcWidth;
-                dstHeight = srcHeight;
+                // Window already matches image size (via autoResize or manual Resize)
+                dstWidth = std::min(srcWidth, width_);
+                dstHeight = std::min(srcHeight, height_);
                 break;
 
             case ScaleMode::Fit: {
@@ -2294,13 +2331,15 @@ ROIResult Window::DrawROI(ROIType type) {
 
 int32_t Window::ShowImage(const QImage& image, const std::string& title) {
     Window win(title, image.Width(), image.Height());
-    win.DispImage(image);
+    win.SetAutoResize(true);
+    win.DispImage(image, ScaleMode::None);
     return win.WaitKey();
 }
 
 int32_t Window::ShowImage(const QImage& image, const std::string& title, int32_t timeoutMs) {
     Window win(title, image.Width(), image.Height());
-    win.DispImage(image);
+    win.SetAutoResize(true);
+    win.DispImage(image, ScaleMode::None);
     return win.WaitKey(timeoutMs);
 }
 
@@ -2314,9 +2353,10 @@ void DispImage(const QImage& image, const std::string& windowName) {
     auto it = g_windows.find(windowName);
     if (it == g_windows.end()) {
         auto win = std::make_unique<Window>(windowName, image.Width(), image.Height());
+        win->SetAutoResize(true);
         it = g_windows.emplace(windowName, std::move(win)).first;
     }
-    it->second->DispImage(image);
+    it->second->DispImage(image, ScaleMode::None);
 }
 
 int32_t WaitKey(int32_t timeoutMs) {

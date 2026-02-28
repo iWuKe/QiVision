@@ -233,6 +233,42 @@ std::vector<EdgePoint> EdgesSubPixGray(
     return result;
 }
 
+std::vector<EdgePoint> EdgesSubPixGray(
+    const float* src, int32_t width, int32_t height,
+    double highThreshold,
+    double lowThreshold,
+    double smoothSigma,
+    const uint8_t* mask,
+    int32_t maskStride,
+    int32_t angleBins,
+    double contrastScale,
+    int32_t* outStatus)
+{
+    int32_t gaussianKernel = 0;
+    if (smoothSigma > 0.0) {
+        gaussianKernel = static_cast<int32_t>(std::ceil(6.0 * smoothSigma));
+        if ((gaussianKernel & 1) == 0) ++gaussianKernel;
+        gaussianKernel = std::max(3, gaussianKernel);
+    }
+
+    double scaledHigh = highThreshold * contrastScale;
+    double scaledLow  = lowThreshold  * contrastScale;
+    (void)angleBins;
+
+    std::vector<EdgePoint> result;
+    const int32_t rc = EdgesSubPixGrayLegacyCore(
+        src, width, height,
+        gaussianKernel,
+        0, 1,
+        scaledHigh, scaledLow,
+        result,
+        mask, maskStride);
+
+    if (outStatus) *outStatus = rc;
+    if (rc != 0) return {};
+    return result;
+}
+
 // =============================================================================
 // EdgesSubPixGrayLegacyCore
 // =============================================================================

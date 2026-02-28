@@ -45,18 +45,17 @@ enum class MatchMethod {
  * @brief Subpixel refinement method
  *
  * HALCON-compatible subpixel methods:
- * - None: Pixel-level only
- * - Parabolic ('interpolation'): Fast parabolic fitting for position AND angle (~0.05px)
- * - LeastSquares: Levenberg-Marquardt optimization for (x, y, angle) (~0.02px)
- * - LeastSquaresHigh: Higher precision LM with more iterations (~0.01px)
- * - LeastSquaresVeryHigh: Highest precision (~0.005px)
+ * - None: Pixel-level only ('none')
+ * - Parabolic ('interpolation'): 3x3 score grid + parabolic position fitting (~0.05px)
+ * - LeastSquares ('least_squares'): Per-point gradient profile + Gauss-Newton solve (~0.02px)
+ * - LeastSquaresHigh ('least_squares_high'): Same as LeastSquares with 2 iterations (~0.01px)
  */
 enum class SubpixelMethod {
     None,                   ///< No subpixel refinement (integer positions only)
-    Parabolic,              ///< Parabolic fitting for position + angle (fast, ~0.05px accuracy)
-    LeastSquares,           ///< Levenberg-Marquardt optimization (~0.02px accuracy)
-    LeastSquaresHigh,       ///< High precision LM optimization (~0.01px accuracy)
-    LeastSquaresVeryHigh    ///< Very high precision LM optimization (~0.005px accuracy)
+    Parabolic,              ///< Parabolic fitting for position (fast, ~0.05px accuracy)
+    LeastSquares,           ///< Gradient profile + Gauss-Newton (1 iteration, ~0.02px accuracy)
+    LeastSquaresHigh,       ///< Gradient profile + Gauss-Newton (2 iterations, ~0.01px accuracy)
+    LeastSquaresVeryHigh    ///< [Deprecated] Maps to LeastSquaresHigh behavior
 };
 
 /**
@@ -200,13 +199,12 @@ struct QIVISION_API SearchParams {
     int32_t maxMatches = 0;         ///< Maximum matches to return (0 = all above threshold)
 
     // Angle search
-    AngleSearchMode angleMode = AngleSearchMode::Full;
+    AngleSearchMode angleMode = AngleSearchMode::Full;  ///< Used by ComponentModel
     double angleStart = 0.0;        ///< Start angle (radians)
     double angleExtent = 2.0 * 3.14159265358979323846;  ///< Angle range (radians)
-    double angleStep = 0.0;         ///< Angle step (0 = auto-compute)
 
     // Scale search
-    ScaleSearchMode scaleMode = ScaleSearchMode::Fixed;
+    ScaleSearchMode scaleMode = ScaleSearchMode::Fixed;  ///< Used by ComponentModel/NCCModel
     double scaleMin = 1.0;          ///< Minimum scale
     double scaleMax = 1.0;          ///< Maximum scale
     double scaleStep = 0.0;         ///< Scale step (0 = auto-compute)
@@ -225,9 +223,6 @@ struct QIVISION_API SearchParams {
     // Performance
     int32_t numLevels = 0;          ///< Pyramid levels (0 = auto)
     double greediness = 0.9;        ///< Greediness for early termination [0, 1]
-
-    // Polarity
-    MatchPolarity polarity = MatchPolarity::Same;
 
     // Non-maximum suppression (Halcon-compatible)
     double maxOverlap = 0.5;        ///< Maximum overlap ratio for NMS [0, 1] (Halcon default: 0.5)
@@ -250,7 +245,6 @@ struct QIVISION_API SearchParams {
     SearchParams& SetROI(const Rect2i& roi) { searchROI = roi; return *this; }
     SearchParams& SetSubpixel(SubpixelMethod method) { subpixelMethod = method; return *this; }
     SearchParams& SetGreediness(double v) { greediness = v; return *this; }
-    SearchParams& SetPolarity(MatchPolarity p) { polarity = p; return *this; }
     SearchParams& SetMaxOverlap(double v) { maxOverlap = v; return *this; }
 };
 
@@ -314,7 +308,7 @@ struct QIVISION_API ModelParams {
     double contrastHigh = 30.0;     ///< High threshold (single or hysteresis high)
     double contrastLow = 0.0;       ///< Low threshold for hysteresis (0 = single threshold)
     double contrastMax = 10000.0;   ///< Maximum contrast (filter very strong edges)
-    int32_t minComponentSize = 3;   ///< Min connected component size (for AutoMinSize)
+    int32_t minComponentSize = 3;   ///< Reserved: parsed from contrast string but NOT enforced in current alignment mode
 
     // =========================================================================
     // MinContrast (for search, not creation)
@@ -636,6 +630,80 @@ inline std::vector<MatchResult> NonMaxSuppression(
     return result;
 }
 
+// =============================================================================
+// OBB intersection helpers for NMS (Sutherland-Hodgman polygon clipping)
+// =============================================================================
+namespace nms_detail {
+
+struct Vec2 { double x, y; };
+
+/// Compute 4 corners of a rotated rectangle centered at (cx,cy) with half-sizes (hw,hh) rotated by angle
+inline void GetOBBCorners(double cx, double cy, double hw, double hh, double angle, Vec2 corners[4]) {
+    double c = std::cos(angle), s = std::sin(angle);
+    // Local corners: (-hw,-hh), (+hw,-hh), (+hw,+hh), (-hw,+hh)
+    double dxw = hw * c, dyw = hw * s;
+    double dxh = hh * (-s), dyh = hh * c;
+    corners[0] = {cx - dxw - dxh, cy - dyw - dyh};
+    corners[1] = {cx + dxw - dxh, cy + dyw - dyh};
+    corners[2] = {cx + dxw + dxh, cy + dyw + dyh};
+    corners[3] = {cx - dxw + dxh, cy - dyw + dyh};
+}
+
+/// Polygon area via shoelace formula
+inline double PolygonArea(const Vec2* poly, int n) {
+    if (n < 3) return 0.0;
+    double area = 0.0;
+    for (int i = 0; i < n; ++i) {
+        int j = (i + 1) % n;
+        area += poly[i].x * poly[j].y - poly[j].x * poly[i].y;
+    }
+    return std::abs(area) * 0.5;
+}
+
+/// Sutherland-Hodgman: clip polygon by half-plane defined by edge (a→b), keeping left side
+inline int ClipByEdge(const Vec2* in, int inN, Vec2* out, const Vec2& a, const Vec2& b) {
+    if (inN < 1) return 0;
+    int outN = 0;
+    double ex = b.x - a.x, ey = b.y - a.y;
+    auto side = [&](const Vec2& p) { return ex * (p.y - a.y) - ey * (p.x - a.x); };
+    for (int i = 0; i < inN; ++i) {
+        const Vec2& cur = in[i];
+        const Vec2& nxt = in[(i + 1) % inN];
+        double sc = side(cur), sn = side(nxt);
+        if (sc >= 0) {
+            out[outN++] = cur;
+            if (sn < 0) {
+                double t = sc / (sc - sn);
+                out[outN++] = {cur.x + t * (nxt.x - cur.x), cur.y + t * (nxt.y - cur.y)};
+            }
+        } else if (sn >= 0) {
+            double t = sc / (sc - sn);
+            out[outN++] = {cur.x + t * (nxt.x - cur.x), cur.y + t * (nxt.y - cur.y)};
+        }
+    }
+    return outN;
+}
+
+/// Compute intersection area of two convex quadrilaterals (OBBs)
+inline double OBBIntersectionArea(const Vec2 a[4], const Vec2 b[4]) {
+    // Start with polygon A, clip by each edge of B
+    Vec2 buf1[16], buf2[16];
+    int n = 4;
+    for (int i = 0; i < 4; ++i) buf1[i] = a[i];
+    for (int i = 0; i < 4; ++i) {
+        int j = (i + 1) % 4;
+        int nn = ClipByEdge(
+            (i % 2 == 0) ? buf1 : buf2, n,
+            (i % 2 == 0) ? buf2 : buf1,
+            b[i], b[j]);
+        n = nn;
+        if (n < 3) return 0.0;
+    }
+    return PolygonArea((4 % 2 == 0) ? buf1 : buf2, n);
+}
+
+} // namespace nms_detail
+
 /**
  * @brief Non-maximum suppression using overlap ratio (Halcon-compatible)
  * @param matches Input matches (sorted by score descending)
@@ -644,8 +712,8 @@ inline std::vector<MatchResult> NonMaxSuppression(
  * @param modelHeight Model bounding box height
  * @return Filtered matches
  *
- * Overlap is computed as: intersection_area / min(area1, area2)
- * where area is the model's bounding box transformed by each match.
+ * Overlap = OBB_intersection_area / min(area1, area2)
+ * Uses Sutherland-Hodgman polygon clipping for rotated rectangle intersection.
  */
 inline std::vector<MatchResult> NonMaxSuppressionOverlap(
     const std::vector<MatchResult>& matches,
@@ -655,42 +723,34 @@ inline std::vector<MatchResult> NonMaxSuppressionOverlap(
 {
     if (matches.empty()) return {};
 
-    // Matches should already be sorted by score (descending)
     std::vector<MatchResult> result;
     result.reserve(matches.size());
 
-    // For axis-aligned bounding boxes (simplified: ignore rotation for speed)
-    // More accurate: use OBB intersection, but much slower
+    // Cache OBB corners for each kept match
+    struct CachedOBB {
+        nms_detail::Vec2 corners[4];
+        double area;
+    };
+    std::vector<CachedOBB> keptOBBs;
+    keptOBBs.reserve(matches.size());
+
     for (const auto& match : matches) {
         bool suppress = false;
 
-        // Compute match bounding box (account for scale)
         double w1 = modelWidth * match.scaleX;
         double h1 = modelHeight * match.scaleY;
         double area1 = w1 * h1;
+        double hw1 = w1 * 0.5, hh1 = h1 * 0.5;
 
-        // Half-sizes for overlap computation
-        double hw1 = w1 * 0.5;
-        double hh1 = h1 * 0.5;
+        nms_detail::Vec2 corners1[4];
+        nms_detail::GetOBBCorners(match.x, match.y, hw1, hh1, match.angle, corners1);
 
-        for (const auto& kept : result) {
-            double w2 = modelWidth * kept.scaleX;
-            double h2 = modelHeight * kept.scaleY;
-            double area2 = w2 * h2;
-            double hw2 = w2 * 0.5;
-            double hh2 = h2 * 0.5;
+        for (size_t k = 0; k < keptOBBs.size(); ++k) {
+            double minArea = std::min(area1, keptOBBs[k].area);
+            if (minArea <= 0.0) continue;
 
-            // AABB intersection
-            double dx = std::abs(match.x - kept.x);
-            double dy = std::abs(match.y - kept.y);
-
-            double overlapX = std::max(0.0, hw1 + hw2 - dx);
-            double overlapY = std::max(0.0, hh1 + hh2 - dy);
-            double intersectionArea = overlapX * overlapY;
-
-            // Overlap ratio = intersection / min(area1, area2)
-            double minArea = std::min(area1, area2);
-            double overlapRatio = (minArea > 0.0) ? (intersectionArea / minArea) : 0.0;
+            double interArea = nms_detail::OBBIntersectionArea(corners1, keptOBBs[k].corners);
+            double overlapRatio = interArea / minArea;
 
             if (overlapRatio > maxOverlap) {
                 suppress = true;
@@ -700,6 +760,10 @@ inline std::vector<MatchResult> NonMaxSuppressionOverlap(
 
         if (!suppress) {
             result.push_back(match);
+            CachedOBB obb;
+            for (int i = 0; i < 4; ++i) obb.corners[i] = corners1[i];
+            obb.area = area1;
+            keptOBBs.push_back(obb);
         }
     }
 

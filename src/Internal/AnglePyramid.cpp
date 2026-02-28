@@ -68,6 +68,53 @@ inline bool ShouldUseOpenMP(int32_t width, int32_t height, bool forceDisable = f
 }
 
 // =============================================================================
+// Threshold-based 16-bin direction quantization (matches decompiled)
+// =============================================================================
+
+/// Threshold-based 16-bin direction quantization (matches decompiled).
+/// Returns 0-based bin (0..15). Caller adds +1 for 1-based output.
+/// Uses only comparison and multiplication, no atan.
+/// Uses dword_1800D6A60 = 0.19891236f ~ tan(11.25 deg) as threshold.
+static inline int32_t quantize_bin_threshold_16(float gx, float gy) {
+    const float t = 0.19891236f; // tan(11.25 deg)
+    float abs_gx = std::abs(gx);
+    float abs_gy = std::abs(gy);
+
+    if (abs_gx >= abs_gy) {
+        // Closer to x-axis
+        if (abs_gy < abs_gx * t) {
+            // Within 11.25 deg of x-axis
+            return (gx >= 0) ? 0 : 8;
+        } else {
+            // Between 11.25 deg and 45 deg from x-axis
+            if (gx >= 0)
+                return (gy >= 0) ? 1 : 15;
+            else
+                return (gy >= 0) ? 7 : 9;
+        }
+    } else {
+        // Closer to y-axis
+        if (abs_gx < abs_gy * t) {
+            // Within 11.25 deg of y-axis
+            return (gy >= 0) ? 4 : 12;
+        } else {
+            // Between 11.25 deg and 45 deg from y-axis
+            if (gy >= 0)
+                return (gx >= 0) ? 3 : 5;
+            else
+                return (gx >= 0) ? 13 : 11;
+        }
+    }
+}
+
+/// Map a 16-bin result to numBins. For numBins==16, returns bin16 directly.
+static inline int32_t quantize_bin_for_nbins(float gx, float gy, int32_t numBins) {
+    int32_t bin16 = quantize_bin_threshold_16(gx, gy);
+    if (numBins == 16) return bin16;
+    return (bin16 * numBins) >> 4; // bin16 * numBins / 16
+}
+
+// =============================================================================
 // SIMD Helper Functions
 // =============================================================================
 
@@ -94,106 +141,34 @@ static inline __m256 fast_div_avx2(__m256 a, __m256 b) {
     return _mm256_mul_ps(a, fast_rcp_avx2(b));
 }
 
-// Fast bin quantization: directly compute bin index from gx/gy without full atan2
-// Uses octant-based approach with linear interpolation within each octant
-// For numBins=16: each octant has 2 bins, total 8 octants
-static inline __m256i fast_quantize_bin_avx2(__m256 gy, __m256 gx, int32_t numBins) {
-    const __m256 zero = _mm256_setzero_ps();
-    const __m256 one = _mm256_set1_ps(1.0f);
-    const __m256 eps = _mm256_set1_ps(1e-10f);
+/// AVX2 threshold-based 16-bin direction quantization (matches decompiled).
+/// Returns 8x int32 bins (0..15). Uses scalar fallback per lane
+/// to avoid complex SIMD branch logic. Performance impact is minimal
+/// since quantization is a small fraction of overall computation.
+static inline __m256i quantize_bin_threshold_16_avx2(__m256 gy, __m256 gx) {
+    alignas(32) float gx_arr[8], gy_arr[8];
+    alignas(32) int32_t bin_arr[8];
+    _mm256_store_ps(gx_arr, gx);
+    _mm256_store_ps(gy_arr, gy);
 
-    // Compute absolute values
-    const __m256 sign_mask = _mm256_set1_ps(-0.0f);
-    __m256 abs_gx = _mm256_andnot_ps(sign_mask, gx);
-    __m256 abs_gy = _mm256_andnot_ps(sign_mask, gy);
-
-    // Determine octant using sign bits and |gy| vs |gx|
-    // octant: 0-7 based on (sign_x, sign_y, |gy|>|gx|)
-    __m256 gx_neg = _mm256_cmp_ps(gx, zero, _CMP_LT_OQ);
-    __m256 gy_neg = _mm256_cmp_ps(gy, zero, _CMP_LT_OQ);
-    __m256 gy_gt_gx = _mm256_cmp_ps(abs_gy, abs_gx, _CMP_GT_OQ);
-
-    // Convert masks to integers (0 or 1)
-    __m256i gx_neg_i = _mm256_and_si256(_mm256_castps_si256(gx_neg), _mm256_set1_epi32(1));
-    __m256i gy_neg_i = _mm256_and_si256(_mm256_castps_si256(gy_neg), _mm256_set1_epi32(1));
-    __m256i gy_gt_gx_i = _mm256_and_si256(_mm256_castps_si256(gy_gt_gx), _mm256_set1_epi32(1));
-
-    // Compute ratio t = min(|gy|,|gx|) / max(|gy|,|gx|) in [0,1]
-    __m256 num = _mm256_min_ps(abs_gy, abs_gx);
-    __m256 den = _mm256_max_ps(abs_gy, abs_gx);
-    den = _mm256_max_ps(den, eps);  // Avoid division by zero
-    __m256 t = fast_div_avx2(num, den);  // rcp + Newton-Raphson
-
-    // Fast atan approximation for t in [0,1]: atan(t) ≈ t * (π/4) * (1 + 0.273*(1-t))
-    // Simplified: atan(t)/（π/4) ≈ t * (1.273 - 0.273*t) = t * 1.273 - t*t*0.273
-    // This gives a value in [0, 1] representing fraction of 45 degrees
-    const __m256 c1 = _mm256_set1_ps(1.273f);
-    const __m256 c2 = _mm256_set1_ps(0.273f);
-    __m256 t2 = _mm256_mul_ps(t, t);
-    __m256 frac = _mm256_sub_ps(_mm256_mul_ps(t, c1), _mm256_mul_ps(t2, c2));
-    frac = _mm256_min_ps(frac, one);  // Clamp to [0, 1]
-
-    // Bins per octant
-    float binsPerOctant = static_cast<float>(numBins) / 8.0f;
-    __m256 vBinsPerOctant = _mm256_set1_ps(binsPerOctant);
-
-    // Sub-bin within octant
-    __m256 subBinF = _mm256_mul_ps(frac, vBinsPerOctant);
-    __m256i subBin = _mm256_cvttps_epi32(subBinF);
-
-    // Compute octant index based on signs and |gy|>|gx|
-    // Octant layout (angle increases counter-clockwise from +x axis):
-    // Oct 0: gx>0, gy>=0, |gx|>=|gy| -> angle [0, 45)
-    // Oct 1: gx>0, gy>0, |gy|>|gx|   -> angle [45, 90)
-    // Oct 2: gx<=0, gy>0, |gy|>|gx|  -> angle [90, 135)
-    // Oct 3: gx<0, gy>=0, |gx|>=|gy| -> angle [135, 180)
-    // Oct 4: gx<0, gy<0, |gx|>=|gy|  -> angle [180, 225)
-    // Oct 5: gx<0, gy<0, |gy|>|gx|   -> angle [225, 270)
-    // Oct 6: gx>=0, gy<0, |gy|>|gx|  -> angle [270, 315)
-    // Oct 7: gx>0, gy<0, |gx|>=|gy|  -> angle [315, 360)
-
-    // Simplified octant calculation using bit manipulation
-    // octant = (gx<0)*4 + (gy<0)*2 + (|gy|>|gx|)*1, then map to actual octant
-    __m256i raw_oct = _mm256_add_epi32(
-        _mm256_add_epi32(
-            _mm256_slli_epi32(gx_neg_i, 2),
-            _mm256_slli_epi32(gy_neg_i, 1)
-        ),
-        gy_gt_gx_i
-    );
-
-    // Map raw_oct to actual octant (handles the non-linear mapping)
-    // raw: 0->0, 1->1, 2->7, 3->6, 4->3, 5->2, 6->4, 7->5
-    // Use lookup: stored as float for blending
-    alignas(32) static const int32_t octant_map[8] = {0, 1, 7, 6, 3, 2, 4, 5};
-
-    // Scalar lookup (AVX2 doesn't have good gather for small tables)
-    alignas(32) int32_t raw_oct_arr[8];
-    alignas(32) int32_t octant_arr[8];
-    _mm256_store_si256(reinterpret_cast<__m256i*>(raw_oct_arr), raw_oct);
     for (int i = 0; i < 8; ++i) {
-        octant_arr[i] = octant_map[raw_oct_arr[i]];
+        bin_arr[i] = quantize_bin_threshold_16(gx_arr[i], gy_arr[i]);
     }
-    __m256i octant = _mm256_load_si256(reinterpret_cast<const __m256i*>(octant_arr));
 
-    // Final bin = octant * binsPerOctant + subBin
-    __m256i binsPerOctantI = _mm256_set1_epi32(static_cast<int32_t>(binsPerOctant));
-    __m256i baseBin = _mm256_mullo_epi32(octant, binsPerOctantI);
+    return _mm256_load_si256(reinterpret_cast<const __m256i*>(bin_arr));
+}
 
-    // Handle octant direction: even octants go forward, odd octants go backward
-    // For odd octants: subBin = binsPerOctant - 1 - subBin
-    __m256i octant_odd = _mm256_and_si256(octant, _mm256_set1_epi32(1));
-    __m256i odd_mask = _mm256_cmpeq_epi32(octant_odd, _mm256_set1_epi32(1));
-    __m256i subBin_rev = _mm256_sub_epi32(_mm256_sub_epi32(binsPerOctantI, _mm256_set1_epi32(1)), subBin);
-    subBin = _mm256_blendv_epi8(subBin, subBin_rev, odd_mask);
-
-    __m256i bin = _mm256_add_epi32(baseBin, subBin);
-
-    // Clamp to valid range
-    bin = _mm256_max_epi32(bin, _mm256_setzero_si256());
-    bin = _mm256_min_epi32(bin, _mm256_set1_epi32(numBins - 1));
-
-    return bin;
+/// AVX2 threshold-based quantization with numBins support.
+/// For numBins==16, returns bin16 directly. Otherwise scales.
+static inline __m256i quantize_bin_avx2_nbins(__m256 gy, __m256 gx, int32_t numBins) {
+    __m256i vBin16 = quantize_bin_threshold_16_avx2(gy, gx);
+    if (numBins == 16) {
+        return vBin16;
+    }
+    // Scale from 16 bins to numBins: bin = bin16 * numBins / 16
+    __m256i vNum = _mm256_set1_epi32(numBins);
+    __m256i vScaled = _mm256_mullo_epi32(vBin16, vNum);
+    return _mm256_srli_epi32(vScaled, 4); // /16
 }
 
 // Fast atan2 approximation for 8 float values
@@ -446,10 +421,16 @@ void AnglePyramid::Impl::QuantizeDirectionOpt(
     const int16_t maxBin = static_cast<int16_t>(numBins - 1);
     const bool useParallel = ShouldUseOpenMP(width, height);
 
+    // NOTE: This function only has direction data, not gx/gy.
+    // All bins are output as 1-based (valid = 1..numBins).
+    // Zero-gradient pixels (dir=0 from atan2(0,0)) will get bin=1,
+    // which is not ideal but acceptable since callers should check magnitude.
+
 #ifdef __AVX2__
     const __m256 vBinScale = _mm256_set1_ps(binScale);
     const __m256i vMaxBin = _mm256_set1_epi32(numBins - 1);
     const __m256i vZero = _mm256_setzero_si256();
+    const __m256i vOne = _mm256_set1_epi32(1);
 
     auto processRow = [&](int32_t y) {
         const float* dirRow = dir + y * dirStride;
@@ -465,6 +446,8 @@ void AnglePyramid::Impl::QuantizeDirectionOpt(
             // Clamp to [0, numBins-1]
             vbin = _mm256_max_epi32(vbin, vZero);
             vbin = _mm256_min_epi32(vbin, vMaxBin);
+            // +1 to make 1-based (valid = 1..numBins)
+            vbin = _mm256_add_epi32(vbin, vOne);
 
             // Pack 32-bit integers to 16-bit
             __m128i lo = _mm256_castsi256_si128(vbin);
@@ -477,7 +460,7 @@ void AnglePyramid::Impl::QuantizeDirectionOpt(
         // Scalar fallback
         for (; x < width; ++x) {
             int32_t bin = static_cast<int32_t>(dirRow[x] * binScale);
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)));
+            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)) + 1);  // 1-based
         }
     };
 
@@ -502,7 +485,7 @@ void AnglePyramid::Impl::QuantizeDirectionOpt(
 
         for (int32_t x = 0; x < width; ++x) {
             int32_t bin = static_cast<int32_t>(dirRow[x] * binScale);
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)));
+            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)) + 1);  // 1-based
         }
     };
 
@@ -533,17 +516,12 @@ void AnglePyramid::Impl::FusedSobelMagDirBin(
     int32_t numBins)
 {
     const float twoPi = static_cast<float>(2.0 * PI);
-    const float binScale = static_cast<float>(numBins) / twoPi;
-    const int16_t maxBin = static_cast<int16_t>(numBins - 1);
     const bool useParallel = ShouldUseOpenMP(width, height);
 
     // Sobel 3x3 kernel weights: [-1,0,1], [1,2,1]^T for Gx
     // For center pixels (y=1..height-2, x=1..width-2)
 
 #ifdef __AVX2__
-    const __m256 vBinScale = _mm256_set1_ps(binScale);
-    const __m256i vMaxBin = _mm256_set1_epi32(numBins - 1);
-    const __m256i vZero = _mm256_setzero_si256();
 
     auto processRow = [&](int32_t y) {
         const float* row0 = src + (y - 1) * width;
@@ -604,11 +582,20 @@ void AnglePyramid::Impl::FusedSobelMagDirBin(
             __m256 vDir = atan2_avx2(vGy, vGx);
             _mm256_storeu_ps(dirRow + x, vDir);
 
-            // Quantize to bins
-            __m256 vBinF = _mm256_mul_ps(vDir, vBinScale);
-            __m256i vBin = _mm256_cvttps_epi32(vBinF);
-            vBin = _mm256_max_epi32(vBin, vZero);
-            vBin = _mm256_min_epi32(vBin, vMaxBin);
+            // Threshold-based bin quantization from gx/gy (matches decompiled)
+            __m256i vBin = quantize_bin_avx2_nbins(vGy, vGx, numBins);
+            // +1 to make 1-based (valid = 1..numBins, 0 = invalid/no gradient)
+            vBin = _mm256_add_epi32(vBin, _mm256_set1_epi32(1));
+            // Zero out bins where gradient is negligible
+            {
+                __m256 sign_mask_local = _mm256_set1_ps(-0.0f);
+                __m256 abs_gx_local = _mm256_andnot_ps(sign_mask_local, vGx);
+                __m256 abs_gy_local = _mm256_andnot_ps(sign_mask_local, vGy);
+                __m256 maxGrad = _mm256_max_ps(abs_gx_local, abs_gy_local);
+                __m256 gradThresh = _mm256_set1_ps(1e-6f);
+                __m256 gradValid = _mm256_cmp_ps(maxGrad, gradThresh, _CMP_GT_OQ);
+                vBin = _mm256_and_si256(vBin, _mm256_castps_si256(gradValid));
+            }
 
             // Pack to int16
             __m128i lo = _mm256_castsi256_si128(vBin);
@@ -634,8 +621,14 @@ void AnglePyramid::Impl::FusedSobelMagDirBin(
             if (angle < 0) angle += twoPi;
             dirRow[x] = angle;
 
-            int32_t bin = static_cast<int32_t>(angle * binScale);
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)));
+            float abs_gx_s = std::abs(gxVal);
+            float abs_gy_s = std::abs(gyVal);
+            if (std::max(abs_gx_s, abs_gy_s) < 1e-6f) {
+                binRow[x] = 0;  // Invalid: no gradient
+            } else {
+                int32_t bin = quantize_bin_for_nbins(gxVal, gyVal, numBins);
+                binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1) + 1);  // 1-based
+            }
         }
 
         // Border: x=width-1
@@ -675,8 +668,14 @@ void AnglePyramid::Impl::FusedSobelMagDirBin(
             if (angle < 0) angle += twoPi;
             dirRow[x] = angle;
 
-            int32_t bin = static_cast<int32_t>(angle * binScale);
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)));
+            float abs_gx_s = std::abs(gxVal);
+            float abs_gy_s = std::abs(gyVal);
+            if (std::max(abs_gx_s, abs_gy_s) < 1e-6f) {
+                binRow[x] = 0;  // Invalid: no gradient
+            } else {
+                int32_t bin = quantize_bin_for_nbins(gxVal, gyVal, numBins);
+                binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1) + 1);  // 1-based
+            }
         }
 
         // Border: x=width-1
@@ -778,8 +777,20 @@ void AnglePyramid::Impl::FusedSobelGradMagBin(
             __m256 vMag = fast_sqrt_avx2(_mm256_add_ps(gx2, gy2));
             _mm256_storeu_ps(magRow + x, vMag);
 
-            // Fast bin quantization: directly compute bin from gx/gy
-            __m256i vBin = fast_quantize_bin_avx2(vGy, vGx, numBins);
+            // Threshold-based bin quantization from gx/gy (matches decompiled)
+            __m256i vBin = quantize_bin_avx2_nbins(vGy, vGx, numBins);
+            // +1 to make 1-based (valid = 1..numBins, 0 = invalid/no gradient)
+            vBin = _mm256_add_epi32(vBin, _mm256_set1_epi32(1));
+            // Zero out bins where gradient is negligible
+            {
+                __m256 sign_mask_local = _mm256_set1_ps(-0.0f);
+                __m256 abs_gx_local = _mm256_andnot_ps(sign_mask_local, vGx);
+                __m256 abs_gy_local = _mm256_andnot_ps(sign_mask_local, vGy);
+                __m256 maxGrad = _mm256_max_ps(abs_gx_local, abs_gy_local);
+                __m256 gradThresh = _mm256_set1_ps(1e-6f);
+                __m256 gradValid = _mm256_cmp_ps(maxGrad, gradThresh, _CMP_GT_OQ);
+                vBin = _mm256_and_si256(vBin, _mm256_castps_si256(gradValid));
+            }
 
             // Pack to int16
             __m128i lo = _mm256_castsi256_si128(vBin);
@@ -788,7 +799,7 @@ void AnglePyramid::Impl::FusedSobelGradMagBin(
             _mm_storeu_si128(reinterpret_cast<__m128i*>(binRow + x), packed);
         }
 
-        // Scalar fallback for remaining pixels (use fast scalar version)
+        // Scalar fallback for remaining pixels (threshold-based, matches decompiled)
         for (; x < width - 1; ++x) {
             float p00 = row0[x - 1], p01 = row0[x], p02 = row0[x + 1];
             float p10 = row1[x - 1],               p12 = row1[x + 1];
@@ -801,28 +812,15 @@ void AnglePyramid::Impl::FusedSobelGradMagBin(
             gyRow[x] = gyVal;
             magRow[x] = std::sqrt(gxVal * gxVal + gyVal * gyVal);
 
-            // Fast scalar bin quantization
+            // Threshold-based bin quantization (matches decompiled)
             float abs_gx = std::abs(gxVal);
             float abs_gy = std::abs(gyVal);
-            float den = std::max(abs_gx, abs_gy) + 1e-10f;
-            float t = std::min(abs_gx, abs_gy) / den;
-            float frac = t * (1.273f - 0.273f * t);
-            frac = std::min(frac, 1.0f);
-
-            int gx_neg = (gxVal < 0) ? 1 : 0;
-            int gy_neg = (gyVal < 0) ? 1 : 0;
-            int gy_gt_gx = (abs_gy > abs_gx) ? 1 : 0;
-            int raw_oct = (gx_neg << 2) | (gy_neg << 1) | gy_gt_gx;
-            static const int octant_map[8] = {0, 1, 7, 6, 3, 2, 4, 5};
-            int octant = octant_map[raw_oct];
-
-            int binsPerOctant = numBins / 8;
-            int subBin = static_cast<int>(frac * binsPerOctant);
-            if (octant & 1) {
-                subBin = binsPerOctant - 1 - subBin;
+            if (std::max(abs_gx, abs_gy) < 1e-6f) {
+                binRow[x] = 0;  // Invalid: no gradient
+            } else {
+                int32_t bin = quantize_bin_for_nbins(gxVal, gyVal, numBins);
+                binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1) + 1);  // 1-based
             }
-            int bin = octant * binsPerOctant + subBin;
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1));
         }
 
         // Border: x=width-1
@@ -855,11 +853,14 @@ void AnglePyramid::Impl::FusedSobelGradMagBin(
             gyRow[x] = gyVal;
             magRow[x] = std::sqrt(gxVal * gxVal + gyVal * gyVal);
 
-            float angle = std::atan2(gyVal, gxVal);
-            if (angle < 0) angle += twoPi;
-
-            int32_t bin = static_cast<int32_t>(angle * binScale);
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)));
+            float abs_gx_s = std::abs(gxVal);
+            float abs_gy_s = std::abs(gyVal);
+            if (std::max(abs_gx_s, abs_gy_s) < 1e-6f) {
+                binRow[x] = 0;  // Invalid: no gradient
+            } else {
+                int32_t bin = quantize_bin_for_nbins(gxVal, gyVal, numBins);
+                binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1) + 1);  // 1-based
+            }
         }
 
         gxRow[width-1] = 0; gyRow[width-1] = 0; magRow[width-1] = 0; binRow[width-1] = 0;
@@ -957,8 +958,20 @@ void AnglePyramid::Impl::FusedSobelGradMagBinDirect(
             __m256 vMag = fast_sqrt_avx2(_mm256_add_ps(gx2, gy2));
             _mm256_storeu_ps(magRow + x, vMag);
 
-            // Fast bin quantization: directly compute bin from gx/gy
-            __m256i vBin = fast_quantize_bin_avx2(vGy, vGx, numBins);
+            // Threshold-based bin quantization from gx/gy (matches decompiled)
+            __m256i vBin = quantize_bin_avx2_nbins(vGy, vGx, numBins);
+            // +1 to make 1-based (valid = 1..numBins, 0 = invalid/no gradient)
+            vBin = _mm256_add_epi32(vBin, _mm256_set1_epi32(1));
+            // Zero out bins where gradient is negligible
+            {
+                __m256 sign_mask_local = _mm256_set1_ps(-0.0f);
+                __m256 abs_gx_local = _mm256_andnot_ps(sign_mask_local, vGx);
+                __m256 abs_gy_local = _mm256_andnot_ps(sign_mask_local, vGy);
+                __m256 maxGrad = _mm256_max_ps(abs_gx_local, abs_gy_local);
+                __m256 gradThresh = _mm256_set1_ps(1e-6f);
+                __m256 gradValid = _mm256_cmp_ps(maxGrad, gradThresh, _CMP_GT_OQ);
+                vBin = _mm256_and_si256(vBin, _mm256_castps_si256(gradValid));
+            }
 
             // Pack to int16
             __m128i lo = _mm256_castsi256_si128(vBin);
@@ -980,28 +993,15 @@ void AnglePyramid::Impl::FusedSobelGradMagBinDirect(
             gyRow[x] = gyVal;
             magRow[x] = std::sqrt(gxVal * gxVal + gyVal * gyVal);
 
-            // Fast scalar bin quantization
+            // Threshold-based bin quantization (matches decompiled)
             float abs_gx = std::abs(gxVal);
             float abs_gy = std::abs(gyVal);
-            float den = std::max(abs_gx, abs_gy) + 1e-10f;
-            float t = std::min(abs_gx, abs_gy) / den;
-            float frac = t * (1.273f - 0.273f * t);
-            frac = std::min(frac, 1.0f);
-
-            int gx_neg = (gxVal < 0) ? 1 : 0;
-            int gy_neg = (gyVal < 0) ? 1 : 0;
-            int gy_gt_gx = (abs_gy > abs_gx) ? 1 : 0;
-            int raw_oct = (gx_neg << 2) | (gy_neg << 1) | gy_gt_gx;
-            static const int octant_map[8] = {0, 1, 7, 6, 3, 2, 4, 5};
-            int octant = octant_map[raw_oct];
-
-            int binsPerOctant = numBins / 8;
-            int subBin = static_cast<int>(frac * binsPerOctant);
-            if (octant & 1) {
-                subBin = binsPerOctant - 1 - subBin;
+            if (std::max(abs_gx, abs_gy) < 1e-6f) {
+                binRow[x] = 0;  // Invalid: no gradient
+            } else {
+                int32_t bin = quantize_bin_for_nbins(gxVal, gyVal, numBins);
+                binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1) + 1);  // 1-based
             }
-            int bin = octant * binsPerOctant + subBin;
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1));
         }
 
         // Border: x=width-1
@@ -1009,10 +1009,6 @@ void AnglePyramid::Impl::FusedSobelGradMagBinDirect(
     };
 
 #else
-    const double twoPi = 2.0 * M_PI;
-    const double binScale = numBins / twoPi;
-    const int32_t maxBin = numBins - 1;
-
     auto processRow = [&](int32_t y) {
         const float* row0 = src + (y - 1) * width;
         const float* row1 = src + y * width;
@@ -1037,11 +1033,14 @@ void AnglePyramid::Impl::FusedSobelGradMagBinDirect(
             gyRow[x] = gyVal;
             magRow[x] = std::sqrt(gxVal * gxVal + gyVal * gyVal);
 
-            float angle = std::atan2(gyVal, gxVal);
-            if (angle < 0) angle += twoPi;
-
-            int32_t bin = static_cast<int32_t>(angle * binScale);
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)));
+            float abs_gx_s = std::abs(gxVal);
+            float abs_gy_s = std::abs(gyVal);
+            if (std::max(abs_gx_s, abs_gy_s) < 1e-6f) {
+                binRow[x] = 0;  // Invalid: no gradient
+            } else {
+                int32_t bin = quantize_bin_for_nbins(gxVal, gyVal, numBins);
+                binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1) + 1);  // 1-based
+            }
         }
 
         gxRow[width-1] = 0; gyRow[width-1] = 0; magRow[width-1] = 0; binRow[width-1] = 0;
@@ -1207,8 +1206,6 @@ void AnglePyramid::Impl::FusedSobelMagDirBinDirect(
 {
     const bool useParallel = ShouldUseOpenMP(width, height);
     const double twoPi = 2.0 * M_PI;
-    const double binScale = numBins / twoPi;
-    const int32_t maxBin = numBins - 1;
 
     auto processRow = [&](int32_t y) {
         const float* row0 = src + (y - 1) * width;
@@ -1239,8 +1236,14 @@ void AnglePyramid::Impl::FusedSobelMagDirBinDirect(
             if (angle < 0) angle += twoPi;
             dirRow[x] = angle;
 
-            int32_t bin = static_cast<int32_t>(angle * binScale);
-            binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, static_cast<int32_t>(maxBin)));
+            float abs_gx_s = std::abs(gxVal);
+            float abs_gy_s = std::abs(gyVal);
+            if (std::max(abs_gx_s, abs_gy_s) < 1e-6f) {
+                binRow[x] = 0;  // Invalid: no gradient
+            } else {
+                int32_t bin = quantize_bin_for_nbins(gxVal, gyVal, numBins);
+                binRow[x] = static_cast<int16_t>(std::clamp(bin, 0, numBins - 1) + 1);  // 1-based
+            }
         }
 
         gxRow[width-1] = 0; gyRow[width-1] = 0; magRow[width-1] = 0;
@@ -1433,7 +1436,8 @@ bool AnglePyramid::Impl::BuildLevelFusedInto(PyramidLevelData& levelData, const 
     ensureImage(levelData.gradX, width, height, PixelType::Float32);
     ensureImage(levelData.gradY, width, height, PixelType::Float32);
 
-    if (minimalSearchMode) {
+    if (minimalSearchMode && !params_.storeAngleBins) {
+        // Fully minimal mode: only Gx, Gy (no angleBin needed)
         levelData.gradMag = QImage();
         levelData.angleBinImage = QImage();
         levelData.gradDir = QImage();
@@ -1445,6 +1449,34 @@ bool AnglePyramid::Impl::BuildLevelFusedInto(PyramidLevelData& levelData, const 
 
         FusedSobelGradDirect(srcData.data(), width, height,
                              gxDst, gxStride, gyDst, gyStride);
+        return true;
+    }
+
+    if (minimalSearchMode) {
+        // Search mode + angleBin: compute Gx, Gy + angleBinImage (skip gradMag/gradDir storage)
+        levelData.gradDir = QImage();
+
+        float* gxDst = static_cast<float*>(levelData.gradX.Data());
+        float* gyDst = static_cast<float*>(levelData.gradY.Data());
+        int32_t gxStride = levelData.gradX.Stride() / sizeof(float);
+        int32_t gyStride = levelData.gradY.Stride() / sizeof(float);
+
+        // We need angleBinImage but can discard magnitude
+        ensureImage(levelData.angleBinImage, width, height, PixelType::Int16);
+        int16_t* binDst = static_cast<int16_t*>(levelData.angleBinImage.Data());
+        int32_t binStride = levelData.angleBinImage.Stride() / sizeof(int16_t);
+
+        // Use temporary buffer for magnitude (needed by FusedSobelGradMagBinDirect but not stored)
+        ensureImage(levelData.gradMag, width, height, PixelType::Float32);
+        float* magDst = static_cast<float*>(levelData.gradMag.Data());
+        int32_t magStride = levelData.gradMag.Stride() / sizeof(float);
+
+        FusedSobelGradMagBinDirect(srcData.data(), width, height,
+                                    gxDst, gxStride, gyDst, gyStride,
+                                    magDst, magStride, binDst, binStride,
+                                    params_.angleBins);
+
+        // We keep gradMag allocated (small overhead) since it's useful for threshold checking
         return true;
     }
 

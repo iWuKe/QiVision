@@ -20,6 +20,7 @@
 #include <QiVision/Core/Types.h>
 #include <QiVision/Internal/EdgesSubPix.h>  // EdgePoint (canonical definition)
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
@@ -67,6 +68,7 @@ struct AnglePyramidParams {
     bool useNMS = true;                 ///< Apply Non-Maximum Suppression (false for shape matching)
     bool storeDirection = true;         ///< Store gradDir (false for search mode - saves memory)
     bool useParallel = false;           ///< Use OpenMP parallel (false = single thread for pyramid)
+    bool storeAngleBins = true;          ///< Store angleBinImage (needed for response map search)
 
     // Builder pattern
     AnglePyramidParams& SetNumLevels(int32_t n) { numLevels = n; return *this; }
@@ -393,5 +395,36 @@ QImage QuantizeGradientDirection(const QImage& gradDir, int32_t numBins);
  */
 int32_t ComputeOptimalPyramidLevels(int32_t width, int32_t height,
                                      int32_t minSize = 16);
+
+/**
+ * @brief Threshold-based 16-bin direction quantization from gradient components
+ *
+ * Matches decompiled dword_1800D6A60 = 0.19891236f (tan(11.25 deg)).
+ * Uses only comparison and multiplication, no atan.
+ * Must be used for both model and image bins to ensure ResponseMap consistency.
+ *
+ * @param gx Gradient X component (or cos of direction angle)
+ * @param gy Gradient Y component (or sin of direction angle)
+ * @return 0-based bin index [0, 15]
+ */
+inline int32_t GradientToBin16(float gx, float gy) {
+    const float t = 0.19891236f; // tan(11.25 deg)
+    float abs_gx = std::abs(gx);
+    float abs_gy = std::abs(gy);
+
+    if (abs_gx >= abs_gy) {
+        if (abs_gy < abs_gx * t)
+            return (gx >= 0) ? 0 : 8;
+        else
+            return (gx >= 0) ? ((gy >= 0) ? 1 : 15)
+                              : ((gy >= 0) ? 7 : 9);
+    } else {
+        if (abs_gx < abs_gy * t)
+            return (gy >= 0) ? 4 : 12;
+        else
+            return (gy >= 0) ? ((gx >= 0) ? 3 : 5)
+                              : ((gx >= 0) ? 13 : 11);
+    }
+}
 
 } // namespace Qi::Vision::Internal

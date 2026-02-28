@@ -552,8 +552,8 @@ void FindShapeModel(
     if (!std::isfinite(minScore) || minScore < 0.0) {
         throw InvalidArgumentException("FindShapeModel: minScore must be >= 0");
     }
-    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0) {
-        throw InvalidArgumentException("FindShapeModel: maxOverlap must be >= 0");
+    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0 || maxOverlap > 1.0) {
+        throw InvalidArgumentException("FindShapeModel: maxOverlap must be in [0,1]");
     }
     if (!std::isfinite(greediness) || greediness <= 0.0 || greediness > 1.0) {
         throw InvalidArgumentException("FindShapeModel: greediness must be in (0,1]");
@@ -568,12 +568,11 @@ void FindShapeModel(
     params.angleStart = angleStart;
     params.angleExtent = angleExtent;
     params.minScore = minScore;
-    params.maxMatches = (numMatches == 0) ? 1000 : numMatches;
+    params.maxMatches = numMatches;
     params.maxOverlap = maxOverlap;
     params.subpixelMethod = ParseSubpixel(subPixel);
     params.greediness = greediness;
-    // numLevels: 0 means use model levels
-    (void)numLevels;
+    params.numLevels = numLevels;
 
     // Build target pyramid (with timing)
     auto tPyramidStart = std::chrono::high_resolution_clock::now();
@@ -601,18 +600,9 @@ void FindShapeModel(
         }
     }
 
-    // Print detailed pyramid timing
-    targetPyramid.GetTiming().Print();
-
     auto tPyramidEnd = std::chrono::high_resolution_clock::now();
-    auto tSearchStart = tPyramidEnd;
 
     std::vector<MatchResult> results = impl->SearchPyramid(targetPyramid, params);
-
-    auto tSearchEnd = std::chrono::high_resolution_clock::now();
-    fprintf(stderr, "[Find] Pyramid: %.1fms, Search: %.1fms\n",
-            std::chrono::duration<double, std::milli>(tPyramidEnd - tPyramidStart).count(),
-            std::chrono::duration<double, std::milli>(tSearchEnd - tSearchStart).count());
 
     // Convert results to output vectors
     rows.reserve(results.size());
@@ -673,8 +663,8 @@ void FindScaledShapeModel(
     if (!std::isfinite(minScore) || minScore < 0.0) {
         throw InvalidArgumentException("FindScaledShapeModel: minScore must be >= 0");
     }
-    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0) {
-        throw InvalidArgumentException("FindScaledShapeModel: maxOverlap must be >= 0");
+    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0 || maxOverlap > 1.0) {
+        throw InvalidArgumentException("FindScaledShapeModel: maxOverlap must be in [0,1]");
     }
     if (!std::isfinite(greediness) || greediness <= 0.0 || greediness > 1.0) {
         throw InvalidArgumentException("FindScaledShapeModel: greediness must be in (0,1]");
@@ -709,7 +699,8 @@ void FindScaledShapeModel(
 
     // Build pyramid for search image (reused for all scales)
     AnglePyramidParams pyramidParams;
-    pyramidParams.numLevels = (numLevels > 0) ? numLevels : impl->params_.numLevels;
+    int32_t modelLevels = static_cast<int32_t>(impl->levels_.size());
+    pyramidParams.numLevels = (numLevels > 0) ? std::min(numLevels, modelLevels) : modelLevels;
     pyramidParams.smoothSigma = 0.5;
     pyramidParams.minContrast = 1.0;
     pyramidParams.useNMS = true;
@@ -746,25 +737,18 @@ void FindScaledShapeModel(
         params.angleStart = angleStart;
         params.angleExtent = angleExtent;
         params.minScore = minScore;
-        params.maxMatches = (numMatches == 0) ? 1000 : numMatches;
+        params.maxMatches = 0;          // Don't truncate per-scale; truncate after cross-scale NMS
         params.maxOverlap = maxOverlap;
         params.subpixelMethod = subpixelMethod;
         params.numLevels = numLevels;
         params.greediness = greediness;
 
-        // Set scale for this iteration
-        params.scaleMode = ScaleSearchMode::Uniform;
+        // Search with this scale (NMS + maxMatches truncation skipped — done cross-scale)
         params.scaleMin = scale;
         params.scaleMax = scale;
+        auto results = impl->SearchPyramid(targetPyramid, params, /*applyNMS=*/false);
 
-        // Search with this scale
-        auto results = impl->SearchPyramidScaled(targetPyramid, params, scale);
-        if (impl->timingParams_.debugCreateModel) {
-            std::printf("[FindScaled] scale=%.3f results=%zu\n", scale, results.size());
-            std::fflush(stdout);
-        }
-
-        // Collect results
+        // Collect results with scale info
         for (const auto& r : results) {
             ScaledMatch m;
             m.row = r.y;
@@ -776,51 +760,44 @@ void FindScaledShapeModel(
         }
     }
 
+    // Convert to MatchResult for unified NMS
+    std::vector<MatchResult> allResults;
+    allResults.reserve(allMatches.size());
+    for (const auto& m : allMatches) {
+        MatchResult r;
+        r.x = m.col;
+        r.y = m.row;
+        r.angle = m.angle;
+        r.score = m.score;
+        r.scaleX = m.scale;
+        r.scaleY = m.scale;
+        allResults.push_back(r);
+    }
+
     // Sort by score descending
-    std::sort(allMatches.begin(), allMatches.end(),
-              [](const ScaledMatch& a, const ScaledMatch& b) { return a.score > b.score; });
+    std::sort(allResults.begin(), allResults.end());
 
-    // Apply NMS across all scales
-    // Use model bounds for overlap calculation
-    double modelRadius = std::max(impl->templateSize_.width, impl->templateSize_.height) / 2.0;
-
-    std::vector<bool> suppressed(allMatches.size(), false);
-    for (size_t i = 0; i < allMatches.size(); ++i) {
-        if (suppressed[i]) continue;
-
-        // Suppress nearby matches with lower score
-        for (size_t j = i + 1; j < allMatches.size(); ++j) {
-            if (suppressed[j]) continue;
-
-            double dx = allMatches[i].col - allMatches[j].col;
-            double dy = allMatches[i].row - allMatches[j].row;
-            double dist = std::sqrt(dx * dx + dy * dy);
-
-            // Consider scale difference in overlap
-            double avgScale = (allMatches[i].scale + allMatches[j].scale) / 2.0;
-            double overlapThreshold = modelRadius * avgScale * (1.0 - maxOverlap);
-
-            if (dist < overlapThreshold) {
-                suppressed[j] = true;
-            }
-        }
+    // Unified cross-scale NMS (overlap-based, Halcon-compatible)
+    if (maxOverlap < 1.0) {
+        allResults = NonMaxSuppressionOverlap(allResults, maxOverlap,
+                                               impl->templateSize_.width,
+                                               impl->templateSize_.height);
     }
 
-    // Collect final results
-    int32_t matchCount = 0;
-    int32_t maxMatchesToReturn = (numMatches == 0) ? static_cast<int32_t>(allMatches.size()) : numMatches;
+    // Limit results and convert to output vectors
+    int32_t maxMatchesToReturn = (numMatches == 0)
+        ? static_cast<int32_t>(allResults.size()) : numMatches;
 
-    for (size_t i = 0; i < allMatches.size() && matchCount < maxMatchesToReturn; ++i) {
-        if (!suppressed[i]) {
-            rows.push_back(allMatches[i].row);
-            cols.push_back(allMatches[i].col);
-            angles.push_back(allMatches[i].angle);
-            scales.push_back(allMatches[i].scale);
-            scores.push_back(allMatches[i].score);
-            ++matchCount;
-        }
+    for (size_t i = 0; i < allResults.size() &&
+         static_cast<int32_t>(rows.size()) < maxMatchesToReturn; ++i) {
+        rows.push_back(allResults[i].y);
+        cols.push_back(allResults[i].x);
+        angles.push_back(allResults[i].angle);
+        scales.push_back(allResults[i].scaleX);
+        scores.push_back(allResults[i].score);
     }
 
+    // TODO: thread-unsafe const_cast on impl->params_.minContrast — move to SearchParams
     impl->params_.minContrast = savedMinContrast;
 }
 
@@ -1255,7 +1232,6 @@ void ClearShapeModel(ShapeModel& model)
 {
     if (model.Impl()) {
         model.Impl()->levels_.clear();
-        model.Impl()->scaledModels_.clear();
         model.Impl()->valid_ = false;
     }
 }

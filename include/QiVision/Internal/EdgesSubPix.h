@@ -83,4 +83,25 @@ std::vector<EdgePoint> EdgesSubPixGray(
     int32_t angleBins    = 0,
     double contrastScale = 1.0);
 
+/**
+ * @brief Same as EdgesSubPixGray but returns error code via outStatus
+ *
+ * @param outStatus  Non-null pointer receives the Core return code:
+ *                   0 = success, non-zero = algorithm error
+ * @return Vector of sub-pixel edge points (empty on error OR no edges)
+ *
+ * Callers can distinguish "no edges found" (outStatus==0, empty vector)
+ * from "algorithm error" (outStatus!=0, empty vector).
+ */
+std::vector<EdgePoint> EdgesSubPixGray(
+    const float* src, int32_t width, int32_t height,
+    double highThreshold,
+    double lowThreshold,
+    double smoothSigma,
+    const uint8_t* mask,
+    int32_t maskStride,
+    int32_t angleBins,
+    double contrastScale,
+    int32_t* outStatus);
+
 } // namespace Qi::Vision::Internal

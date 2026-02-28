@@ -17,6 +17,7 @@
 #include <QiVision/Internal/EdgesSubPix.h>
 #include <QiVision/Core/Types.h>
 #include <QiVision/Core/Constants.h>
+#include "ShapeModelResponseMap.h"
 
 #include <vector>
 #include <set>
@@ -107,6 +108,9 @@ struct LevelModel {
     std::vector<float> gridSoaWeight;
     std::vector<int16_t> gridSoaAngleBin;
 
+    // Fixed 16-bin angle quantization for response map LUT (independent of per-level bins)
+    std::vector<int16_t> gridSoaAngleBin16;
+
     void BuildSoA();
     void RegenerateGridPoints();
 
@@ -178,19 +182,6 @@ extern const FastCosTable g_cosTable;
 
 class ShapeModelImpl {
 public:
-    struct ScaledModelData {
-        double scale = 1.0;
-        std::vector<LevelModel> levels;
-        Size2i templateSize;
-        double modelMinX = 0, modelMaxX = 0;
-        double modelMinY = 0, modelMaxY = 0;
-        double minCoverage = 0.7;
-        std::vector<SearchAngleData> searchAngleCache;
-        double searchAngleStart = 0.0;
-        double searchAngleExtent = 2.0 * PI;
-        double searchAngleStep = 0.0;
-    };
-
     // ==========================================================================
     // Create-side fields (populated by CreateModel / FinalizeModel)
     // ==========================================================================
@@ -201,8 +192,6 @@ public:
     Point2d origin_;                                ///< Model origin (template coords)
     Size2i templateSize_;                           ///< Template image size
     bool valid_ = false;                            ///< True after successful CreateModel
-
-    QImage templateImage_;                          ///< Saved template for scale model creation
 
     ShapeModelTimingParams timingParams_;            ///< Timing configuration
     ShapeModelCreateTiming createTiming_;            ///< Create timing results
@@ -215,13 +204,12 @@ public:
 
     double minCoverage_ = 0.7;                       ///< Dynamic coverage threshold
 
-    std::vector<ScaledModelData> scaledModels_;      ///< Cached scaled models for scale search
-
     // ==========================================================================
     // Search-side fields (used by SearchPyramid / ComputeScore)
     // ==========================================================================
 
     std::vector<float> cosLUT_;                      ///< Direction quantization lookup table
+    ResponseMapLUT responseMapLUT_;                   ///< 16x16 cos-based LUT for response map
 
     std::vector<SearchAngleData> searchAngleCache_;  ///< Precomputed angle data for search
     double searchAngleStart_ = 0.0;                  ///< Search angle range start
@@ -241,78 +229,69 @@ public:
     void ComputeModelBounds();
     static void ComputeRotatedBounds(const std::vector<ModelPoint>& points, double angle,
                                      double& minX, double& maxX, double& minY, double& maxY);
-    void BuildScaledModels();
-    const ScaledModelData* GetScaledModelData(double scale) const;
-
     // ==========================================================================
-    // Search Functions (ShapeModelSearch.cpp)
+    // Search Pipeline (ShapeModelSearch.cpp) — 4-stage architecture
     // ==========================================================================
 
+    /// Main entry point: 4-stage pipeline (CoarseSearch → PyramidRefine → SubPixelRefine → FinalizeResults)
+    /// @param applyNMS If true (default), FinalizeResults applies NMS.
+    ///                 If false, NMS is skipped (caller handles it).
     std::vector<MatchResult> SearchPyramid(const AnglePyramid& targetPyramid,
+                                            const SearchParams& params,
+                                            bool applyNMS = true) const;
+
+    /// Stage 1: Coarse search via response map + LUT (primary path)
+    std::vector<MatchResult> CoarseSearch(const AnglePyramid& targetPyramid,
+                                           int32_t startLevel,
+                                           const SearchParams& params) const;
+
+    /// Stage 1 fallback: float dot-product coarse search (original implementation)
+    std::vector<MatchResult> CoarseSearchFloat(const AnglePyramid& targetPyramid,
+                                                int32_t startLevel,
+                                                const SearchParams& params) const;
+
+    /// Stage 2: Per-level pyramid refinement (coarse → fine)
+    std::vector<MatchResult> PyramidRefine(const AnglePyramid& targetPyramid,
+                                            int32_t startLevel,
+                                            std::vector<MatchResult> candidates,
                                             const SearchParams& params) const;
 
-    std::vector<MatchResult> SearchPyramidScaled(const AnglePyramid& targetPyramid,
-                                                  const SearchParams& params,
-                                                  double scale) const;
+    /// Stage 3: Subpixel position/angle refinement at level 0
+    std::vector<MatchResult> SubPixelRefine(const AnglePyramid& targetPyramid,
+                                             std::vector<MatchResult> candidates,
+                                             const SearchParams& params) const;
 
-    std::vector<MatchResult> SearchLevel(const AnglePyramid& targetPyramid,
-                                          int32_t level,
-                                          const std::vector<MatchResult>& candidates,
-                                          const SearchParams& params,
-                                          int32_t positionRadius = -1,
-                                          double angleRadiusDeg = -1) const;
+    /// Stage 4: Final precise scoring + NMS + maxMatches
+    /// @param applyNMS If true, apply NonMaxSuppressionOverlap (FindShapeModel path).
+    ///                 If false, skip NMS (FindScaledShapeModel path — NMS done at caller).
+    std::vector<MatchResult> FinalizeResults(const AnglePyramid& targetPyramid,
+                                              std::vector<MatchResult> candidates,
+                                              const SearchParams& params,
+                                              bool applyNMS = true) const;
+
+    /// Halcon-style angle step: min(11.25°, acos(1 - safety²/(2*R²)))
+    static double ComputeHalconAngleStep(double maxRadius, double safety);
 
     // ==========================================================================
-    // Score Computation (ShapeModelScore.cpp)
+    // Score Computation (ShapeModelScore.cpp) — Unified template-based
     // ==========================================================================
 
-    double ComputeScoreAtPosition(const AnglePyramid& pyramid, int32_t level,
-                                   double x, double y, double angle, double scale,
-                                   double greediness, double* outCoverage = nullptr,
-                                   bool useGridPoints = false) const;
+    /// Single scoring entry point (dispatches to template instantiations in ScoreCore.h)
+    /// Replaces: ComputeScoreAtPosition, ComputeScoreBilinearSSE/Scalar,
+    ///           ComputeScoreWithSinCos, ComputeScoreNearestNeighbor/AVX2, ComputeScoreQuantized
+    double ComputeScore(const AnglePyramid& pyramid, int32_t level,
+                        double x, double y, float cosR, float sinR, double scale,
+                        double greediness, double minScore,
+                        double* outCoverage = nullptr,
+                        bool useGridPoints = false) const;
 
-    double ComputeScoreAtPositionFast(const AnglePyramid& pyramid, int32_t level,
-                                       int32_t x, int32_t y, double angle, double scale,
-                                       double* outCoverage = nullptr) const;
-
-    double ComputeScoreBilinearScalar(const AnglePyramid& pyramid, int32_t level,
-                                       double x, double y, double angle, double scale,
-                                       double greediness, double* outCoverage = nullptr,
-                                       bool useGridPoints = false) const;
-
-    double ComputeScoreBilinearSSE(const AnglePyramid& pyramid, int32_t level,
-                                    double x, double y, double angle, double scale,
-                                    double greediness, double* outCoverage = nullptr,
-                                    bool useGridPoints = false) const;
-
-    double ComputeScoreWithSinCos(const AnglePyramid& pyramid, int32_t level,
-                                   double x, double y, float cosR, float sinR, double scale,
-                                   double greediness, double* outCoverage = nullptr,
-                                   bool useGridPoints = false,
-                                   float minMagSq = 25.0f) const;
-
-    /// Fast score using nearest-neighbor interpolation (4x less memory access)
-    double ComputeScoreNearestNeighbor(const AnglePyramid& pyramid, int32_t level,
-                                        int32_t x, int32_t y, float cosR, float sinR,
-                                        double greediness, double* outCoverage = nullptr) const;
-
-#ifdef __AVX2__
-    /// True AVX2 vectorized score computation (8 points parallel)
-    /// Uses nearest-neighbor interpolation with gather instructions
-    /// Designed for coarse search where speed is critical
-    double ComputeScoreNearestNeighborAVX2(
-        const AnglePyramid& pyramid, int32_t level,
-        double x, double y, float cosR, float sinR, double scale,
-        float greediness, double* outCoverage, bool useGridPoints) const;
-#endif
-
-    double ComputeScoreQuantized(const AnglePyramid& pyramid, int32_t level,
-                                  double x, double y, float cosR, float sinR, int32_t rotationBin,
-                                  double greediness, double* outCoverage = nullptr,
-                                  bool useGridPoints = false) const;
-
+    /// Subpixel refinement (Parabolic / Gauss-Newton gradient profile)
     void RefinePosition(const AnglePyramid& pyramid, MatchResult& match,
                         SubpixelMethod method, double scale) const;
+
+    /// Gauss-Newton gradient profile refinement (used by LeastSquares/LeastSquaresHigh)
+    void RefineGaussNewton(const AnglePyramid& pyramid, MatchResult& match,
+                           double scale, int32_t numIterations) const;
 };
 
 } // namespace Internal

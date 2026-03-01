@@ -145,12 +145,37 @@ void CreateScaledShapeModel(
 );
 ```
 
+```cpp
+void CreateScaledShapeModel(
+    const QImage& templateImage,
+    const QRegion& region,
+    ShapeModel& model,
+    int32_t numLevels,
+    double angleStart,
+    double angleExtent,
+    double angleStep,
+    double scaleMin,
+    double scaleMax,
+    double scaleStep,
+    const std::string& optimization,
+    const std::string& metric,
+    const std::string& contrast,
+    double minContrast
+);
+```
+
 **Parameters**
 | Name | Type | Description |
 |------|------|-------------|
 | scaleMin | double | Minimum scale ratio |
 | scaleMax | double | Maximum scale ratio |
 | scaleStep | double | Scale step (0=auto) |
+| region | const QRegion& | Optional region mask (QRegion overload) |
+
+**Behavior Notes**
+1. `CreateShapeModel` and `CreateScaledShapeModel` share the same internal model-building pipeline.
+2. `CreateScaledShapeModel` mainly adds scale-range metadata (`scaleMin/scaleMax/scaleStep`) to the model params.
+3. If `scaleStep == 0`, implementation auto-sets it to `max(0.01, (scaleMax - scaleMin)/10.0)`.
 
 ---
 
@@ -230,6 +255,11 @@ void FindScaledShapeModel(
 | scaleMax | double | Search maximum scale |
 | scales | std::vector<double>& | [out] Match scale values |
 
+**Behavior Notes**
+1. If `scaleMin` and `scaleMax` are both approximately `1.0`, it falls back to `FindShapeModel`.
+2. Otherwise, it runs search per-scale and performs one unified cross-scale NMS at the end.
+3. Per-scale search reuses the same 4-stage pipeline as non-scaled search (`CoarseSearch -> PyramidRefine -> SubPixelRefine -> FinalizeResults`).
+
 ---
 
 ### GetShapeModelXLD
@@ -306,7 +336,8 @@ void ClearShapeModel(ShapeModel& model);
 
 ### DetermineShapeModelParams
 
-Automatically determines recommended parameters.
+Not exposed in current C++ public headers (`include/QiVision/Matching/ShapeModel.h`).
+Keep this entry only for legacy compatibility notes.
 
 ```cpp
 void DetermineShapeModelParams(
@@ -321,6 +352,19 @@ void DetermineShapeModelParams(
 |------|------|-------------|
 | numLevels | int32_t& | [out] Recommended pyramid levels |
 | contrast | double& | [out] Recommended contrast threshold |
+
+---
+
+### Scaled Matching Export Checklist
+
+Before exporting external docs for scaled shape matching, make sure these implementation rules are included:
+
+1. `SCALE_TOLERANCE = 1e-6` for scale=1 fallback and loop boundary.
+2. Auto `scaleStep` rule: `max(0.01, (scaleMax - scaleMin)/10.0)`.
+3. Coarse candidate cap: `1000`.
+4. Pyramid refine caps: `500` (coarser levels) and `50` (level 0).
+5. Refine thresholds: `minScore*0.9` on coarse levels and `minScore*0.8` at level 0.
+6. Final cross-scale overlap NMS runs after aggregating all per-scale candidates.
 
 ---
 

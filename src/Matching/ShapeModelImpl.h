@@ -180,6 +180,14 @@ extern const FastCosTable g_cosTable;
 // ShapeModelImpl: Implementation Class
 // =============================================================================
 
+/// Decompiled dword_1800D4CF0[21] — Search radius per refinement level
+/// Used during model creation to populate searchRadiusPerLevel_ via table lookup.
+/// Assigned from coarsest level downward: level[N-1] gets [0], level[N-2] gets [1], etc.
+static constexpr int32_t kAngleBinSizeTable[21] = {
+    2, 3, 3, 4, 4, 4, 5, 5, 5, 5,
+    6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7
+};
+
 class ShapeModelImpl {
 public:
     // ==========================================================================
@@ -203,6 +211,8 @@ public:
     int32_t numAngleBins_ = 0;                       ///< Angle quantization bins (top level)
 
     double minCoverage_ = 0.7;                       ///< Dynamic coverage threshold
+
+    std::vector<int32_t> searchRadiusPerLevel_;      ///< Decompiled dword_1800D4CF0 lookup results per level
 
     // ==========================================================================
     // Search-side fields (used by SearchPyramid / ComputeScore)
@@ -256,6 +266,12 @@ public:
                                             std::vector<MatchResult> candidates,
                                             const SearchParams& params) const;
 
+    /// Per-level refinement: position grid + angle iteration convergence + parabolic interpolation
+    /// Decompiled sub_18003C7B0: all levels do both position and angle refinement
+    std::vector<MatchResult> RefineAtLevel(
+        const AnglePyramid& pyramid, int32_t level, int32_t startLevel,
+        std::vector<MatchResult> candidates, const SearchParams& params) const;
+
     /// Stage 3: Subpixel position/angle refinement at level 0
     std::vector<MatchResult> SubPixelRefine(const AnglePyramid& targetPyramid,
                                              std::vector<MatchResult> candidates,
@@ -271,6 +287,13 @@ public:
 
     /// Halcon-style angle step: min(11.25°, acos(1 - safety²/(2*R²)))
     static double ComputeHalconAngleStep(double maxRadius, double safety);
+
+    /// Candidate collection with spatial hash NMS + angle distance suppression
+    /// Replaces naive sort+truncate. Aligned with decompiled sub_18004A5A0.
+    static std::vector<MatchResult> CollectCandidatesNMS(
+        std::vector<MatchResult> candidates,
+        int32_t imageWidth,
+        double angleStep);
 
     // ==========================================================================
     // Score Computation (ShapeModelScore.cpp) — Unified template-based

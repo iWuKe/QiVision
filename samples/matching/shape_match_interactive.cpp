@@ -15,6 +15,7 @@
  *   3. Create ShapeModel from ROI region
  *   4. Show template with feature overlay
  *   5. Match each image in folder, display results one by one (press any key for next)
+ *   6. All result images are saved to <image_folder>/results/
  */
 
 #include <QiVision/Core/QImage.h>
@@ -27,10 +28,12 @@
 
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <algorithm>
 #include <filesystem>
+#include <chrono>
 
 using namespace Qi::Vision;
 using namespace Qi::Vision::Matching;
@@ -55,6 +58,24 @@ static std::vector<std::string> ListImageFiles(const std::string& folder) {
     return files;
 }
 
+// Set a single pixel in an RGB image
+static void SetPixelRgb(QImage& img, int32_t x, int32_t y, uint8_t r, uint8_t g, uint8_t b) {
+    if (x < 0 || y < 0 || x >= img.Width() || y >= img.Height()) return;
+    uint8_t* row = static_cast<uint8_t*>(img.Data()) + y * img.Stride();
+    row[x * 3 + 0] = r;
+    row[x * 3 + 1] = g;
+    row[x * 3 + 2] = b;
+}
+
+// Draw a 3x3 cross at (x,y) for better visibility
+static void DrawPixelCross(QImage& img, int32_t x, int32_t y, uint8_t r, uint8_t g, uint8_t b) {
+    SetPixelRgb(img, x, y, r, g, b);
+    SetPixelRgb(img, x - 1, y, r, g, b);
+    SetPixelRgb(img, x + 1, y, r, g, b);
+    SetPixelRgb(img, x, y - 1, r, g, b);
+    SetPixelRgb(img, x, y + 1, r, g, b);
+}
+
 static void DrawMatchResults(QImage& vis, const ShapeModel& model,
                               const std::vector<double>& rows,
                               const std::vector<double>& cols,
@@ -72,39 +93,40 @@ static void DrawMatchResults(QImage& vis, const ShapeModel& model,
     double modelW = fMaxX - fMinX;
     double modelH = fMaxY - fMinY;
 
+    double modelSize = std::max(modelW, modelH);
+
     for (size_t i = 0; i < rows.size(); ++i) {
         double mx = cols[i], my = rows[i], ma = angles[i];
-        double cosA = std::cos(ma), sinA = std::sin(ma);
-
-        // Rotated bounding box
-        double boxCx = mx + ((fMinX + fMaxX) * 0.5) * cosA - ((fMinY + fMaxY) * 0.5) * sinA;
-        double boxCy = my + ((fMinX + fMaxX) * 0.5) * sinA + ((fMinY + fMaxY) * 0.5) * cosA;
-        Draw::RotatedRectangle(vis, Point2d{boxCx, boxCy},
-                               modelW + 4, modelH + 4, ma, Scalar::Green(), 2);
 
         // Cross at match center
         Draw::Cross(vis, Point2d{mx, my}, 10, ma, Scalar::Yellow(), 1);
 
-        // Draw rotated model features
+        // Draw rotated model features as 3x3 crosses
         std::vector<ModelPoint> rotF = GetModelTransform(model, 1, ma, 1.0);
         for (const auto& f : rotF) {
             int32_t px = static_cast<int32_t>(std::round(f.x + mx));
             int32_t py = static_cast<int32_t>(std::round(f.y + my));
-            if (px >= 0 && py >= 0 && px < vis.Width() && py < vis.Height()) {
-                uint8_t* row = static_cast<uint8_t*>(vis.Data()) + py * vis.Stride();
-                row[px * 3 + 0] = 0;
-                row[px * 3 + 1] = 255;
-                row[px * 3 + 2] = 0;
-            }
+            DrawPixelCross(vis, px, py, 0, 255, 0);
         }
 
-        // Score label
+        // Score + angle label, scale to fit model box width
         char label[64];
-        std::snprintf(label, sizeof(label), "#%zu s=%.3f a=%.1f",
-                      i, scores[i], angles[i] * 180.0 / PI);
-        Draw::Text(vis, static_cast<int32_t>(mx - modelW * 0.5),
-                   static_cast<int32_t>(my - modelH * 0.5 - 15),
-                   label, Scalar::Cyan(), 1);
+        std::snprintf(label, sizeof(label), "score:%.3f angle:%.1f", scores[i], angles[i] * 180.0 / PI);
+        int32_t numChars = static_cast<int32_t>(std::strlen(label)) + 1; // +1 for degree circle
+        int32_t textScale = std::max(1, static_cast<int32_t>(modelW / (numChars * 6.0)));
+        double offset = modelSize * 0.5 + textScale * 10;
+        double cosA = std::cos(ma), sinA = std::sin(ma);
+        // "Above" in rotated frame: rotate (0, -1) by angle
+        double tx = mx + offset * sinA;
+        double ty = my - offset * cosA;
+        Draw::Text(vis, static_cast<int32_t>(tx), static_cast<int32_t>(ty),
+                   label, Scalar::Cyan(), textScale);
+        // Draw degree symbol as small circle
+        auto [tw, th] = Draw::TextSize(label, textScale);
+        int32_t degR = std::max(1, textScale);
+        Draw::Circle(vis, static_cast<int32_t>(tx) + tw + degR + 1,
+                     static_cast<int32_t>(ty) + degR + 1,
+                     degR, Scalar::Cyan(), 1);
     }
 }
 
@@ -213,14 +235,19 @@ int main(int argc, char* argv[]) {
     for (const auto& f : features) {
         int32_t px = static_cast<int32_t>(std::round(f.x + cx));
         int32_t py = static_cast<int32_t>(std::round(f.y + cy));
-        if (px >= 0 && py >= 0 && px < templateVis.Width() && py < templateVis.Height()) {
-            uint8_t* row = static_cast<uint8_t*>(templateVis.Data()) + py * templateVis.Stride();
-            row[px * 3 + 0] = 0;
-            row[px * 3 + 1] = 255;
-            row[px * 3 + 2] = 0;
-        }
+        DrawPixelCross(templateVis, px, py, 0, 255, 0);
     }
     Draw::Cross(templateVis, Point2d{cx, cy}, 8, 0, Scalar::Yellow(), 1);
+
+    // =========================================================================
+    // 4b. Create results output folder
+    // =========================================================================
+    std::string resultsFolder = imageFolder + "/results";
+    fs::create_directories(resultsFolder);
+    std::printf("Results will be saved to: %s\n", resultsFolder.c_str());
+
+    // Save template visualization
+    WriteImage(templateVis, resultsFolder + "/template.png");
 
     win.DispImage(templateVis, ScaleMode::None);
     std::printf("Template shown. Press any key to start matching...\n");
@@ -239,20 +266,23 @@ int main(int argc, char* argv[]) {
         }
 
         std::vector<double> rows, cols, angles, scores;
+        auto t0 = std::chrono::high_resolution_clock::now();
         FindShapeModel(searchGray, model,
                        0, RAD(360),    // full rotation
                        0.5,            // minScore
                        0,              // numMatches = all
-                       0.5,            // maxOverlap
+                       0,              // maxOverlap
                        "least_squares", // subPixel
                        0,              // numLevels = all
                        0.7,            // greediness
                        rows, cols, angles, scores);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        double matchMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-        std::printf("[%zu/%zu] %s: %zu matches",
+        std::printf("[%zu/%zu] %s: %zu matches, %.1f ms",
                     idx + 1, imageFiles.size(),
                     fs::path(imageFiles[idx]).filename().c_str(),
-                    rows.size());
+                    rows.size(), matchMs);
 
         for (size_t i = 0; i < rows.size(); ++i) {
             std::printf("  (%.1f,%.1f s=%.3f)", cols[i], rows[i], scores[i]);
@@ -263,11 +293,21 @@ int main(int argc, char* argv[]) {
         QImage vis;
         Color::GrayToRgb(searchGray, vis);
 
+        // Draw match time on image
+        char timeLabel[64];
+        std::snprintf(timeLabel, sizeof(timeLabel), "%.1f ms", matchMs);
+        Draw::Text(vis, 10, 30, timeLabel, Scalar::Green(), 2);
+
         if (rows.empty()) {
-            Draw::Text(vis, 10, 20, "No matches", Scalar::Red(), 2);
+            Draw::Text(vis, 10, 60, "No matches", Scalar::Red(), 2);
         } else {
             DrawMatchResults(vis, model, rows, cols, angles, scores);
         }
+
+        // Save result image
+        std::string outName = resultsFolder + "/result_" +
+                              fs::path(imageFiles[idx]).stem().string() + ".png";
+        WriteImage(vis, outName);
 
         // Title with file info
         char title[256];

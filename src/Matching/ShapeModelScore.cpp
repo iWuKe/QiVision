@@ -235,10 +235,10 @@ void ShapeModelImpl::RefinePosition(
 // ShapeModelImpl::RefineGaussNewton
 //
 // Per-point gradient direction profile + 3x3 linear least squares solve.
-// Matches decompiled Halcon 'least_squares' refinement:
-//   For each model point, sample gradient along its normal direction at ±1 pixel,
-//   fit parabola to find sub-pixel displacement, then solve ICP-style normal
-//   equations for (dx, dy, dtheta).
+// Matches decompiled Halcon 'least_squares' refinement (sub_180038660):
+//   For each model point, Bresenham-step along gradient normal ±5 pixels,
+//   find best forward/backward scores, fit parabola for sub-pixel displacement,
+//   then solve ICP-style normal equations for (dx, dy, dtheta).
 // =============================================================================
 
 void ShapeModelImpl::RefineGaussNewton(
@@ -321,67 +321,96 @@ void ShapeModelImpl::RefineGaussNewton(
             float mcx = soa.cosAngle[i] * cosR - soa.sinAngle[i] * sinR;
             float mcy = soa.sinAngle[i] * cosR + soa.cosAngle[i] * sinR;
 
-            // 7. Direction profile — sample gradient along normal at ±1 pixel
-            //    score = dot(model_dir, image_gradient) (unnormalized)
+            // 7. Bresenham direction profile (decompiled sub_180038660)
+            //    Step along gradient normal using Bresenham, ±5 steps max
             float score_center = mcx * gx0 + mcy * gy0;
 
-            // Sample at +1 pixel along normal
-            float pxPlus = imgX + nx;
-            float pyPlus = imgY + ny;
-            int32_t ixp = static_cast<int32_t>(pxPlus);
-            int32_t iyp = static_cast<int32_t>(pyPlus);
-            if (pxPlus < 0) ixp--;
-            if (pyPlus < 0) iyp--;
-
-            float score_plus = 0.0f;
-            if (ixp >= 0 && ixp <= maxIx && iyp >= 0 && iyp <= maxIy) {
-                float fxp = pxPlus - ixp;
-                float fyp = pyPlus - iyp;
-                float wp00 = (1.0f - fxp) * (1.0f - fyp);
-                float wp10 = fxp * (1.0f - fyp);
-                float wp01 = (1.0f - fxp) * fyp;
-                float wp11 = fxp * fyp;
-                int32_t idxp = iyp * grad.stride + ixp;
-                float gxp = wp00 * grad.gxData[idxp] + wp10 * grad.gxData[idxp + 1] +
-                             wp01 * grad.gxData[idxp + grad.stride] + wp11 * grad.gxData[idxp + grad.stride + 1];
-                float gyp = wp00 * grad.gyData[idxp] + wp10 * grad.gyData[idxp + 1] +
-                             wp01 * grad.gyData[idxp + grad.stride] + wp11 * grad.gyData[idxp + grad.stride + 1];
-                score_plus = mcx * gxp + mcy * gyp;
+            // Bresenham setup: main axis = larger |component|
+            bool mainIsX = std::fabs(nx) >= std::fabs(ny);
+            int32_t mainStep, crossStep;
+            float errorInc;
+            if (mainIsX) {
+                mainStep = (nx >= 0.0f) ? 1 : -1;
+                crossStep = (ny >= 0.0f) ? 1 : -1;
+                errorInc = (std::fabs(nx) > 1e-10f) ? std::fabs(ny / nx) : 0.0f;
             } else {
-                continue;  // Cannot sample profile, skip this point
+                mainStep = (ny >= 0.0f) ? 1 : -1;
+                crossStep = (nx >= 0.0f) ? 1 : -1;
+                errorInc = (std::fabs(ny) > 1e-10f) ? std::fabs(nx / ny) : 0.0f;
             }
 
-            // Sample at -1 pixel along normal
-            float pxMinus = imgX - nx;
-            float pyMinus = imgY - ny;
-            int32_t ixm = static_cast<int32_t>(pxMinus);
-            int32_t iym = static_cast<int32_t>(pyMinus);
-            if (pxMinus < 0) ixm--;
-            if (pyMinus < 0) iym--;
-
-            float score_minus = 0.0f;
-            if (ixm >= 0 && ixm <= maxIx && iym >= 0 && iym <= maxIy) {
-                float fxm = pxMinus - ixm;
-                float fym = pyMinus - iym;
-                float wm00 = (1.0f - fxm) * (1.0f - fym);
-                float wm10 = fxm * (1.0f - fym);
-                float wm01 = (1.0f - fxm) * fym;
-                float wm11 = fxm * fym;
-                int32_t idxm = iym * grad.stride + ixm;
-                float gxm = wm00 * grad.gxData[idxm] + wm10 * grad.gxData[idxm + 1] +
-                             wm01 * grad.gxData[idxm + grad.stride] + wm11 * grad.gxData[idxm + grad.stride + 1];
-                float gym = wm00 * grad.gyData[idxm] + wm10 * grad.gyData[idxm + 1] +
-                             wm01 * grad.gyData[idxm + grad.stride] + wm11 * grad.gyData[idxm + grad.stride + 1];
-                score_minus = mcx * gxm + mcy * gym;
-            } else {
-                continue;  // Cannot sample profile, skip this point
+            // Forward scan (up to 5 steps along normal)
+            float bestFwdScore = -1e30f;
+            int32_t bestFwdStep = 0;
+            {
+                int32_t px = 0, py = 0;
+                float err = 0.0f;
+                for (int32_t s = 1; s <= 5; ++s) {
+                    if (mainIsX) px += mainStep; else py += mainStep;
+                    err += errorInc;
+                    if (err >= 0.5f) {
+                        err -= 1.0f;
+                        if (mainIsX) py += crossStep; else px += crossStep;
+                    }
+                    float spx = imgX + px, spy = imgY + py;
+                    int32_t six = static_cast<int32_t>(spx);
+                    int32_t siy = static_cast<int32_t>(spy);
+                    if (spx < 0) six--;
+                    if (spy < 0) siy--;
+                    if (six < 0 || six > maxIx || siy < 0 || siy > maxIy) break;
+                    float sfx = spx - six, sfy = spy - siy;
+                    int32_t sidx = siy * grad.stride + six;
+                    float sgx = (1.0f-sfx)*(1.0f-sfy)*grad.gxData[sidx] + sfx*(1.0f-sfy)*grad.gxData[sidx+1] +
+                                (1.0f-sfx)*sfy*grad.gxData[sidx+grad.stride] + sfx*sfy*grad.gxData[sidx+grad.stride+1];
+                    float sgy = (1.0f-sfx)*(1.0f-sfy)*grad.gyData[sidx] + sfx*(1.0f-sfy)*grad.gyData[sidx+1] +
+                                (1.0f-sfx)*sfy*grad.gyData[sidx+grad.stride] + sfx*sfy*grad.gyData[sidx+grad.stride+1];
+                    float ss = mcx * sgx + mcy * sgy;
+                    if (ss > bestFwdScore) { bestFwdScore = ss; bestFwdStep = s; }
+                }
             }
 
-            // 8. Parabolic fit for normal displacement
-            float denom = 2.0f * (score_minus - 2.0f * score_center + score_plus);
-            if (std::abs(denom) < 1e-10f) continue;
-            float d_i = (score_minus - score_plus) / denom;
-            d_i = std::max(-1.0f, std::min(1.0f, d_i));
+            // Backward scan (up to 5 steps, negated direction)
+            float bestBwdScore = -1e30f;
+            int32_t bestBwdStep = 0;
+            {
+                int32_t px = 0, py = 0;
+                float err = 0.0f;
+                for (int32_t s = 1; s <= 5; ++s) {
+                    if (mainIsX) px -= mainStep; else py -= mainStep;
+                    err += errorInc;
+                    if (err >= 0.5f) {
+                        err -= 1.0f;
+                        if (mainIsX) py -= crossStep; else px -= crossStep;
+                    }
+                    float spx = imgX + px, spy = imgY + py;
+                    int32_t six = static_cast<int32_t>(spx);
+                    int32_t siy = static_cast<int32_t>(spy);
+                    if (spx < 0) six--;
+                    if (spy < 0) siy--;
+                    if (six < 0 || six > maxIx || siy < 0 || siy > maxIy) break;
+                    float sfx = spx - six, sfy = spy - siy;
+                    int32_t sidx = siy * grad.stride + six;
+                    float sgx = (1.0f-sfx)*(1.0f-sfy)*grad.gxData[sidx] + sfx*(1.0f-sfy)*grad.gxData[sidx+1] +
+                                (1.0f-sfx)*sfy*grad.gxData[sidx+grad.stride] + sfx*sfy*grad.gxData[sidx+grad.stride+1];
+                    float sgy = (1.0f-sfx)*(1.0f-sfy)*grad.gyData[sidx] + sfx*(1.0f-sfy)*grad.gyData[sidx+1] +
+                                (1.0f-sfx)*sfy*grad.gyData[sidx+grad.stride] + sfx*sfy*grad.gyData[sidx+grad.stride+1];
+                    float ss = mcx * sgx + mcy * sgy;
+                    if (ss > bestBwdScore) { bestBwdScore = ss; bestBwdStep = s; }
+                }
+            }
+
+            if (bestFwdStep == 0 || bestBwdStep == 0) continue;
+
+            // 8. Parabolic fit with non-uniform spacing
+            // Points: (-bestBwdStep, bestBwdScore), (0, score_center), (bestFwdStep, bestFwdScore)
+            double sf = static_cast<double>(bestFwdStep);
+            double sb = static_cast<double>(bestBwdStep);
+            double dfScore = static_cast<double>(bestFwdScore) - static_cast<double>(score_center);
+            double dbScore = static_cast<double>(bestBwdScore) - static_cast<double>(score_center);
+            double denomFit = 2.0 * (dbScore * sf + dfScore * sb);
+            if (std::abs(denomFit) < 1e-10) continue;
+            double d_raw = -(dfScore * sb * sb - dbScore * sf * sf) / denomFit;
+            float d_i = static_cast<float>(std::max(-sb, std::min(sf, d_raw)));
 
             // 9. Jacobian row: [nx, ny, scale*(-rotY*nx + rotX*ny)]
             double Jx = static_cast<double>(nx);

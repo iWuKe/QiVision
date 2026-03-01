@@ -905,6 +905,16 @@ bool ShapeModelImpl::FinalizeModel() {
     double angleExtent = (params_.angleExtent > 0) ? params_.angleExtent : 2.0 * PI;
     BuildSearchAngleCache(params_.angleStart, angleExtent, params_.angleStep);
 
+    // Decompiled find_shape_model L633-646: populate search radius per level
+    // Assign kAngleBinSizeTable values from coarsest level downward
+    searchRadiusPerLevel_.resize(levels_.size(), 0);
+    int32_t tableIdx = 0;
+    for (int32_t lvl = static_cast<int32_t>(levels_.size()) - 1; lvl >= 0; --lvl) {
+        if (levels_[lvl].numAngleBins > 1 && tableIdx < 21) {
+            searchRadiusPerLevel_[lvl] = kAngleBinSizeTable[tableIdx++];
+        }
+    }
+
     valid_ = true;
     return true;
 }

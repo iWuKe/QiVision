@@ -23,13 +23,22 @@ using namespace Qi::Vision::Matching;
 using namespace Qi::Vision::IO;
 using namespace Qi::Vision::GUI;
 
-// Set a single pixel in an RGB image (matching decompiled demo: Insp.at<Vec3b>(r0,c0) = color)
+// Set a single pixel in an RGB image
 static void SetPixelRgb(QImage& img, int32_t x, int32_t y, uint8_t r, uint8_t g, uint8_t b) {
     if (x < 0 || y < 0 || x >= img.Width() || y >= img.Height()) return;
     uint8_t* row = static_cast<uint8_t*>(img.Data()) + y * img.Stride();
     row[x * 3 + 0] = r;
     row[x * 3 + 1] = g;
     row[x * 3 + 2] = b;
+}
+
+// Draw a 3x3 cross at (x,y) for better visibility
+static void DrawPixelCross(QImage& img, int32_t x, int32_t y, uint8_t r, uint8_t g, uint8_t b) {
+    SetPixelRgb(img, x, y, r, g, b);
+    SetPixelRgb(img, x - 1, y, r, g, b);
+    SetPixelRgb(img, x + 1, y, r, g, b);
+    SetPixelRgb(img, x, y - 1, r, g, b);
+    SetPixelRgb(img, x, y + 1, r, g, b);
 }
 
 static void VisualizeModel(const char* imagePath) {
@@ -72,11 +81,11 @@ static void VisualizeModel(const char* imagePath) {
     QImage vis;
     Color::GrayToRgb(gray, vis);
 
-    // Draw feature points as single green pixels (matching decompiled demo style)
+    // Draw feature points as green 3x3 crosses for visibility
     for (const auto& f : features) {
         int32_t px = static_cast<int32_t>(std::round(f.x + cx));
         int32_t py = static_cast<int32_t>(std::round(f.y + cy));
-        SetPixelRgb(vis, px, py, 0, 255, 0);
+        DrawPixelCross(vis, px, py, 0, 255, 0);
     }
 
     // Yellow cross at image center for reference

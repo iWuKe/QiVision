@@ -475,6 +475,15 @@ public:
      */
     static std::pair<int32_t, int32_t> TextSize(const std::string& text, int32_t scale = 1);
 
+    /** @brief Load a TTF font for Unicode text rendering (Chinese, etc.) */
+    static void SetFont(const std::string& fontPath, int32_t pixelHeight);
+
+    /** @brief Reset to built-in ASCII bitmap font */
+    static void ResetFont();
+
+    /** @brief Get text dimensions when TTF font is loaded */
+    static std::pair<int32_t, int32_t> TextSizeTTF(const std::string& text);
+
     // =========================================================================
     // Utility
     // =========================================================================

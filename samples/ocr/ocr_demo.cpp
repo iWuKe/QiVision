@@ -17,8 +17,10 @@
 
 #include <iostream>
 #include <iomanip>
+#include <filesystem>
 
 using namespace Qi::Vision;
+namespace fs = std::filesystem;
 
 int main(int argc, char* argv[]) {
     std::cout << "=== QiVision OCR Demo ===\n\n";
@@ -72,6 +74,14 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "OCR initialized successfully.\n\n";
 
+    // Load TTF font for Chinese text rendering
+    try {
+        Draw::SetFont("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 20);
+        std::cout << "TTF font loaded for Chinese rendering.\n";
+    } catch (const std::exception&) {
+        std::cout << "TTF font not found, falling back to ASCII font.\n";
+    }
+
     // Load image
     QImage image;
     try {
@@ -123,15 +133,26 @@ int main(int argc, char* argv[]) {
             display = image.Clone();
         }
 
-        // Draw text boxes
+        // Draw text boxes and recognized text
+        int32_t textScale = std::max(2, std::min(display.Width(), display.Height()) / 250);
         for (const auto& tb : result.textBlocks) {
             if (tb.corners.size() == 4) {
                 for (int j = 0; j < 4; ++j) {
                     int k = (j + 1) % 4;
                     Draw::Line(display, tb.corners[j], tb.corners[k], Scalar(0, 255, 0), 2);
                 }
+                // Draw recognized text above the bounding box
+                int32_t tx = static_cast<int32_t>(tb.corners[0].x);
+                int32_t ty = static_cast<int32_t>(tb.corners[0].y) - 5;
+                if (ty < 15) ty = static_cast<int32_t>(tb.corners[3].y) + 15;
+                Draw::Text(display, tx, ty, tb.text, Scalar(0, 255, 255), textScale);
             }
         }
+
+        // Save result image
+        std::string outPath = "tests/output/ocr_" + fs::path(imagePath).stem().string() + ".png";
+        IO::WriteImage(display, outPath);
+        std::cout << "Result saved to: " << outPath << "\n";
 
         // Show in window
         GUI::Window window("OCR Result", display.Width(), display.Height());

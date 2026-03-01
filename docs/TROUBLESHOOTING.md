@@ -365,34 +365,38 @@ __m256 result = _mm256_mul_ps(a, rcp);
 
 ## Scaled Shape Matching (FindScaledShapeModel)
 
-### 🔴 Issue: Incorrect matches with scaled search (2026-01-22)
+### 当前实现行为（2026-03-01）
 
-**状态**: 未解决
+1. **创建阶段复用同一套模型构建**
+   - `CreateShapeModel` 与 `CreateScaledShapeModel` 最终都走 `CreateModel(...) -> FinalizeModel(...)`。
+   - 缩放版本只是在参数里额外记录 `scaleMin/scaleMax/scaleStep`。
 
-**症状:**
-- 使用 `FindScaledShapeModel` 时匹配到形状完全不同的物体
-- 绘制的模型轮廓与实际匹配位置的物体形状不一致
-- 相同图像使用 `FindShapeModel`（不缩放）效果正常
+2. **搜索阶段分支**
+   - 当 `scaleMin` 和 `scaleMax` 都约等于 `1.0` 时，`FindScaledShapeModel` 会直接回退到 `FindShapeModel`。
+   - 否则按 scale 循环执行同一套 `SearchPyramid` 四阶段流程（CoarseSearch -> PyramidRefine -> SubPixelRefine -> FinalizeResults）。
 
-**可能原因:**
-1. 评分函数中 scale 参数的使用可能有问题
-2. 跨 scale 的 NMS 抑制不够严格
-3. 不同 scale 产生的候选太多，导致低质量匹配通过
+3. **跨尺度结果融合**
+   - 每个 scale 内部搜索时禁用 NMS/截断（`applyNMS=false`，`maxMatches=0`）。
+   - 全部 scale 的候选汇总后，统一做一次跨 scale 的 overlap NMS，再按 `numMatches` 截断。
 
-**已排除的原因:**
-- ✅ 搜索边界已修正（根据 scale 调整 bounds）
+### 常见误解与排查
 
-**待调试步骤:**
-1. 对比 scale=1.0 时 FindScaledShapeModel 和 FindShapeModel 的结果
-2. 检查单个 scale 值（如 scale=0.9）的匹配质量
-3. 验证 `ComputeScoreAtPosition` 中 scale 变换是否正确
-4. 检查 NMS 的距离阈值计算
+1. `samples/matching/shape_match_interactive.cpp` 使用的是 `FindShapeModel`（非缩放），不是 `FindScaledShapeModel`。
+2. `scaleStep=0` 会自动计算：`max(0.01, (scaleMax - scaleMin) / 10.0)`。
+3. 若 scale 范围过宽且 `numMatches=0`，跨尺度候选会非常多，建议先收窄 scale 区间或提高 `minScore`。
 
-**临时解决方案:**
-- 使用 `FindShapeModel` 代替（不支持缩放搜索）
-- 或手动缩放图像后用 `FindShapeModel` 搜索
+### 导出文档前应包含的关键常量/规则
 
-**相关代码:**
-- `src/Matching/ShapeModel.cpp`: FindScaledShapeModel 实现
-- `src/Matching/ShapeModelSearch.cpp`: SearchPyramidScaled
-- `src/Matching/ShapeModelScore.cpp`: ComputeScoreAtPosition (scale 参数)
+1. `SCALE_TOLERANCE = 1e-6`（scale=1 回退判断与 scale 循环边界）
+2. 粗搜候选上限：`1000`
+3. 金字塔精化候选上限：level>0 为 `500`，level0 为 `50`
+4. 精化阈值：level0 使用 `minScore * 0.8`，其余层使用 `minScore * 0.9`
+5. 角度步长公式：`min(11.25°, acos(1 - safety^2/(2*R^2)))`
+
+### 代码定位（已更新名称）
+
+1. `src/Matching/ShapeModel.cpp`: `FindScaledShapeModel`, `FindShapeModel`
+2. `src/Matching/ShapeModelSearch.cpp`: `SearchPyramid`, `CoarseSearch`, `PyramidRefine`, `SubPixelRefine`, `FinalizeResults`
+3. `src/Matching/ShapeModelScore.cpp`: `ComputeScore`
+
+> 注：旧文档中的 `SearchPyramidScaled`、`ComputeScoreAtPosition` 已不对应当前实现命名。

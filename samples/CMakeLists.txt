@@ -14,10 +14,11 @@ endfunction()
 
 # Matching - Shape matching
 add_sample(matching_test_create_m1 matching/test_create_m1.cpp)
-add_sample(matching_test_shape_find matching/test_shape_find.cpp)
+add_sample(matching_shape_scaled_match matching/shape_scaled_match.cpp)
 add_sample(matching_ncc_match matching/ncc_match.cpp)
 add_sample(matching_component_model matching/component_model_demo.cpp)
 add_sample(matching_shape_interactive matching/shape_match_interactive.cpp)
+add_sample(matching_shape_brightness matching/shape_brightness.cpp)
 
 # Measure - Metrology & Caliper
 add_sample(measure_circle_metrology measure/circle_metrology.cpp)
@@ -49,10 +50,11 @@ endif()
 # Build all samples
 set(SAMPLE_TARGETS
     matching_test_create_m1
-    matching_test_shape_find
+    matching_shape_scaled_match
     matching_ncc_match
     matching_component_model
     matching_shape_interactive
+    matching_shape_brightness
     measure_circle_metrology
     measure_line_metrology
     measure_caliper_pairs

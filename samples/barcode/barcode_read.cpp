@@ -16,8 +16,10 @@
 
 #include <iostream>
 #include <iomanip>
+#include <filesystem>
 
 using namespace Qi::Vision;
+namespace fs = std::filesystem;
 
 int main(int argc, char* argv[]) {
     std::cout << "=== QiVision Barcode Reading Demo ===\n\n";
@@ -105,7 +107,20 @@ int main(int argc, char* argv[]) {
 
         // Draw center cross
         Draw::Cross(display, r.position, 15, 0, Scalar(255, 0, 0), 2);
+
+        // Draw format + text label
+        std::string label = r.formatName + ": " + r.text;
+        int32_t textScale = std::max(1, std::min(display.Width(), display.Height()) / 400);
+        int32_t labelY = static_cast<int32_t>(r.position.y) - 20;
+        if (labelY < 15) labelY = static_cast<int32_t>(r.position.y) + 30;
+        Draw::Text(display, static_cast<int32_t>(r.position.x) - 50,
+                   labelY, label, Scalar(0, 255, 255), textScale);
     }
+
+    // Save result image
+    std::string outPath = "tests/output/barcode_" + fs::path(imagePath).stem().string() + ".png";
+    IO::WriteImage(display, outPath);
+    std::cout << "Result saved to: " << outPath << "\n";
 
     // Show in window
     GUI::Window window("Barcode Detection", display.Width(), display.Height());

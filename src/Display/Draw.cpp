@@ -13,7 +13,18 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <unordered_map>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb/stb_truetype.h>
+
+// TTF font state (module-level static)
+static std::vector<uint8_t> s_fontData;
+static stbtt_fontinfo s_fontInfo;
+static float s_fontScale = 0.0f;
+static int32_t s_fontPixelHeight = 0;
+static bool s_fontLoaded = false;
 
 namespace Qi::Vision {
 
@@ -874,6 +885,112 @@ static const uint8_t FONT_5x7[][7] = {
     {0x00, 0x00, 0x08, 0x15, 0x02, 0x00, 0x00},
 };
 
+// UTF-8 decode: returns codepoint and advances ptr. Returns 0xFFFD on error.
+static uint32_t DecodeUTF8(const char*& p, const char* end) {
+    if (p >= end) return 0;
+    uint8_t c = static_cast<uint8_t>(*p);
+    uint32_t cp;
+    int extra;
+    if (c < 0x80)       { cp = c;          extra = 0; }
+    else if (c < 0xC0)  { ++p; return 0xFFFD; }
+    else if (c < 0xE0)  { cp = c & 0x1F;   extra = 1; }
+    else if (c < 0xF0)  { cp = c & 0x0F;   extra = 2; }
+    else if (c < 0xF8)  { cp = c & 0x07;   extra = 3; }
+    else                 { ++p; return 0xFFFD; }
+    ++p;
+    for (int i = 0; i < extra; ++i) {
+        if (p >= end || (static_cast<uint8_t>(*p) & 0xC0) != 0x80) return 0xFFFD;
+        cp = (cp << 6) | (static_cast<uint8_t>(*p) & 0x3F);
+        ++p;
+    }
+    return cp;
+}
+
+// Internal: render text using loaded TTF font
+static void TextTTF(QImage& image, int32_t x, int32_t y, const std::string& text,
+                    const Scalar& color) {
+    if (!s_fontLoaded) return;
+
+    int ascent, descent, lineGap;
+    stbtt_GetFontVMetrics(&s_fontInfo, &ascent, &descent, &lineGap);
+    int baseline = static_cast<int>(ascent * s_fontScale);
+
+    const char* p = text.c_str();
+    const char* end = p + text.size();
+    float xpos = static_cast<float>(x);
+    uint32_t prevCp = 0;
+
+    uint8_t* imgData = static_cast<uint8_t*>(image.Data());
+    int32_t imgW = image.Width();
+    int32_t imgH = image.Height();
+    size_t stride = image.Stride();
+    int channels = image.Channels();
+
+    while (p < end) {
+        uint32_t cp = DecodeUTF8(p, end);
+        if (cp == 0 || cp == 0xFFFD) continue;
+
+        if (prevCp) {
+            int kern = stbtt_GetCodepointKernAdvance(&s_fontInfo,
+                static_cast<int>(prevCp), static_cast<int>(cp));
+            xpos += kern * s_fontScale;
+        }
+
+        int advance, lsb;
+        stbtt_GetCodepointHMetrics(&s_fontInfo, static_cast<int>(cp), &advance, &lsb);
+
+        int bw, bh, bx, by;
+        unsigned char* bitmap = stbtt_GetCodepointBitmap(
+            &s_fontInfo, s_fontScale, s_fontScale, static_cast<int>(cp),
+            &bw, &bh, &bx, &by);
+
+        if (bitmap) {
+            int drawX = static_cast<int>(xpos + 0.5f) + bx;
+            int drawY = y + baseline + by;
+
+            for (int row = 0; row < bh; ++row) {
+                int py = drawY + row;
+                if (py < 0 || py >= imgH) continue;
+                for (int col = 0; col < bw; ++col) {
+                    int px = drawX + col;
+                    if (px < 0 || px >= imgW) continue;
+                    uint8_t alpha = bitmap[row * bw + col];
+                    if (alpha == 0) continue;
+
+                    if (channels == 1) {
+                        uint8_t gray = static_cast<uint8_t>(
+                            0.299 * color.r + 0.587 * color.g + 0.114 * color.b);
+                        uint8_t& dst = imgData[py * stride + px];
+                        if (alpha == 255) {
+                            dst = gray;
+                        } else {
+                            float a = alpha / 255.0f;
+                            dst = static_cast<uint8_t>(dst * (1.0f - a) + gray * a);
+                        }
+                    } else if (channels == 3) {
+                        uint8_t* dst = imgData + py * stride + px * 3;
+                        if (alpha == 255) {
+                            dst[0] = color.r;
+                            dst[1] = color.g;
+                            dst[2] = color.b;
+                        } else {
+                            float a = alpha / 255.0f;
+                            float inv = 1.0f - a;
+                            dst[0] = static_cast<uint8_t>(dst[0] * inv + color.r * a);
+                            dst[1] = static_cast<uint8_t>(dst[1] * inv + color.g * a);
+                            dst[2] = static_cast<uint8_t>(dst[2] * inv + color.b * a);
+                        }
+                    }
+                }
+            }
+            stbtt_FreeBitmap(bitmap, nullptr);
+        }
+
+        xpos += advance * s_fontScale;
+        prevCp = cp;
+    }
+}
+
 void Draw::Text(QImage& image, int32_t x, int32_t y, const std::string& text,
                 const Scalar& color, int32_t scale) {
     if (!RequireDrawableImage(image, "Draw::Text")) {
@@ -882,6 +999,12 @@ void Draw::Text(QImage& image, int32_t x, int32_t y, const std::string& text,
     if (text.empty()) {
         return;
     }
+
+    if (s_fontLoaded) {
+        TextTTF(image, x, y, text, color);
+        return;
+    }
+
     if (scale < 1) {
         throw InvalidArgumentException("Draw::Text: scale must be > 0");
     }
@@ -920,6 +1043,64 @@ std::pair<int32_t, int32_t> Draw::TextSize(const std::string& text, int32_t scal
     int32_t width = static_cast<int32_t>(text.length()) * 6 * scale - scale;  // Remove trailing space
     int32_t height = 7 * scale;
     return {width, height};
+}
+
+void Draw::SetFont(const std::string& fontPath, int32_t pixelHeight) {
+    std::ifstream file(fontPath, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        throw InvalidArgumentException("Draw::SetFont: cannot open font file: " + fontPath);
+    }
+    auto size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    s_fontData.resize(static_cast<size_t>(size));
+    if (!file.read(reinterpret_cast<char*>(s_fontData.data()), size)) {
+        s_fontData.clear();
+        throw InvalidArgumentException("Draw::SetFont: failed to read font file: " + fontPath);
+    }
+
+    if (!stbtt_InitFont(&s_fontInfo, s_fontData.data(),
+                        stbtt_GetFontOffsetForIndex(s_fontData.data(), 0))) {
+        s_fontData.clear();
+        throw InvalidArgumentException("Draw::SetFont: invalid font file: " + fontPath);
+    }
+
+    s_fontScale = stbtt_ScaleForPixelHeight(&s_fontInfo, static_cast<float>(pixelHeight));
+    s_fontPixelHeight = pixelHeight;
+    s_fontLoaded = true;
+}
+
+void Draw::ResetFont() {
+    s_fontData.clear();
+    s_fontLoaded = false;
+    s_fontScale = 0.0f;
+    s_fontPixelHeight = 0;
+}
+
+std::pair<int32_t, int32_t> Draw::TextSizeTTF(const std::string& text) {
+    if (!s_fontLoaded) return {0, 0};
+
+    const char* p = text.c_str();
+    const char* end = p + text.size();
+    float width = 0.0f;
+    uint32_t prevCp = 0;
+
+    while (p < end) {
+        uint32_t cp = DecodeUTF8(p, end);
+        if (cp == 0 || cp == 0xFFFD) continue;
+
+        if (prevCp) {
+            int kern = stbtt_GetCodepointKernAdvance(&s_fontInfo,
+                static_cast<int>(prevCp), static_cast<int>(cp));
+            width += kern * s_fontScale;
+        }
+
+        int advance, lsb;
+        stbtt_GetCodepointHMetrics(&s_fontInfo, static_cast<int>(cp), &advance, &lsb);
+        width += advance * s_fontScale;
+        prevCp = cp;
+    }
+
+    return {static_cast<int32_t>(width + 0.5f), s_fontPixelHeight};
 }
 
 // =============================================================================

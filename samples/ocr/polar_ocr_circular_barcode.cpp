@@ -180,6 +180,10 @@ int main(int argc, char* argv[]) {
     QImage polarColor;
     Color::GrayToRgb(polar, polarColor);
 
+    // Adaptive text scale based on image size
+    int32_t origTextScale = std::max(1, std::min(gray.Width(), gray.Height()) / 200);
+    int32_t polarTextScale = std::max(1, polar.Height() / 100);
+
     for (const auto& tb : ocrResult.textBlocks) {
         if (tb.corners.size() != 4) {
             continue;
@@ -200,7 +204,7 @@ int main(int argc, char* argv[]) {
         // Label near center of the box
         Point2d labelPos = AveragePoint(mapped);
         Draw::Text(displayOcr, static_cast<int>(labelPos.x), static_cast<int>(labelPos.y),
-                   tb.text, Scalar(255, 0, 0), 1);
+                   tb.text, Scalar(255, 0, 0), origTextScale);
 
         // Draw on polar image (for verification)
         for (int i = 0; i < 4; ++i) {
@@ -209,7 +213,7 @@ int main(int argc, char* argv[]) {
         }
         Point2d polarLabel = AveragePoint(tb.corners);
         Draw::Text(polarColor, static_cast<int>(polarLabel.x), static_cast<int>(polarLabel.y),
-                   tb.text, Scalar(0, 255, 0), 1);
+                   tb.text, Scalar(0, 255, 0), polarTextScale);
     }
 
     // ---------------------------------------------------------------------

@@ -29,6 +29,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <unordered_map>
 
 namespace Qi::Vision::Matching {
 namespace Internal {
@@ -52,6 +54,116 @@ double ShapeModelImpl::ComputeHalconAngleStep(double maxRadius, double safety) {
 }
 
 // =============================================================================
+// CollectCandidatesNMS — Spatial hash NMS + angle distance suppression
+// Aligned with decompiled sub_18004A5A0
+// =============================================================================
+
+std::vector<MatchResult> ShapeModelImpl::CollectCandidatesNMS(
+    std::vector<MatchResult> candidates,
+    int32_t imageWidth,
+    double angleStep)
+{
+    if (candidates.empty()) return {};
+
+    // Phase 1: Build spatial hash + max score per position
+    std::unordered_map<int64_t, std::vector<MatchResult>> spatialBuckets;
+    std::unordered_map<int64_t, double> maxScoreMap;
+
+    for (auto& c : candidates) {
+        int64_t key = static_cast<int64_t>(static_cast<int32_t>(c.x))
+                    + static_cast<int64_t>(static_cast<int32_t>(c.y)) * imageWidth;
+        spatialBuckets[key].push_back(c);
+        auto it = maxScoreMap.find(key);
+        if (it == maxScoreMap.end() || c.score > it->second) {
+            maxScoreMap[key] = c.score;
+        }
+    }
+
+    // Phase 2: 3x3 neighborhood NMS
+    // Neighbor offsets (center + 8 neighbors)
+    const int64_t offsets[9] = {
+        0,
+        -imageWidth,                  // top
+        1 - imageWidth,               // top-right
+        1,                            // right
+        static_cast<int64_t>(imageWidth) + 1, // bottom-right
+        imageWidth,                   // bottom
+        static_cast<int64_t>(imageWidth) - 1, // bottom-left
+        -1,                           // left
+        -(static_cast<int64_t>(imageWidth) + 1) // top-left
+    };
+
+    // Collect keys that survive NMS, paired with their max score
+    std::vector<std::pair<int64_t, double>> nmsPassedKeys;
+    for (const auto& [key, maxScore] : maxScoreMap) {
+        bool isLocalMax = true;
+        for (int d = 1; d <= 8; ++d) {
+            auto it = maxScoreMap.find(key + offsets[d]);
+            if (it != maxScoreMap.end() && it->second > maxScore) {
+                isLocalMax = false;
+                break;
+            }
+        }
+        if (isLocalMax) {
+            nmsPassedKeys.emplace_back(key, maxScore);
+        }
+    }
+
+    // Sort NMS survivors by score descending
+    std::sort(nmsPassedKeys.begin(), nmsPassedKeys.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+
+    // Phase 3: Collect survivors + angle distance suppression
+    const double angleThreshold = angleStep * 2.5;
+    std::vector<MatchResult> output;
+
+    for (const auto& [centerKey, _] : nmsPassedKeys) {
+        // Collect candidates from 3x3 neighborhood
+        std::vector<MatchResult> localCands;
+        for (int d = 0; d <= 8; ++d) {
+            int64_t neighborKey = centerKey + offsets[d];
+            auto it = spatialBuckets.find(neighborKey);
+            if (it != spatialBuckets.end()) {
+                localCands.insert(localCands.end(), it->second.begin(), it->second.end());
+                it->second.clear();  // Remove collected candidates
+            }
+        }
+
+        if (localCands.empty()) continue;
+
+        // Sort by score descending
+        std::sort(localCands.begin(), localCands.end());
+
+        // Angle distance suppression: remove lower-score candidates
+        // whose angle is within angleStep * 2.5 of a higher-score candidate
+        std::vector<MatchResult> filtered;
+        for (size_t j = 0; j < localCands.size(); ++j) {
+            bool suppressed = false;
+            for (size_t k = 0; k < filtered.size(); ++k) {
+                double diff = localCands[j].angle - filtered[k].angle;
+                // Normalize to [-π, π)
+                while (diff > PI) diff -= 2.0 * PI;
+                while (diff < -PI) diff += 2.0 * PI;
+                if (std::fabs(diff) < angleThreshold) {
+                    suppressed = true;
+                    break;
+                }
+            }
+            if (!suppressed) {
+                filtered.push_back(localCands[j]);
+            }
+        }
+
+        output.insert(output.end(), filtered.begin(), filtered.end());
+    }
+
+    // Final sort by score descending
+    std::sort(output.begin(), output.end());
+
+    return output;
+}
+
+// =============================================================================
 // Stage 1: CoarseSearch — Response Map + LUT (primary path)
 // =============================================================================
 
@@ -72,12 +184,9 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
         return CoarseSearchFloat(targetPyramid, startLevel, params);
     }
 
-    // Compute model max radius for angle step
-    double maxRadius = 0.0;
-    for (const auto& pt : topLevel.points) {
-        double r = std::sqrt(pt.x * pt.x + pt.y * pt.y);
-        maxRadius = std::max(maxRadius, r);
-    }
+    // Step 2: Use levelCreateData_ maxRadius for angle step (decompiled behavior)
+    double maxRadius = (startLevel < static_cast<int32_t>(levelCreateData_.size()))
+        ? levelCreateData_[startLevel].maxRadius : 0.0;
 
     // BUG #1 fix: Halcon angle step formula with safety=1.5
     double coarseAngleStep = ComputeHalconAngleStep(maxRadius, 1.5);
@@ -116,10 +225,12 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
             }
         }
     } else {
-        for (double a = params.angleStart;
-             a <= params.angleStart + params.angleExtent;
-             a += coarseAngleStep) {
-            angles.push_back(a);
+        // Step 4: Uniform angle coverage (decompiled sub_1800B7FB0)
+        double extent = params.angleExtent;
+        int32_t numSteps = std::max(1, static_cast<int32_t>(std::round(extent / coarseAngleStep)));
+        double adjustedStep = extent / numSteps;
+        for (int32_t i = 0; i <= numSteps; ++i) {
+            angles.push_back(params.angleStart + i * adjustedStep);
         }
     }
 
@@ -205,11 +316,8 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
         }
     }
 
-    std::sort(candidates.begin(), candidates.end());
-
-    if (candidates.size() > 1000) {
-        candidates.resize(1000);
-    }
+    // A-2: Spatial hash NMS + angle distance suppression (replaces naive sort+truncate)
+    candidates = CollectCandidatesNMS(std::move(candidates), targetWidth, coarseAngleStep);
 
     return candidates;
 }
@@ -229,13 +337,9 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearchFloat(
     int32_t targetWidth = targetPyramid.GetWidth(startLevel);
     int32_t targetHeight = targetPyramid.GetHeight(startLevel);
 
-    // Compute model max radius for angle step
-    double maxRadius = 0.0;
-    const auto& pts = topLevel.points;
-    for (const auto& pt : pts) {
-        double r = std::sqrt(pt.x * pt.x + pt.y * pt.y);
-        maxRadius = std::max(maxRadius, r);
-    }
+    // Step 2: Use levelCreateData_ maxRadius for angle step (decompiled behavior)
+    double maxRadius = (startLevel < static_cast<int32_t>(levelCreateData_.size()))
+        ? levelCreateData_[startLevel].maxRadius : 0.0;
 
     double coarseAngleStep = ComputeHalconAngleStep(maxRadius, 1.5);
     const double candidateThreshold = params.minScore * 0.8;
@@ -330,10 +434,14 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearchFloat(
         }
     } else {
         std::vector<double> angles;
-        for (double angle = params.angleStart;
-             angle <= params.angleStart + params.angleExtent;
-             angle += coarseAngleStep) {
-            angles.push_back(angle);
+        {
+            // Step 4: Uniform angle coverage (decompiled sub_1800B7FB0)
+            double extent = params.angleExtent;
+            int32_t numSteps = std::max(1, static_cast<int32_t>(std::round(extent / coarseAngleStep)));
+            double adjustedStep = extent / numSteps;
+            for (int32_t i = 0; i <= numSteps; ++i) {
+                angles.push_back(params.angleStart + i * adjustedStep);
+            }
         }
 
         #pragma omp parallel
@@ -402,17 +510,14 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearchFloat(
         }
     }
 
-    std::sort(candidates.begin(), candidates.end());
-
-    if (candidates.size() > 1000) {
-        candidates.resize(1000);
-    }
+    // A-2: Spatial hash NMS + angle distance suppression (replaces naive sort+truncate)
+    candidates = CollectCandidatesNMS(std::move(candidates), targetWidth, coarseAngleStep);
 
     return candidates;
 }
 
 // =============================================================================
-// Stage 2: PyramidRefine — per-level candidate refinement
+// Stage 2: PyramidRefine — per-level dispatcher
 // =============================================================================
 
 std::vector<MatchResult> ShapeModelImpl::PyramidRefine(
@@ -421,118 +526,400 @@ std::vector<MatchResult> ShapeModelImpl::PyramidRefine(
     std::vector<MatchResult> candidates,
     const SearchParams& params) const
 {
-    // Compute model max radius for angle range computation
-    double maxRadius = 0.0;
-    if (!levels_.empty() && !levels_[0].points.empty()) {
-        for (const auto& pt : levels_[0].points) {
-            double r = std::sqrt(pt.x * pt.x + pt.y * pt.y);
-            maxRadius = std::max(maxRadius, r);
-        }
-    }
-
     for (int32_t level = startLevel - 1; level >= 0; --level) {
-        // BUG #6 fix: use actual pyramid scale ratio, not hardcoded 2.0
-        // Going from coarser level (level+1) to finer level (level):
-        // coordinates must be MULTIPLIED by finer/coarser ratio = 2.0
-        double scaleFactor = targetPyramid.GetScale(level) / targetPyramid.GetScale(level + 1);
+        candidates = RefineAtLevel(targetPyramid, level, startLevel,
+                                    std::move(candidates), params);
+    }
+    return candidates;
+}
 
-        // DIFF #2 fix: angle range from acos formula
-        // A-6 fix: all refine levels use safety=2.0 (matches decompiled)
-        double refineSafety = 2.0;
-        double levelRadius = maxRadius * targetPyramid.GetScale(level);
-        double angleRadius = ComputeHalconAngleStep(levelRadius, refineSafety);
-        double angleStep = std::max(0.005, angleRadius / 3.0);
+// =============================================================================
+// RefineAtLevel — unified per-level refinement (position + angle)
+// Decompiled sub_18003C7B0: all levels do position grid + angle iteration
+//   level > 0: gridPoints,  level 0: subpixel points
+// =============================================================================
 
-        // BUG #4 fix: level thresholds from decompiled constants {0.8, 0.9, 0.9, 0.9}
-        double levelThreshold = (level == 0) ? (params.minScore * 0.8) : (params.minScore * 0.9);
+std::vector<MatchResult> ShapeModelImpl::RefineAtLevel(
+    const AnglePyramid& pyramid, int32_t level, int32_t startLevel,
+    std::vector<MatchResult> candidates, const SearchParams& params) const
+{
+    // BUG #6 fix: use actual pyramid scale ratio
+    double scaleFactor = pyramid.GetScale(level) / pyramid.GetScale(level + 1);
 
-        // DIFF #8 fix: level 0 uses subpixel points, others use grid points
-        bool useGridPoints = (level > 0);
+    // Angle step from level's maxRadius (all levels use safety=2.0)
+    double levelRadius = (level < static_cast<int32_t>(levelCreateData_.size()))
+        ? levelCreateData_[level].maxRadius : 0.0;
+    double angleRadius = ComputeHalconAngleStep(levelRadius, 2.0);
+    double angleStep = std::max(0.005, angleRadius / 3.0);
 
-        int32_t searchRadius = 4;
+    double levelThreshold = params.minScore * 0.9;
 
-        int32_t targetWidth = targetPyramid.GetWidth(level);
-        int32_t targetHeight = targetPyramid.GetHeight(level);
+    // DIFF #8: level 0 uses subpixel points, others use grid points
+    bool useGridPoints = (level > 0);
 
-        const int32_t numCandidates = static_cast<int32_t>(candidates.size());
-        std::vector<MatchResult> allResults(numCandidates);
-        std::vector<bool> validResults(numCandidates, false);
+    // Search radius from table lookup
+    static constexpr int32_t MAX_SEARCH_RADIUS = 16;
+    int32_t tableVal = (level < static_cast<int32_t>(searchRadiusPerLevel_.size()))
+        ? searchRadiusPerLevel_[level] : 4;
+    int32_t searchRadius = std::min(std::max(4, tableVal), MAX_SEARCH_RADIUS);
 
-        #pragma omp parallel for schedule(dynamic)
-        for (int32_t ci = 0; ci < numCandidates; ++ci) {
-            const auto& candidate = candidates[ci];
-            double baseX = candidate.x * scaleFactor;
-            double baseY = candidate.y * scaleFactor;
-            double baseAngle = candidate.angle;
+    // Get gradient data and model SoA
+    detail::GradientView grad;
+    if (!detail::GetGradientView(pyramid, level, grad)) {
+        return {};
+    }
+    auto soa = detail::SelectSoA(levels_[level], useGridPoints);
+    if (soa.count == 0) return {};
 
-            MatchResult bestMatch;
-            bestMatch.score = -1.0;
-            bestMatch.x = baseX;
-            bestMatch.y = baseY;
-            bestMatch.pyramidLevel = level;
+    const bool ignorePolarity = (params_.metric == MetricMode::IgnoreLocalPolarity ||
+                                 params_.metric == MetricMode::IgnoreColorPolarity);
+    const bool isGlobalPolarity = (params_.metric == MetricMode::IgnoreGlobalPolarity);
 
-            for (int32_t dy = -searchRadius; dy <= searchRadius; ++dy) {
-                for (int32_t dx = -searchRadius; dx <= searchRadius; ++dx) {
-                    double px = baseX + dx;
-                    double py = baseY + dy;
+    const int32_t gridSize = 2 * searchRadius + 1;
+    const int32_t gridArea = gridSize * gridSize;
 
-                    if (px < 0 || px >= targetWidth || py < 0 || py >= targetHeight) continue;
+    // Decompiled dword_1800D6A3C: convergence threshold
+    // 0.1° balances precision vs performance at all levels
+    constexpr double ANGLE_CONV_RAD = 0.1 * PI / 180.0;
 
-                    for (double dAngle = -angleRadius; dAngle <= angleRadius; dAngle += angleStep) {
-                        double angle = baseAngle + dAngle;
-                        float cosR = static_cast<float>(std::cos(angle));
-                        float sinR = static_cast<float>(std::sin(angle));
+    const int32_t numCandidates = static_cast<int32_t>(candidates.size());
+    std::vector<MatchResult> allResults(numCandidates);
+    std::vector<bool> validResults(numCandidates, false);
 
-                        double coverage = 0.0;
-                        // PyramidRefine uses greediness=0 to avoid early termination
-                        // with many model points (early termination formula requires
-                        // checking ~22% of points before passing, which fails at i=7)
-                        double score = ComputeScore(targetPyramid, level,
-                            px, py, cosR, sinR, params.scaleMin,
-                            0.0, levelThreshold,
-                            &coverage, useGridPoints);
+    #pragma omp parallel for schedule(dynamic)
+    for (int32_t ci = 0; ci < numCandidates; ++ci) {
+        const auto& candidate = candidates[ci];
+        int32_t bx = static_cast<int32_t>(std::round(candidate.x * scaleFactor));
+        int32_t by = static_cast<int32_t>(std::round(candidate.y * scaleFactor));
+        double baseAngle = candidate.angle;
 
-                        if (score > bestMatch.score) {
-                            bestMatch.x = px;
-                            bestMatch.y = py;
-                            bestMatch.angle = angle;
-                            bestMatch.score = score;
+        // Stack-allocated score grids
+        static constexpr int32_t MAX_GRID_AREA = (2 * MAX_SEARCH_RADIUS + 1) * (2 * MAX_SEARCH_RADIUS + 1);
+        float scoreGrid[MAX_GRID_AREA];
+        float scoreGridInv[MAX_GRID_AREA];
+
+        double curAngle = baseAngle;
+        double aStep = angleStep;
+
+        // Helper lambda: build score grid at given angle+center, find peak with boundary retry
+        // Returns peak position (outPx, outPy) in image coords
+        auto buildGridFindPeak = [&](double testAngle, int32_t cx, int32_t cy,
+                                     int32_t& outPx, int32_t& outPy) {
+            float tCosR = static_cast<float>(std::cos(testAngle));
+            float tSinR = static_cast<float>(std::sin(testAngle));
+
+            int32_t curCX = cx, curCY = cy;
+            int32_t retry = 0;
+
+            while (true) {
+                std::memset(scoreGrid, 0, gridArea * sizeof(float));
+                if (isGlobalPolarity) std::memset(scoreGridInv, 0, gridArea * sizeof(float));
+
+                // Pre-compute safe bounds
+                int32_t safeGyMin = 0, safeGyMax = gridSize;
+                {
+                    int32_t minOffY = 0, maxOffY = 0, minOffX = 0, maxOffX = 0;
+                    for (int32_t i = 0; i < soa.count; ++i) {
+                        int32_t oX = static_cast<int32_t>(std::round(tCosR * soa.x[i] - tSinR * soa.y[i]));
+                        int32_t oY = static_cast<int32_t>(std::round(tSinR * soa.x[i] + tCosR * soa.y[i]));
+                        if (oX < minOffX) minOffX = oX;
+                        if (oX > maxOffX) maxOffX = oX;
+                        if (oY < minOffY) minOffY = oY;
+                        if (oY > maxOffY) maxOffY = oY;
+                    }
+                    int32_t baseY = curCY - searchRadius;
+                    safeGyMin = std::max(0, -baseY - minOffY);
+                    safeGyMax = std::min(gridSize, grad.height - baseY - maxOffY);
+                    int32_t baseX = curCX - searchRadius;
+                    int32_t safeGxMin = std::max(0, -baseX - minOffX);
+                    int32_t safeGxMax = std::min(gridSize, grad.width - baseX - maxOffX);
+                    (void)safeGxMin; (void)safeGxMax;
+                }
+
+                const bool fullySafe = (safeGyMin == 0 && safeGyMax == gridSize);
+
+                for (int32_t i = 0; i < soa.count; ++i) {
+                    int32_t offX = static_cast<int32_t>(std::round(tCosR * soa.x[i] - tSinR * soa.y[i]));
+                    int32_t offY = static_cast<int32_t>(std::round(tSinR * soa.x[i] + tCosR * soa.y[i]));
+
+                    float rc = soa.cosAngle[i] * tCosR - soa.sinAngle[i] * tSinR;
+                    float rs = soa.sinAngle[i] * tCosR + soa.cosAngle[i] * tSinR;
+
+                    if (fullySafe) {
+                        for (int32_t gy = 0; gy < gridSize; ++gy) {
+                            int32_t imgY = curCY - searchRadius + gy + offY;
+                            const float* gxRow = grad.gxData + imgY * grad.stride;
+                            const float* gyRow = grad.gyData + imgY * grad.stride;
+                            float* gRow = scoreGrid + gy * gridSize;
+                            int32_t imgXBase = curCX - searchRadius + offX;
+                            const float* gxPtr = gxRow + imgXBase;
+                            const float* gyPtr = gyRow + imgXBase;
+
+                            if (ignorePolarity) {
+                                // Decompiled: vandps with abs mask after dot product
+                                int32_t gx = 0;
+#if HAVE_AVX2
+                                const __m256 vRc = _mm256_set1_ps(rc);
+                                const __m256 vRs = _mm256_set1_ps(rs);
+                                const __m256 vAbsMask = _mm256_castsi256_ps(
+                                    _mm256_set1_epi32(0x7FFFFFFF));
+                                for (; gx + 8 <= gridSize; gx += 8) {
+                                    __m256 vGx = _mm256_loadu_ps(gxPtr + gx);
+                                    __m256 vGy = _mm256_loadu_ps(gyPtr + gx);
+                                    __m256 vDot = _mm256_fmadd_ps(vRc, vGx,
+                                        _mm256_mul_ps(vRs, vGy));
+                                    vDot = _mm256_and_ps(vDot, vAbsMask);
+                                    __m256 vAcc = _mm256_loadu_ps(gRow + gx);
+                                    _mm256_storeu_ps(gRow + gx, _mm256_add_ps(vAcc, vDot));
+                                }
+#endif
+                                for (; gx < gridSize; ++gx) {
+                                    float dot = rc * gxPtr[gx] + rs * gyPtr[gx];
+                                    gRow[gx] += std::fabs(dot);
+                                }
+                            } else if (isGlobalPolarity) {
+                                float* gRowInv = scoreGridInv + gy * gridSize;
+                                int32_t gx = 0;
+#if HAVE_AVX2
+                                const __m256 vRc = _mm256_set1_ps(rc);
+                                const __m256 vRs = _mm256_set1_ps(rs);
+                                const __m256 vZero = _mm256_setzero_ps();
+                                for (; gx + 8 <= gridSize; gx += 8) {
+                                    __m256 vGx = _mm256_loadu_ps(gxPtr + gx);
+                                    __m256 vGy = _mm256_loadu_ps(gyPtr + gx);
+                                    __m256 vDot = _mm256_fmadd_ps(vRc, vGx,
+                                        _mm256_mul_ps(vRs, vGy));
+                                    __m256 vPos = _mm256_max_ps(vDot, vZero);
+                                    __m256 vNeg = _mm256_max_ps(
+                                        _mm256_sub_ps(vZero, vDot), vZero);
+                                    __m256 vAcc = _mm256_loadu_ps(gRow + gx);
+                                    _mm256_storeu_ps(gRow + gx, _mm256_add_ps(vAcc, vPos));
+                                    __m256 vAccInv = _mm256_loadu_ps(gRowInv + gx);
+                                    _mm256_storeu_ps(gRowInv + gx,
+                                        _mm256_add_ps(vAccInv, vNeg));
+                                }
+#endif
+                                for (; gx < gridSize; ++gx) {
+                                    float dot = rc * gxPtr[gx] + rs * gyPtr[gx];
+                                    gRow[gx] += std::max(0.0f, dot);
+                                    gRowInv[gx] += std::max(0.0f, -dot);
+                                }
+                            } else {
+                                // Decompiled: vmulps + vfmadd231ps + vaddps (8-wide)
+                                int32_t gx = 0;
+#if HAVE_AVX2
+                                const __m256 vRc = _mm256_set1_ps(rc);
+                                const __m256 vRs = _mm256_set1_ps(rs);
+                                for (; gx + 8 <= gridSize; gx += 8) {
+                                    __m256 vGx = _mm256_loadu_ps(gxPtr + gx);
+                                    __m256 vGy = _mm256_loadu_ps(gyPtr + gx);
+                                    __m256 vDot = _mm256_fmadd_ps(vRc, vGx,
+                                        _mm256_mul_ps(vRs, vGy));
+                                    __m256 vAcc = _mm256_loadu_ps(gRow + gx);
+                                    _mm256_storeu_ps(gRow + gx, _mm256_add_ps(vAcc, vDot));
+                                }
+#endif
+                                for (; gx < gridSize; ++gx) {
+                                    float dot = rc * gxPtr[gx] + rs * gyPtr[gx];
+                                    gRow[gx] += dot;
+                                }
+                            }
+                        }
+                    } else {
+                        for (int32_t gy = 0; gy < gridSize; ++gy) {
+                            int32_t imgY = curCY - searchRadius + gy + offY;
+                            if (imgY < 0 || imgY >= grad.height) continue;
+
+                            const float* gxRow = grad.gxData + imgY * grad.stride;
+                            const float* gyRow = grad.gyData + imgY * grad.stride;
+                            float* gRow = scoreGrid + gy * gridSize;
+
+                            int32_t imgXBase = curCX - searchRadius + offX;
+                            int32_t xStart = std::max(0, -imgXBase);
+                            int32_t xEnd = std::min(gridSize, grad.width - imgXBase);
+
+                            if (ignorePolarity) {
+                                for (int32_t gx = xStart; gx < xEnd; ++gx) {
+                                    float dot = rc * gxRow[imgXBase + gx] + rs * gyRow[imgXBase + gx];
+                                    gRow[gx] += std::fabs(dot);
+                                }
+                            } else if (isGlobalPolarity) {
+                                float* gRowInv = scoreGridInv + gy * gridSize;
+                                for (int32_t gx = xStart; gx < xEnd; ++gx) {
+                                    float dot = rc * gxRow[imgXBase + gx] + rs * gyRow[imgXBase + gx];
+                                    gRow[gx] += std::max(0.0f, dot);
+                                    gRowInv[gx] += std::max(0.0f, -dot);
+                                }
+                            } else {
+                                for (int32_t gx = xStart; gx < xEnd; ++gx) {
+                                    float dot = rc * gxRow[imgXBase + gx] + rs * gyRow[imgXBase + gx];
+                                    gRow[gx] += dot;
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            // Always store bestMatch so statistics reflect actual evaluation scores
-            allResults[ci] = bestMatch;
-            if (bestMatch.score >= levelThreshold) {
-                validResults[ci] = true;
+                if (isGlobalPolarity) {
+                    for (int32_t i = 0; i < gridArea; ++i) {
+                        scoreGrid[i] = std::max(scoreGrid[i], scoreGridInv[i]);
+                    }
+                }
+
+                // Find peak (scalar scan — grid is small, overhead of AVX2 not worthwhile)
+                float bestVal = -1.0f;
+                int32_t bestIdx = 0;
+                for (int32_t gi = 0; gi < gridArea; ++gi) {
+                    if (scoreGrid[gi] > bestVal) {
+                        bestVal = scoreGrid[gi];
+                        bestIdx = gi;
+                    }
+                }
+
+                int32_t peakGx = bestIdx % gridSize;
+                int32_t peakGy = bestIdx / gridSize;
+
+                // Boundary retry (decompiled: max 1 retry when peak on edge)
+                bool onBoundary = (peakGx == 0 || peakGx == gridSize - 1 ||
+                                   peakGy == 0 || peakGy == gridSize - 1);
+                if (onBoundary && retry < 1) {
+                    curCX += peakGx - searchRadius;
+                    curCY += peakGy - searchRadius;
+                    retry++;
+                    continue;
+                }
+
+                outPx = curCX + peakGx - searchRadius;
+                outPy = curCY + peakGy - searchRadius;
+                break;
+            }
+        };
+
+        // Step 1: Grid search at current angle → find best position
+        int32_t peakX = bx, peakY = by;
+        buildGridFindPeak(curAngle, bx, by, peakX, peakY);
+
+        // Step 2: Angle iteration using ComputeScore at peak position (O(N) per eval, NOT O(N×G²))
+        // Decompiled sub_18003C7B0: evaluate angle candidates at the found position
+        struct AngleEval { double angle = 0.0; double score = 0.0; };
+        AngleEval evalCenter, evalLeft, evalRight;
+
+        auto scoreAtAngle = [&](double testAngle) -> double {
+            float tCosR = static_cast<float>(std::cos(testAngle));
+            float tSinR = static_cast<float>(std::sin(testAngle));
+            return ComputeScore(pyramid, level,
+                static_cast<double>(peakX), static_cast<double>(peakY),
+                tCosR, tSinR, params.scaleMin,
+                0.0, 0.0, nullptr, useGridPoints);
+        };
+
+        double centerScore = scoreAtAngle(curAngle);
+        evalCenter = {curAngle, centerScore};
+        evalLeft = evalCenter;
+        evalRight = evalCenter;
+
+        while (std::fabs(aStep) >= ANGLE_CONV_RAD) {
+            double sL = scoreAtAngle(curAngle - aStep);
+            double sR = scoreAtAngle(curAngle + aStep);
+
+            evalLeft = {curAngle - aStep, sL};
+            evalRight = {curAngle + aStep, sR};
+
+            if (sL > centerScore && sL >= sR) {
+                evalCenter = {curAngle, centerScore};
+                curAngle -= aStep;
+                centerScore = sL;
+            } else if (sR > centerScore) {
+                evalCenter = {curAngle, centerScore};
+                curAngle += aStep;
+                centerScore = sR;
+            } else {
+                evalCenter = {curAngle, centerScore};
+                aStep *= 0.5;
             }
         }
 
-        // Collect valid results
-        std::vector<MatchResult> refined;
-        refined.reserve(numCandidates);
-        double bestScoreAll = -1.0;
-        for (int32_t ci = 0; ci < numCandidates; ++ci) {
-            if (allResults[ci].score > bestScoreAll) bestScoreAll = allResults[ci].score;
-            if (validResults[ci]) {
-                refined.push_back(allResults[ci]);
+        // 3-point parabolic interpolation (decompiled divided-difference form)
+        {
+            double a1 = evalLeft.angle, s1 = evalLeft.score;
+            double a2 = evalCenter.angle, s2 = evalCenter.score;
+            double a3 = evalRight.angle, s3 = evalRight.score;
+
+            if (std::fabs(a1 - a2) > 1e-12 && std::fabs(a2 - a3) > 1e-12 &&
+                std::fabs(a1 - a3) > 1e-12) {
+                double d12 = (s1 - s2) / (a1 - a2);
+                double d23 = (s2 - s3) / (a2 - a3);
+                double dd = (d12 - d23) / (a1 - a3);
+                if (std::fabs(dd) > 1e-10) {
+                    double peak = 0.5 * (a1 + a2 - d12 / dd);
+                    double aMin = std::min({a1, a2, a3});
+                    double aMax = std::max({a1, a2, a3});
+                    if (peak >= aMin && peak <= aMax) {
+                        curAngle = peak;
+                    }
+                }
             }
         }
-        fprintf(stderr, "[DEBUG] PyramidRefine level %d: %d candidates → %zu valid (threshold=%.3f, bestScore=%.4f, angleRadius=%.4f)\n",
-                level, numCandidates, refined.size(), levelThreshold, bestScoreAll, angleRadius);
 
-        // Sort and limit
-        std::sort(refined.begin(), refined.end());
-        size_t limit = (level == 0) ? 50 : 500;
-        if (refined.size() > limit) {
-            refined.resize(limit);
+        // Step 3: Final grid search at converged angle to get refined position
+        int32_t finalPx = peakX, finalPy = peakY;
+        buildGridFindPeak(curAngle, peakX, peakY, finalPx, finalPy);
+
+        // Final ComputeScore evaluation
+        MatchResult bestMatch;
+        bestMatch.score = -1.0;
+        bestMatch.pyramidLevel = level;
+        {
+            float cosR_f = static_cast<float>(std::cos(curAngle));
+            float sinR_f = static_cast<float>(std::sin(curAngle));
+            double coverage = 0.0;
+            double score = ComputeScore(pyramid, level,
+                static_cast<double>(finalPx), static_cast<double>(finalPy),
+                cosR_f, sinR_f, params.scaleMin,
+                0.0, 0.0, &coverage, useGridPoints);
+
+            bestMatch.x = static_cast<double>(finalPx);
+            bestMatch.y = static_cast<double>(finalPy);
+            bestMatch.angle = curAngle;
+            bestMatch.score = score;
         }
 
-        candidates = std::move(refined);
+        allResults[ci] = bestMatch;
+        if (bestMatch.score >= levelThreshold) {
+            validResults[ci] = true;
+        }
     }
 
-    return candidates;
+    // Collect valid results
+    std::vector<MatchResult> refined;
+    refined.reserve(numCandidates);
+    for (int32_t ci = 0; ci < numCandidates; ++ci) {
+        if (validResults[ci]) {
+            refined.push_back(allResults[ci]);
+        }
+    }
+
+    // Angle normalization + range filtering (decompiled L1237-1303)
+    double angleFilterThreshold = 2.0 * angleRadius;
+    for (auto it = refined.begin(); it != refined.end(); ) {
+        double a = it->angle;
+        while (a > PI) a -= 2.0 * PI;
+        while (a < -PI) a += 2.0 * PI;
+        it->angle = a;
+
+        double angleDiff = a - params.angleStart;
+        while (angleDiff < 0.0) angleDiff += 2.0 * PI;
+        while (angleDiff >= 2.0 * PI) angleDiff -= 2.0 * PI;
+
+        if (angleDiff > params.angleExtent + angleFilterThreshold) {
+            it = refined.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    std::sort(refined.begin(), refined.end());
+    return refined;
 }
 
 // =============================================================================
@@ -544,16 +931,24 @@ std::vector<MatchResult> ShapeModelImpl::SubPixelRefine(
     std::vector<MatchResult> candidates,
     const SearchParams& params) const
 {
-    for (auto& match : candidates) {
+    const double scale = levels_[0].scale;
+    const double invScale = (scale != 1.0) ? (1.0 / scale) : 1.0;
+    const int32_t numCandidates = static_cast<int32_t>(candidates.size());
+
+    // Decompiled uses PPL parallel_for across candidates.
+    // Each candidate is independent: gradient data is read-only,
+    // RefinePosition uses only stack-local variables.
+    #pragma omp parallel for schedule(dynamic)
+    for (int32_t ci = 0; ci < numCandidates; ++ci) {
+        auto& match = candidates[ci];
         if (params.subpixelMethod != SubpixelMethod::None) {
             RefinePosition(targetPyramid, match, params.subpixelMethod, params.scaleMin);
         }
 
         // Scale back from level 0 coordinates to original image coordinates
-        double scale = levels_[0].scale;
         if (scale != 1.0) {
-            match.x /= scale;
-            match.y /= scale;
+            match.x *= invScale;
+            match.y *= invScale;
         }
     }
 
@@ -573,22 +968,13 @@ std::vector<MatchResult> ShapeModelImpl::FinalizeResults(
     std::vector<MatchResult> results;
     results.reserve(candidates.size());
 
+    // Step 6: Use SubPixelRefine scores directly, no re-scoring
+    // SubPixelRefine already evaluates score at refined position (level 0 coords)
+    // Re-scoring after coordinate scale-back would use wrong coordinate space
     for (auto match : candidates) {
-        // E-2 fix: Normalize angle to [-π, π]
+        // Normalize angle to [-π, π]
         while (match.angle > PI) match.angle -= 2.0 * PI;
         while (match.angle < -PI) match.angle += 2.0 * PI;
-
-        // Recompute precise score at level 0 (no greediness, no early stop)
-        double coverage = 0.0;
-        float cosR = static_cast<float>(std::cos(match.angle));
-        float sinR = static_cast<float>(std::sin(match.angle));
-        double similarity = ComputeScore(targetPyramid, 0,
-            match.x, match.y, cosR, sinR, params.scaleMin,
-            0.0, 0.0, &coverage, false);
-
-        // BUG #5 fix: NO coverage penalty. Direct similarity score.
-        // Halcon does NOT apply score *= coverage^0.75
-        match.score = similarity;
 
         if (match.score >= params.minScore) {
             results.push_back(match);
@@ -640,10 +1026,6 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
 
     auto t1 = std::chrono::high_resolution_clock::now();
     size_t coarseCandidates = candidates.size();
-    fprintf(stderr, "[DEBUG] Stage1 CoarseSearch (level %d): %zu candidates\n", startLevel, coarseCandidates);
-    for (size_t i = 0; i < std::min(coarseCandidates, size_t(5)); ++i)
-        fprintf(stderr, "  [%zu] x=%.1f y=%.1f angle=%.2f score=%.4f\n",
-                i, candidates[i].x, candidates[i].y, candidates[i].angle, candidates[i].score);
 
     if (timingParams_.enableTiming) {
         findTiming_.coarseSearchMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -652,22 +1034,15 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
 
     // Stage 2: Pyramid refinement (coarse → fine)
     candidates = PyramidRefine(targetPyramid, startLevel, std::move(candidates), params);
-    fprintf(stderr, "[DEBUG] Stage2 PyramidRefine: %zu candidates\n", candidates.size());
-    for (size_t i = 0; i < std::min(candidates.size(), size_t(5)); ++i)
-        fprintf(stderr, "  [%zu] x=%.1f y=%.1f angle=%.2f score=%.4f\n",
-                i, candidates[i].x, candidates[i].y, candidates[i].angle, candidates[i].score);
 
     auto t2 = std::chrono::high_resolution_clock::now();
+    size_t refinedCandidates = candidates.size();
     if (timingParams_.enableTiming) {
         findTiming_.pyramidRefineMs = std::chrono::duration<double, std::milli>(t2 - t1).count();
     }
 
     // Stage 3: Subpixel refinement at level 0
     candidates = SubPixelRefine(targetPyramid, std::move(candidates), params);
-    fprintf(stderr, "[DEBUG] Stage3 SubPixelRefine: %zu candidates\n", candidates.size());
-    for (size_t i = 0; i < std::min(candidates.size(), size_t(5)); ++i)
-        fprintf(stderr, "  [%zu] x=%.2f y=%.2f angle=%.4f score=%.4f\n",
-                i, candidates[i].x, candidates[i].y, candidates[i].angle, candidates[i].score);
 
     auto t3 = std::chrono::high_resolution_clock::now();
     if (timingParams_.enableTiming) {
@@ -676,7 +1051,6 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
 
     // Stage 4: Final scoring + NMS
     auto results = FinalizeResults(targetPyramid, std::move(candidates), params, applyNMS);
-    fprintf(stderr, "[DEBUG] Stage4 FinalizeResults: %zu results\n", results.size());
 
     auto t4 = std::chrono::high_resolution_clock::now();
     if (timingParams_.enableTiming) {
@@ -687,8 +1061,9 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
         auto ms = [](auto start, auto end) {
             return std::chrono::duration<double, std::milli>(end - start).count();
         };
-        fprintf(stderr, "[Timing] Coarse: %.1fms (%zu candidates), Refine: %.1fms, SubPix: %.1fms, NMS: %.1fms | Total: %.1fms\n",
-                ms(t0, t1), coarseCandidates, ms(t1, t2), ms(t2, t3), ms(t3, t4), ms(t0, t4));
+        fprintf(stderr, "[Timing] Coarse: %.1fms (%zu cands), Refine: %.1fms (%zu→%zu), SubPix: %.1fms, Final: %.1fms | Total: %.1fms\n",
+                ms(t0, t1), coarseCandidates, ms(t1, t2), coarseCandidates, refinedCandidates,
+                ms(t2, t3), ms(t3, t4), ms(t0, t4));
     }
 
     return results;

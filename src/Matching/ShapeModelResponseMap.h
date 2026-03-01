@@ -20,6 +20,15 @@
 #include <cstring>
 #include <vector>
 
+// SIMD intrinsics for BuildResponseMap acceleration
+#if defined(__AVX2__) && !defined(HAVE_AVX2)
+#include <immintrin.h>
+#define HAVE_AVX2 1
+#elif defined(__SSE4_1__) && !defined(HAVE_SSE4)
+#include <smmintrin.h>
+#define HAVE_SSE4 1
+#endif
+
 namespace Qi::Vision::Matching::Internal {
 
 // =============================================================================
@@ -101,6 +110,9 @@ struct ResponseCandidate {
  * @param lut         16x16 cos-based LUT
  * @param searchXMin/Max/YMin/Max  Search region bounds (inclusive)
  */
+/// Max search width for stack-allocated contribution buffer (matches decompiled 0x2000)
+constexpr int32_t MAX_RESPONSE_MAP_WIDTH = 8192;
+
 inline void BuildResponseMap(
     ResponseMap& map,
     const std::vector<ResponsePoint>& modelPoints,
@@ -110,8 +122,28 @@ inline void BuildResponseMap(
     int32_t searchYMin, int32_t searchYMax,
     bool ignorePolarity = false)
 {
+    const int32_t searchW = searchXMax - searchXMin + 1;
+    if (searchW <= 0) return;
+
+    // Heap fallback for ultra-wide images
+    std::vector<int8_t> heapBuf;
+    if (searchW > MAX_RESPONSE_MAP_WIDTH) {
+        heapBuf.resize(searchW);
+    }
+
     for (const auto& pt : modelPoints) {
         const int32_t mb = pt.angleBin16;
+
+        // Pre-compute per-model-bin LUT row (decompiled pattern)
+        int8_t mbLut[16];
+        if (ignorePolarity) {
+            for (int ib = 0; ib < 16; ++ib)
+                mbLut[ib] = static_cast<int8_t>(
+                    lut.table[ib][mb] < 0 ? -lut.table[ib][mb] : lut.table[ib][mb]);
+        } else {
+            for (int ib = 0; ib < 16; ++ib)
+                mbLut[ib] = lut.table[ib][mb];
+        }
 
         for (int32_t y = searchYMin; y <= searchYMax; ++y) {
             int32_t imgY = y + pt.offsetY;
@@ -120,21 +152,40 @@ inline void BuildResponseMap(
             const int16_t* binRow = angleBinImage + static_cast<size_t>(imgY) * binStride;
             int16_t* mapRow = map.data.data() + static_cast<size_t>(y) * map.stride;
 
+            // Phase 1: Pre-compute int8 contribution buffer for this row
+            int8_t stackBuf[MAX_RESPONSE_MAP_WIDTH];
+            int8_t* contribBuf = (searchW <= MAX_RESPONSE_MAP_WIDTH) ? stackBuf : heapBuf.data();
+
             for (int32_t x = searchXMin; x <= searchXMax; ++x) {
                 int32_t imgX = x + pt.offsetX;
-                if (imgX < 0 || imgX >= binWidth) continue;
-
+                int32_t xi = x - searchXMin;
+                if (imgX < 0 || imgX >= binWidth) {
+                    contribBuf[xi] = 0;
+                    continue;
+                }
                 int16_t imageBin = binRow[imgX];
-                if (imageBin <= 0 || imageBin > 16) continue;  // 0 = invalid, valid = 1..16
+                contribBuf[xi] = (imageBin >= 1 && imageBin <= 16)
+                    ? mbLut[imageBin - 1] : 0;
+            }
 
-                // Decompiled: sub_180007BA0 (polarity) uses signed LUT value directly;
-                //             sub_180007F60 (no polarity) uses abs of LUT value.
-                int8_t rawContrib = lut.table[imageBin - 1][mb];  // Convert to 0-based for LUT
-                int8_t contrib = ignorePolarity ?
-                    static_cast<int8_t>(rawContrib < 0 ? -rawContrib : rawContrib) : rawContrib;
-                // Saturating add to int16
-                int32_t sum = static_cast<int32_t>(mapRow[x]) + contrib;
-                mapRow[x] = static_cast<int16_t>(std::clamp(sum, -32768, 32767));
+            // Phase 2: SIMD accumulation — vpmovsxbw + vpaddsw
+            int16_t* mapPtr = mapRow + searchXMin;
+            int32_t xi = 0;
+
+#if HAVE_AVX2
+            // Process 16 int8 → 16 int16 per iteration (matches decompiled pattern)
+            for (; xi + 16 <= searchW; xi += 16) {
+                __m128i vContrib8 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(contribBuf + xi));
+                __m256i vContrib16 = _mm256_cvtepi8_epi16(vContrib8);
+                __m256i vMap = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(mapPtr + xi));
+                vMap = _mm256_adds_epi16(vMap, vContrib16);
+                _mm256_storeu_si256(reinterpret_cast<__m256i*>(mapPtr + xi), vMap);
+            }
+#endif
+            // Scalar tail
+            for (; xi < searchW; ++xi) {
+                int32_t sum = static_cast<int32_t>(mapPtr[xi]) + contribBuf[xi];
+                mapPtr[xi] = static_cast<int16_t>(std::clamp(sum, -32768, 32767));
             }
         }
     }

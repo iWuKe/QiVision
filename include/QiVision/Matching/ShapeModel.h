@@ -253,7 +253,8 @@ QIVISION_API void CreateScaledShapeModel(
  * @param minScore      Minimum score threshold [0..1]
  * @param numMatches    Maximum number of matches (0 = all)
  * @param maxOverlap    Maximum overlap between matches [0..1]
- * @param subPixel      Subpixel accuracy: "none", "interpolation", "least_squares"
+ * @param subPixel      Subpixel accuracy: "none", "interpolation", "least_squares",
+ *                      or numeric a12 encoding (e.g., "31" → mode=1(LS), searchRadiusBase=3)
  * @param numLevels     Number of pyramid levels (0 = use model levels)
  * @param greediness    Search greediness [0..1] (higher = faster but may miss)
  * @param rows          [out] Row coordinates of found instances
@@ -279,6 +280,32 @@ QIVISION_API void FindShapeModel(
 );
 
 /**
+ * @brief Find instances of a shape model (with explicit startLevel)
+ *
+ * Overload aligned with decompiled a13 encoding: a13[0]=numLevels, a13[1]=startLevel.
+ * Refinement stops at startLevel instead of level 0.
+ *
+ * @param startLevel    Refinement stop level (decompiled a13[1], default 0)
+ */
+QIVISION_API void FindShapeModel(
+    const QImage& image,
+    const ShapeModel& model,
+    double angleStart,
+    double angleExtent,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    int32_t numLevels,
+    int32_t startLevel,
+    double greediness,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scores
+);
+
+/**
  * @brief Find instances of a scaled shape model
  *
  * Equivalent to Halcon's find_scaled_shape_model operator.
@@ -292,7 +319,8 @@ QIVISION_API void FindShapeModel(
  * @param minScore      Minimum score threshold [0..1]
  * @param numMatches    Maximum number of matches (0 = all)
  * @param maxOverlap    Maximum overlap between matches [0..1]
- * @param subPixel      Subpixel accuracy mode
+ * @param subPixel      Subpixel accuracy mode, or numeric a12 encoding
+ *                      (e.g., "31" → mode=1(LS), searchRadiusBase=3)
  * @param numLevels     Number of pyramid levels (0 = use model levels)
  * @param greediness    Search greediness [0..1]
  * @param rows          [out] Row coordinates
@@ -313,6 +341,35 @@ QIVISION_API void FindScaledShapeModel(
     double maxOverlap,
     const std::string& subPixel,
     int32_t numLevels,
+    double greediness,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scales,
+    std::vector<double>& scores
+);
+
+/**
+ * @brief Find instances of a scaled shape model (with explicit startLevel)
+ *
+ * Overload aligned with decompiled a13 encoding: a13[0]=numLevels, a13[1]=startLevel.
+ * Refinement stops at startLevel instead of level 0.
+ *
+ * @param startLevel    Refinement stop level (decompiled a13[1], default 0)
+ */
+QIVISION_API void FindScaledShapeModel(
+    const QImage& image,
+    const ShapeModel& model,
+    double angleStart,
+    double angleExtent,
+    double scaleMin,
+    double scaleMax,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    int32_t numLevels,
+    int32_t startLevel,
     double greediness,
     std::vector<double>& rows,
     std::vector<double>& cols,

@@ -73,7 +73,49 @@ SubpixelMethod ParseSubpixel(const std::string& str) {
     if (lower == "interpolation" || lower == "true") return SubpixelMethod::Parabolic;
     if (lower == "least_squares_high") return SubpixelMethod::LeastSquaresHigh;
     if (lower == "least_squares_very_high") return SubpixelMethod::LeastSquaresVeryHigh;
+    // Decompiled numeric mode (a12 % 10) → SubpixelModeFromDecompiled
+    if (!lower.empty() && lower[0] >= '0' && lower[0] <= '9') {
+        int a12 = std::stoi(lower);
+        return SubpixelModeFromDecompiled(a12 % 10);
+    }
     throw InvalidArgumentException("Unknown subpixel mode: " + str);
+}
+
+/**
+ * @brief Decode decompiled a12 parameter encoding
+ *
+ * Decompiled encoding (FindScaledShapeModel_Decompiled.md §2.2):
+ *   subPixel = a12 % 10   (mode: 0=none, 1=LS, 2=bresenham, 3=jacobian, clamp >3→3)
+ *   searchRadiusBase = a12 / 10   (per-level search radius base, clamp to 32)
+ *
+ * For string-based inputs ("least_squares", "interpolation", etc.),
+ * only subpixel mode is extracted; searchRadiusBase defaults to 0.
+ *
+ * @param subPixel Input parameter string
+ * @param[out] method  Decoded subpixel method
+ * @param[out] searchRadiusBase  Decoded search radius base (0 = use model table)
+ */
+void DecodeA12Param(const std::string& subPixel,
+                    SubpixelMethod& method, int32_t& searchRadiusBase) {
+    searchRadiusBase = 0;
+
+    std::string lower;
+    lower.reserve(subPixel.size());
+    for (char c : subPixel) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+
+    if (!lower.empty() && lower[0] >= '0' && lower[0] <= '9') {
+        // Decompiled a12 encoding: mode + searchRadiusBase * 10
+        int a12 = std::stoi(lower);
+        int mode = a12 % 10;
+        if (mode > 3) mode = 3;  // clamp per decompiled
+        method = SubpixelModeFromDecompiled(mode);
+        searchRadiusBase = std::min(a12 / 10, 32);  // clamp to 32
+    } else {
+        // String-based mode (backward compatible)
+        method = ParseSubpixel(subPixel);
+    }
 }
 
 // Shape search accepts any valid image (empty = no results)
@@ -517,6 +559,7 @@ void CreateScaledShapeModel(
 // Model Search Functions
 // =============================================================================
 
+// Original API: delegates to overload with startLevel=0 (decompiled a13[1] default)
 void FindShapeModel(
     const QImage& image,
     const ShapeModel& model,
@@ -527,6 +570,30 @@ void FindShapeModel(
     double maxOverlap,
     const std::string& subPixel,
     int32_t numLevels,
+    double greediness,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scores)
+{
+    FindShapeModel(image, model, angleStart, angleExtent,
+                   minScore, numMatches, maxOverlap,
+                   subPixel, numLevels, /*startLevel=*/0, greediness,
+                   rows, cols, angles, scores);
+}
+
+// Overload with explicit startLevel (decompiled a13[1])
+void FindShapeModel(
+    const QImage& image,
+    const ShapeModel& model,
+    double angleStart,
+    double angleExtent,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    int32_t numLevels,
+    int32_t startLevel,
     double greediness,
     std::vector<double>& rows,
     std::vector<double>& cols,
@@ -558,10 +625,18 @@ void FindShapeModel(
     if (!std::isfinite(greediness) || greediness <= 0.0 || greediness > 1.0) {
         throw InvalidArgumentException("FindShapeModel: greediness must be in (0,1]");
     }
+    if (startLevel < 0) {
+        throw InvalidArgumentException("FindShapeModel: startLevel must be >= 0");
+    }
 
     ValidateLevels(numLevels, "FindShapeModel");
 
     auto* impl = const_cast<Internal::ShapeModelImpl*>(model.Impl());
+
+    // Decode decompiled a12 parameter: subpixel mode + searchRadiusBase
+    SubpixelMethod subpixelMethod;
+    int32_t decodedSearchRadius;
+    DecodeA12Param(subPixel, subpixelMethod, decodedSearchRadius);
 
     // Set up search parameters
     SearchParams params;
@@ -570,9 +645,11 @@ void FindShapeModel(
     params.minScore = minScore;
     params.maxMatches = numMatches;
     params.maxOverlap = maxOverlap;
-    params.subpixelMethod = ParseSubpixel(subPixel);
+    params.subpixelMethod = subpixelMethod;
     params.greediness = greediness;
     params.numLevels = numLevels;
+    params.startLevel = startLevel;                 // decompiled a13[1]
+    params.searchRadiusBase = decodedSearchRadius;  // decompiled a12/10
 
     // Build target pyramid (with timing)
     auto tPyramidStart = std::chrono::high_resolution_clock::now();
@@ -580,6 +657,16 @@ void FindShapeModel(
     Internal::AnglePyramidParams pyramidParams;
     int32_t modelLevels = static_cast<int32_t>(impl->levels_.size());
     pyramidParams.numLevels = (numLevels > 0) ? std::min(numLevels, modelLevels) : modelLevels;
+
+    // Decompiled mode-3 special case (FindShapeModel only):
+    // if (v30 == 3 && v33 <= 0 && v31 - v34 > 1) v504 = v35 + 1;
+    // When subPixel mode 3 and startLevel <= 0 and >1 levels of refinement,
+    // bump startLevel by 1 (skip finest level in pyramid refinement)
+    if (subpixelMethod == SubpixelMethod::LeastSquaresHigh &&
+        params.startLevel <= 0 &&
+        pyramidParams.numLevels - 1 - params.startLevel > 1) {
+        params.startLevel += 1;
+    }
 
     // Keep pyramid minContrast low; scoring applies search-time thresholds
     pyramidParams.minContrast = 1.0;
@@ -620,6 +707,7 @@ void FindShapeModel(
     impl->params_.minContrast = savedMinContrast;
 }
 
+// Original API: delegates to overload with startLevel=0 (decompiled a13[1] default)
 void FindScaledShapeModel(
     const QImage& image,
     const ShapeModel& model,
@@ -632,6 +720,33 @@ void FindScaledShapeModel(
     double maxOverlap,
     const std::string& subPixel,
     int32_t numLevels,
+    double greediness,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scales,
+    std::vector<double>& scores)
+{
+    FindScaledShapeModel(image, model, angleStart, angleExtent,
+                         scaleMin, scaleMax, minScore, numMatches, maxOverlap,
+                         subPixel, numLevels, /*startLevel=*/0, greediness,
+                         rows, cols, angles, scales, scores);
+}
+
+// Overload with explicit startLevel (decompiled a13[1])
+void FindScaledShapeModel(
+    const QImage& image,
+    const ShapeModel& model,
+    double angleStart,
+    double angleExtent,
+    double scaleMin,
+    double scaleMax,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    int32_t numLevels,
+    int32_t startLevel,
     double greediness,
     std::vector<double>& rows,
     std::vector<double>& cols,
@@ -669,47 +784,28 @@ void FindScaledShapeModel(
     if (!std::isfinite(greediness) || greediness <= 0.0 || greediness > 1.0) {
         throw InvalidArgumentException("FindScaledShapeModel: greediness must be in (0,1]");
     }
+    if (startLevel < 0) {
+        throw InvalidArgumentException("FindScaledShapeModel: startLevel must be >= 0");
+    }
 
     ValidateLevels(numLevels, "FindScaledShapeModel");
-
-    // If scale range is essentially 1.0, use regular FindShapeModel
-    constexpr double SCALE_TOLERANCE = 1e-6;
-    if (std::abs(scaleMin - 1.0) < SCALE_TOLERANCE &&
-        std::abs(scaleMax - 1.0) < SCALE_TOLERANCE) {
-        FindShapeModel(image, model, angleStart, angleExtent, minScore,
-                       numMatches, maxOverlap, subPixel, numLevels, greediness,
-                       rows, cols, angles, scores);
-        scales.resize(scores.size(), 1.0);
-        return;
-    }
 
     // Get model implementation
     auto* impl = const_cast<Internal::ShapeModelImpl*>(model.Impl());
 
-    // Auto-compute scale step if not specified
-    // Rule: step = (max - min) / 10 for reasonable coverage, but at least 0.01
-    // For typical range [0.9, 1.1], this gives step = 0.02 (10 scales)
-    double scaleStep = impl->params_.scaleStep;
-    if (scaleStep <= 0.0) {
-        scaleStep = 0.02;
-        if (scaleMax > scaleMin) {
-            scaleStep = std::max(0.01, (scaleMax - scaleMin) / 10.0);
-        }
-    }
-
-    // Build pyramid for search image (reused for all scales)
+    // Build pyramid for search image
     AnglePyramidParams pyramidParams;
     int32_t modelLevels = static_cast<int32_t>(impl->levels_.size());
     pyramidParams.numLevels = (numLevels > 0) ? std::min(numLevels, modelLevels) : modelLevels;
     pyramidParams.smoothSigma = 0.5;
     pyramidParams.minContrast = 1.0;
     pyramidParams.useNMS = true;
-    pyramidParams.extractEdgePoints = false;   // search pyramid无需边缘点
-    pyramidParams.storeDirection = false;      // 不存方向图，节省构建时间与内存
+    pyramidParams.extractEdgePoints = false;
+    pyramidParams.storeDirection = false;
 
     AnglePyramid targetPyramid;
     if (!targetPyramid.Build(image, pyramidParams)) {
-        return;  // Failed to build pyramid
+        return;
     }
 
     const double savedMinContrast = impl->params_.minContrast;
@@ -720,84 +816,44 @@ void FindScaledShapeModel(
         }
     }
 
-    // Collect all matches from different scales
-    struct ScaledMatch {
-        double row = 0.0;
-        double col = 0.0;
-        double angle = 0.0;
-        double scale = 1.0;
-        double score = 0.0;
-    };
-    std::vector<ScaledMatch> allMatches;
+    // Decode decompiled a12 parameter: subpixel mode + searchRadiusBase
+    SubpixelMethod subpixelMethod;
+    int32_t decodedSearchRadius;
+    DecodeA12Param(subPixel, subpixelMethod, decodedSearchRadius);
 
-    // Search at each scale level
-    SubpixelMethod subpixelMethod = ParseSubpixel(subPixel);
-    for (double scale = scaleMin; scale <= scaleMax + SCALE_TOLERANCE; scale += scaleStep) {
-        SearchParams params;
-        params.angleStart = angleStart;
-        params.angleExtent = angleExtent;
-        params.minScore = minScore;
-        params.maxMatches = 0;          // Don't truncate per-scale; truncate after cross-scale NMS
-        params.maxOverlap = maxOverlap;
-        params.subpixelMethod = subpixelMethod;
-        params.numLevels = numLevels;
-        params.greediness = greediness;
+    SearchParams params;
+    params.angleStart = angleStart;
+    params.angleExtent = angleExtent;
+    params.minScore = minScore;
+    params.maxMatches = 0;              // Don't truncate inside FinalizeResults; truncate here
+    params.maxOverlap = maxOverlap;
+    params.subpixelMethod = subpixelMethod;
+    params.numLevels = numLevels;
+    params.startLevel = startLevel;                 // decompiled a13[1]
+    params.searchRadiusBase = decodedSearchRadius;  // decompiled a12/10
+    params.greediness = greediness;
+    params.scaleMin = scaleMin;
+    params.scaleMax = scaleMax;
 
-        // Search with this scale (NMS + maxMatches truncation skipped — done cross-scale)
-        params.scaleMin = scale;
-        params.scaleMax = scale;
-        auto results = impl->SearchPyramid(targetPyramid, params, /*applyNMS=*/false);
+    // Pipeline-internal NMS eliminates overlapping candidates (overlap-based)
+    // Sub_1800B9C20 (sort+truncate) is the final output step, not a replacement for NMS
+    auto allResults = impl->SearchPyramid(targetPyramid, params);
 
-        // Collect results with scale info
-        for (const auto& r : results) {
-            ScaledMatch m;
-            m.row = r.y;
-            m.col = r.x;
-            m.angle = r.angle;
-            m.scale = scale;
-            m.score = r.score;
-            allMatches.push_back(m);
-        }
-    }
-
-    // Convert to MatchResult for unified NMS
-    std::vector<MatchResult> allResults;
-    allResults.reserve(allMatches.size());
-    for (const auto& m : allMatches) {
-        MatchResult r;
-        r.x = m.col;
-        r.y = m.row;
-        r.angle = m.angle;
-        r.score = m.score;
-        r.scaleX = m.scale;
-        r.scaleY = m.scale;
-        allResults.push_back(r);
-    }
-
-    // Sort by score descending
+    // Decompiled sub_1800B9C20: sort by score descending + truncate to numMatches
     std::sort(allResults.begin(), allResults.end());
-
-    // Unified cross-scale NMS (overlap-based, Halcon-compatible)
-    if (maxOverlap < 1.0) {
-        allResults = NonMaxSuppressionOverlap(allResults, maxOverlap,
-                                               impl->templateSize_.width,
-                                               impl->templateSize_.height);
+    if (numMatches > 0 && static_cast<int32_t>(allResults.size()) > numMatches) {
+        allResults.resize(numMatches);
     }
 
-    // Limit results and convert to output vectors
-    int32_t maxMatchesToReturn = (numMatches == 0)
-        ? static_cast<int32_t>(allResults.size()) : numMatches;
-
-    for (size_t i = 0; i < allResults.size() &&
-         static_cast<int32_t>(rows.size()) < maxMatchesToReturn; ++i) {
-        rows.push_back(allResults[i].y);
-        cols.push_back(allResults[i].x);
-        angles.push_back(allResults[i].angle);
-        scales.push_back(allResults[i].scaleX);
-        scores.push_back(allResults[i].score);
+    // Convert results to output vectors
+    for (const auto& r : allResults) {
+        rows.push_back(r.y);
+        cols.push_back(r.x);
+        angles.push_back(r.angle);
+        scales.push_back(r.scaleX);
+        scores.push_back(r.score);
     }
 
-    // TODO: thread-unsafe const_cast on impl->params_.minContrast — move to SearchParams
     impl->params_.minContrast = savedMinContrast;
 }
 

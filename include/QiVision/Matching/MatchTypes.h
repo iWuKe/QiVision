@@ -49,14 +49,57 @@ enum class MatchMethod {
  * - Parabolic ('interpolation'): 3x3 score grid + parabolic position fitting (~0.05px)
  * - LeastSquares ('least_squares'): Per-point gradient profile + Gauss-Newton solve (~0.02px)
  * - LeastSquaresHigh ('least_squares_high'): Same as LeastSquares with 2 iterations (~0.01px)
+ *
+ * Decompiled mode mapping (a12 % 10):
+ *   mode 0 → None           (no subpixel)
+ *   mode 1 → LeastSquares   (worker 待确认, 当前映射为 LS 拟合)
+ *   mode 2 → Parabolic      (Bresenham 步进邻域搜索, sub_18005B950)
+ *   mode 3 → LeastSquaresHigh (Jacobian 亚像素精化, sub_18005BF20)
+ *
+ * NOTE: mode 1/2/3 的 worker 对齐尚未完全验证，当前实现使用自研算法。
  */
 enum class SubpixelMethod {
-    None,                   ///< No subpixel refinement (integer positions only)
-    Parabolic,              ///< Parabolic fitting for position (fast, ~0.05px accuracy)
-    LeastSquares,           ///< Gradient profile + Gauss-Newton (1 iteration, ~0.02px accuracy)
-    LeastSquaresHigh,       ///< Gradient profile + Gauss-Newton (2 iterations, ~0.01px accuracy)
+    None,                   ///< No subpixel refinement (decompiled mode 0)
+    Parabolic,              ///< Parabolic fitting for position (fast, ~0.05px accuracy, maps to mode 2)
+    LeastSquares,           ///< Gradient profile + Gauss-Newton (1 iteration, ~0.02px, maps to mode 1)
+    LeastSquaresHigh,       ///< Gradient profile + Gauss-Newton (2 iterations, ~0.01px, maps to mode 3)
     LeastSquaresVeryHigh    ///< [Deprecated] Maps to LeastSquaresHigh behavior
 };
+
+/**
+ * @brief Convert decompiled subpixel mode number (a12 % 10) to SubpixelMethod
+ *
+ * Mapping:
+ *   0 → None           (verified)
+ *   1 → LeastSquares   (worker 待确认)
+ *   2 → Parabolic      (sub_18005B950, verified)
+ *   3 → LeastSquaresHigh (sub_18005BF20, verified)
+ *   >3 → clamped to 3  (decompiled behavior)
+ *
+ * @param mode Decompiled mode value (a12 % 10)
+ * @return Corresponding SubpixelMethod
+ */
+inline SubpixelMethod SubpixelModeFromDecompiled(int mode) {
+    if (mode <= 0) return SubpixelMethod::None;
+    if (mode == 1) return SubpixelMethod::LeastSquares;
+    if (mode == 2) return SubpixelMethod::Parabolic;
+    return SubpixelMethod::LeastSquaresHigh;  // mode >= 3, clamped
+}
+
+/**
+ * @brief Convert SubpixelMethod to decompiled mode number
+ * @return Decompiled mode value (0-3)
+ */
+inline int SubpixelMethodToDecompiled(SubpixelMethod method) {
+    switch (method) {
+        case SubpixelMethod::None:               return 0;
+        case SubpixelMethod::LeastSquares:        return 1;
+        case SubpixelMethod::Parabolic:           return 2;
+        case SubpixelMethod::LeastSquaresHigh:    return 3;
+        case SubpixelMethod::LeastSquaresVeryHigh: return 3;  // deprecated → mode 3
+    }
+    return 1;  // default
+}
 
 /**
  * @brief Angle search mode
@@ -222,6 +265,8 @@ struct QIVISION_API SearchParams {
 
     // Performance
     int32_t numLevels = 0;          ///< Pyramid levels (0 = auto)
+    int32_t startLevel = 0;         ///< Refinement stop level (decompiled a13[1], default 0)
+    int32_t searchRadiusBase = 0;   ///< Per-level search radius base (decompiled a12/10, 0=use model table)
     double greediness = 0.9;        ///< Greediness for early termination [0, 1]
 
     // Non-maximum suppression (Halcon-compatible)

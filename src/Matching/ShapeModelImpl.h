@@ -267,8 +267,14 @@ public:
                                             const SearchParams& params) const;
 
     /// Per-level refinement: position grid + angle iteration convergence + parabolic interpolation
-    /// Decompiled sub_18003C7B0: all levels do both position and angle refinement
+    /// Decompiled sub_18003C7B0: all levels do both position and angle refinement (Path A: no scale)
     std::vector<MatchResult> RefineAtLevel(
+        const AnglePyramid& pyramid, int32_t level, int32_t startLevel,
+        std::vector<MatchResult> candidates, const SearchParams& params) const;
+
+    /// Per-level scaled refinement: position grid + angle iteration + scale iteration
+    /// Decompiled sub_180040150: Path B with scale refinement
+    std::vector<MatchResult> RefineAtLevelScaled(
         const AnglePyramid& pyramid, int32_t level, int32_t startLevel,
         std::vector<MatchResult> candidates, const SearchParams& params) const;
 
@@ -287,6 +293,9 @@ public:
 
     /// Halcon-style angle step: min(11.25°, acos(1 - safety²/(2*R²)))
     static double ComputeHalconAngleStep(double maxRadius, double safety);
+
+    /// Decompiled sub_1800B82C0: geometry-based scale step = CONST / ceil(maxRadius)
+    static double ComputeScaleStep(double maxRadius);
 
     /// Candidate collection with spatial hash NMS + angle distance suppression
     /// Replaces naive sort+truncate. Aligned with decompiled sub_18004A5A0.

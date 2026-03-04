@@ -48,6 +48,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <tuple>
 #include <unordered_map>
 
 namespace Qi::Vision::Matching {
@@ -258,7 +259,8 @@ static void BuildScoreGridFindPeak(
     int32_t searchRadius,
     bool ignorePolarity, bool isGlobalPolarity,
     float* scoreGrid, float* scoreGridInv,
-    int32_t& outPx, int32_t& outPy)
+    int32_t& outPx, int32_t& outPy,
+    float* outBestScore = nullptr)
 {
     const float tCosR = static_cast<float>(std::cos(testAngle));
     const float tSinR = static_cast<float>(std::sin(testAngle));
@@ -445,6 +447,7 @@ static void BuildScoreGridFindPeak(
 
         outPx = curCX + peakGx - searchRadius;
         outPy = curCY + peakGy - searchRadius;
+        if (outBestScore) *outBestScore = bestVal;
         break;
     }
 }
@@ -1359,66 +1362,76 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
             searchRadius, ignorePolarity, isGlobalPolarity,
             scoreGrid, scoreGridInv, peakX, peakY);
 
-        // Score helper
-        auto scoreAtAngleScale = [&](double testAngle, double testScale) -> double {
-            float tCosR = static_cast<float>(std::cos(testAngle));
-            float tSinR = static_cast<float>(std::sin(testAngle));
-            return ComputeScore(pyramid, level,
-                static_cast<double>(peakX), static_cast<double>(peakY),
-                tCosR, tSinR, testScale,
-                0.0, 0.0, nullptr, useGridPoints);
+        // Helper: for (angle, scale) do full window search, return (peakX, peakY, rawScore)
+        // rawScore = dot-product sum (not invMag-normalized), matches decompiled sub_180040150
+        auto windowSearch = [&](double testAngle, double testScale,
+                                int32_t cx, int32_t cy) -> std::tuple<int32_t, int32_t, float> {
+            int32_t px = cx, py = cy;
+            float rawScore = 0.0f;
+            BuildScoreGridFindPeak(grad, soa, testAngle, static_cast<float>(testScale),
+                cx, cy, searchRadius, ignorePolarity, isGlobalPolarity,
+                scoreGrid, scoreGridInv, px, py, &rawScore);
+            return {px, py, rawScore};
         };
 
         // Step 2+3: Joint angle+scale 5×5 grid iteration (decompiled sub_180040150 §3.5)
-        // Each iteration evaluates 5×5 = 24 angle-scale combinations (skip center),
-        // picks best, halves both steps unconditionally
         double sStep = initialScaleStep;
-        double centerScore = scoreAtAngleScale(curAngle, curScale);
+        {
+            auto [wsPx, wsPy, centerRaw] = windowSearch(curAngle, curScale, peakX, peakY);
+            (void)wsPx; (void)wsPy;
+            float bestRawScore = centerRaw;
 
-        while (std::fabs(aStep) >= ANGLE_CONV_RAD || sStep >= 0.001) {
-            double bestScore = centerScore;
-            double bestAngle = curAngle;
-            double bestScale = curScale;
-            bool improved = false;
+            while (std::fabs(aStep) >= ANGLE_CONV_RAD || sStep >= 0.001) {
+                float iterBestRaw = bestRawScore;
+                double iterBestAngle = curAngle;
+                double iterBestScale = curScale;
+                int32_t iterBestPx = peakX, iterBestPy = peakY;
+                bool improved = false;
 
-            // 5×5 joint search (decompiled sub_180040150 §3.5)
-            for (int ai = -2; ai <= 2; ++ai) {
-                double testA = curAngle + ai * aStep;
-                for (int si = -2; si <= 2; ++si) {
-                    if (ai == 0 && si == 0) continue;  // skip center
-                    double testS = std::clamp(curScale + si * sStep,
-                                               params.scaleMin, params.scaleMax);
-                    double s = scoreAtAngleScale(testA, testS);
-                    if (s > bestScore) {
-                        bestScore = s;
-                        bestAngle = testA;
-                        bestScale = testS;
-                        improved = true;
+                // 5×5 joint search (decompiled sub_180040150 §3.5)
+                for (int ai = -2; ai <= 2; ++ai) {
+                    double testA = curAngle + ai * aStep;
+                    for (int si = -2; si <= 2; ++si) {
+                        if (ai == 0 && si == 0) continue;  // skip center
+                        double testS = curScale + si * sStep;  // No clamp (decompiled behavior)
+                        auto [tpx, tpy, traw] = windowSearch(testA, testS, peakX, peakY);
+                        if (traw > iterBestRaw) {
+                            iterBestRaw = traw;
+                            iterBestAngle = testA;
+                            iterBestScale = testS;
+                            iterBestPx = tpx;
+                            iterBestPy = tpy;
+                            improved = true;
+                        }
                     }
                 }
-            }
 
-            if (improved) {
-                curAngle = bestAngle;
-                curScale = bestScale;
-                centerScore = bestScore;
-                // Re-find peak position after angle/scale update
-                BuildScoreGridFindPeak(grad, soa, curAngle, static_cast<float>(curScale),
-                    peakX, peakY, searchRadius, ignorePolarity, isGlobalPolarity,
-                    scoreGrid, scoreGridInv, peakX, peakY);
-                centerScore = scoreAtAngleScale(curAngle, curScale);
-            }
+                if (improved) {
+                    curAngle = iterBestAngle;
+                    curScale = iterBestScale;
+                    peakX = iterBestPx;
+                    peakY = iterBestPy;
+                    bestRawScore = iterBestRaw;
+                }
 
-            aStep *= 0.5;
-            sStep *= 0.5;
+                aStep *= 0.5;
+                sStep *= 0.5;
+            }
         }
 
         // Parabolic angle interpolation — Newton divided-difference form (§3.5 step 4)
         {
             double finalAStep = aStep * 2.0;  // last step before final halving
-            double sL = scoreAtAngleScale(curAngle - finalAStep, curScale);
-            double sC = scoreAtAngleScale(curAngle, curScale);
-            double sR = scoreAtAngleScale(curAngle + finalAStep, curScale);
+            auto [lpx, lpy, rawL] = windowSearch(curAngle - finalAStep, curScale, peakX, peakY);
+            (void)lpx; (void)lpy;
+            auto [cpx, cpy, rawC] = windowSearch(curAngle, curScale, peakX, peakY);
+            (void)cpx; (void)cpy;
+            auto [rpx, rpy, rawR] = windowSearch(curAngle + finalAStep, curScale, peakX, peakY);
+            (void)rpx; (void)rpy;
+
+            double sL = static_cast<double>(rawL);
+            double sC = static_cast<double>(rawC);
+            double sR = static_cast<double>(rawR);
 
             double x0 = curAngle - finalAStep;
             double x1 = curAngle;
@@ -1442,9 +1455,9 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
         bestMatch.pyramidLevel = level;
         {
             double scales[3] = {
-                std::max(params.scaleMin, curScale - initialScaleStep),
+                curScale - initialScaleStep,
                 curScale,
-                std::min(params.scaleMax, curScale + initialScaleStep)
+                curScale + initialScaleStep
             };
             double scores27[27];
 
@@ -1468,8 +1481,7 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
                 // Decompiled: polyfit success -> use all three outputs directly
                 finalX = static_cast<double>(peakX) + polyResult.subDx;
                 finalY = static_cast<double>(peakY) + polyResult.subDy;
-                curScale = std::clamp(curScale + polyResult.subDz,
-                                      params.scaleMin, params.scaleMax);
+                curScale = curScale + polyResult.subDz;
             } else {
                 // Decompiled: polyfit failed -> fallback to Eigen for position only
                 double scores9[9];
@@ -1498,8 +1510,8 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
             bestMatch.y = finalY;
             bestMatch.angle = curAngle;
             bestMatch.score = score;
-            bestMatch.scaleX = curScale;
-            bestMatch.scaleY = curScale;
+            bestMatch.scaleX = std::clamp(curScale, params.scaleMin, params.scaleMax);
+            bestMatch.scaleY = std::clamp(curScale, params.scaleMin, params.scaleMax);
         }
 
         allResults[ci] = bestMatch;
@@ -1644,6 +1656,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
 
     auto t1 = std::chrono::high_resolution_clock::now();
     size_t coarseCandidates = candidates.size();
+
 
     if (timingParams_.enableTiming) {
         findTiming_.coarseSearchMs = std::chrono::duration<double, std::milli>(t1 - t0).count();

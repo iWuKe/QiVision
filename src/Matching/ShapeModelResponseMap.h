@@ -237,4 +237,66 @@ inline std::vector<ResponseCandidate> ExtractCandidatesNMS3x3(
     return candidates;
 }
 
+/**
+ * @brief Apply IoU-based NMS on candidates (decompiled cv::dnn::NMSBoxes equivalent)
+ *
+ * Decompiled sub_1800497F0 calls cv::dnn::NMSBoxes after 3x3 local max extraction.
+ * All candidates within one (angle,scale) work item share the same bounding box size,
+ * so IoU depends only on center distance.
+ *
+ * @param candidates    Input candidates (from ExtractCandidatesNMS3x3)
+ * @param boxWidth      Template bounding box width at current level/scale
+ * @param boxHeight     Template bounding box height at current level/scale
+ * @param nmsThreshold  IoU threshold for suppression (0.5 = standard)
+ * @return Filtered candidates
+ */
+inline std::vector<ResponseCandidate> IoUNMSCandidates(
+    std::vector<ResponseCandidate>& candidates,
+    int32_t boxWidth, int32_t boxHeight,
+    float nmsThreshold = 0.5f)
+{
+    if (candidates.size() <= 1 || boxWidth <= 0 || boxHeight <= 0) {
+        return candidates;
+    }
+
+    // Sort by response descending (greedy NMS: keep highest score first)
+    std::sort(candidates.begin(), candidates.end(),
+        [](const ResponseCandidate& a, const ResponseCandidate& b) {
+            return a.response > b.response;
+        });
+
+    const float bw = static_cast<float>(boxWidth);
+    const float bh = static_cast<float>(boxHeight);
+    const float boxArea = bw * bh;
+
+    std::vector<ResponseCandidate> kept;
+    kept.reserve(candidates.size());
+
+    for (const auto& cand : candidates) {
+        bool suppressed = false;
+        for (const auto& k : kept) {
+            // AABB IoU for same-size boxes centered at (x, y)
+            float dx = static_cast<float>(std::abs(cand.x - k.x));
+            float dy = static_cast<float>(std::abs(cand.y - k.y));
+            if (dx >= bw || dy >= bh) continue;  // no overlap
+
+            float interW = bw - dx;
+            float interH = bh - dy;
+            float inter = interW * interH;
+            float unionArea = 2.0f * boxArea - inter;
+            float iou = inter / unionArea;
+
+            if (iou > nmsThreshold) {
+                suppressed = true;
+                break;
+            }
+        }
+        if (!suppressed) {
+            kept.push_back(cand);
+        }
+    }
+
+    return kept;
+}
+
 } // namespace Qi::Vision::Matching::Internal

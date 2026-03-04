@@ -735,6 +735,15 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
             auto resCands = ExtractCandidatesNMS3x3(
                 map, sxMin, sxMax, syMin, syMax, minResponse);
 
+            // 4b. IoU NMS (decompiled sub_1800497F0 calls cv::dnn::NMSBoxes)
+            // Box size = template size at current pyramid level × scale
+            int32_t levelFactor = 1 << startLevel;
+            int32_t boxW = std::max(1, static_cast<int32_t>(
+                templateSize_.width * scale / levelFactor));
+            int32_t boxH = std::max(1, static_cast<int32_t>(
+                templateSize_.height * scale / levelFactor));
+            resCands = IoUNMSCandidates(resCands, boxW, boxH, 0.5f);
+
             // 5. Convert to MatchResult
             for (const auto& rc : resCands) {
                 MatchResult m;

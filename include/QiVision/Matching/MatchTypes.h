@@ -771,10 +771,17 @@ inline std::vector<MatchResult> NonMaxSuppressionOverlap(
     std::vector<MatchResult> result;
     result.reserve(matches.size());
 
-    // Cache OBB corners for each kept match
+    // Distance prefilter threshold (decompiled sub_18004C8C0):
+    // distThresh = (halfW² + halfH²) * 4.0 ≈ model diagonal²
+    // Candidates farther than this cannot overlap, skip expensive OBB calculation
+    double halfW = modelWidth * 0.5, halfH = modelHeight * 0.5;
+    double distThreshBase = (halfW * halfW + halfH * halfH) * 4.0;
+
+    // Cache OBB corners + center for each kept match
     struct CachedOBB {
         nms_detail::Vec2 corners[4];
         double area;
+        double cx, cy;  // center position for distance prefilter
     };
     std::vector<CachedOBB> keptOBBs;
     keptOBBs.reserve(matches.size());
@@ -787,10 +794,28 @@ inline std::vector<MatchResult> NonMaxSuppressionOverlap(
         double area1 = w1 * h1;
         double hw1 = w1 * 0.5, hh1 = h1 * 0.5;
 
+        // Scale-aware distance threshold: use max scale of the pair
+        double scaleFactor = match.scaleX * match.scaleX;
+        double distThresh = distThreshBase * scaleFactor;
+
         nms_detail::Vec2 corners1[4];
-        nms_detail::GetOBBCorners(match.x, match.y, hw1, hh1, match.angle, corners1);
+        bool cornersComputed = false;
 
         for (size_t k = 0; k < keptOBBs.size(); ++k) {
+            // Distance prefilter: skip OBB calculation if centers are far apart
+            double dx = match.x - keptOBBs[k].cx;
+            double dy = match.y - keptOBBs[k].cy;
+            double distSq = dx * dx + dy * dy;
+            double pairDistThresh = std::max(distThresh,
+                distThreshBase * (keptOBBs[k].area / (modelWidth * modelHeight)));
+            if (distSq >= pairDistThresh) continue;
+
+            // Lazy compute OBB corners (only when a close pair is found)
+            if (!cornersComputed) {
+                nms_detail::GetOBBCorners(match.x, match.y, hw1, hh1, match.angle, corners1);
+                cornersComputed = true;
+            }
+
             double minArea = std::min(area1, keptOBBs[k].area);
             if (minArea <= 0.0) continue;
 
@@ -806,8 +831,13 @@ inline std::vector<MatchResult> NonMaxSuppressionOverlap(
         if (!suppress) {
             result.push_back(match);
             CachedOBB obb;
+            if (!cornersComputed) {
+                nms_detail::GetOBBCorners(match.x, match.y, hw1, hh1, match.angle, corners1);
+            }
             for (int i = 0; i < 4; ++i) obb.corners[i] = corners1[i];
             obb.area = area1;
+            obb.cx = match.x;
+            obb.cy = match.y;
             keptOBBs.push_back(obb);
         }
     }

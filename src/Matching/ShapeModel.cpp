@@ -835,11 +835,16 @@ void FindScaledShapeModel(
     params.scaleMin = scaleMin;
     params.scaleMax = scaleMax;
 
-    // Decompiled: scaled path has no overlap-NMS; sub_1800B9C20 does sort+truncate only
+    // Decompiled: scaled path does GreedyNMS (sub_18004C8C0) then sort+truncate (sub_1800B9C20)
+    // FinalizeResults does NOT do overlap-NMS for scaled path (applyNMS=false)
     auto allResults = impl->SearchPyramid(targetPyramid, params, /*applyNMS=*/false);
 
-    // Decompiled sub_1800B9C20: sort by score descending + truncate to numMatches
-    std::sort(allResults.begin(), allResults.end());
+    // Decompiled sub_18004C8C0: GreedyNMS with rotated rectangle overlap
+    // Sort by score → distance prefilter → OBB overlap → suppress if > maxOverlap
+    std::sort(allResults.begin(), allResults.end());  // sort before greedy NMS
+    double modelW = impl->templateSize_.width;
+    double modelH = impl->templateSize_.height;
+    allResults = NonMaxSuppressionOverlap(allResults, maxOverlap, modelW, modelH);
     if (numMatches > 0 && static_cast<int32_t>(allResults.size()) > numMatches) {
         allResults.resize(numMatches);
     }

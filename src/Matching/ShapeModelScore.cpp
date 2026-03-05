@@ -176,35 +176,39 @@ void ShapeModelImpl::RefinePosition(
 
     if (method == SubpixelMethod::Parabolic) {
         // =================================================================
-        // HALCON 'interpolation' style: Parabolic fitting (position only)
-        // 9 Score evaluations for 3x3 grid, then re-evaluate final score
-        // Halcon mode 1 does NOT have independent angle refinement
+        // Mode 2: 2D Parabolic fitting from 3×3 grid (position only)
+        // Decompiled sub_18005B950 uses direction-aware stepping; we use
+        // 2D Hessian peak interpolation which captures the optimal direction
+        // from all 9 grid points (cross-terms handle diagonal displacement).
+        // When Hxy≈0 this reduces to independent-axis fit.
         // =================================================================
 
         constexpr double delta = 0.5;
 
-        // Position refinement: 3x3 sampling grid
-        double scores[3][3];
+        // 3×3 sampling grid
+        double s[3][3];
         for (int32_t dy = -1; dy <= 1; ++dy) {
             for (int32_t dx = -1; dx <= 1; ++dx) {
-                scores[dy + 1][dx + 1] = evalScore(
+                s[dy + 1][dx + 1] = evalScore(
                     match.x + dx * delta, match.y + dy * delta, match.angle);
             }
         }
 
-        // X-direction subpixel (middle row)
-        double denom_x = 2.0 * (scores[1][0] - 2.0 * scores[1][1] + scores[1][2]);
-        if (std::abs(denom_x) > 1e-10) {
-            double dx = delta * (scores[1][0] - scores[1][2]) / denom_x;
-            dx = std::max(-delta, std::min(delta, dx));
-            match.x += dx;
-        }
+        // 2D finite differences (grid units, spacing = 1)
+        double gx  = (s[1][2] - s[1][0]) * 0.5;
+        double gy  = (s[2][1] - s[0][1]) * 0.5;
+        double Hxx = s[1][0] - 2.0 * s[1][1] + s[1][2];
+        double Hyy = s[0][1] - 2.0 * s[1][1] + s[2][1];
+        double Hxy = (s[2][2] - s[0][2] - s[2][0] + s[0][0]) * 0.25;
 
-        // Y-direction subpixel (middle column)
-        double denom_y = 2.0 * (scores[0][1] - 2.0 * scores[1][1] + scores[2][1]);
-        if (std::abs(denom_y) > 1e-10) {
-            double dy = delta * (scores[0][1] - scores[2][1]) / denom_y;
+        double det = Hxx * Hyy - Hxy * Hxy;
+        if (std::abs(det) > 1e-10) {
+            // Newton step d = -H^{-1} * g, then scale to pixel units
+            double dx = delta * (Hxy * gy - Hyy * gx) / det;
+            double dy = delta * (Hxy * gx - Hxx * gy) / det;
+            dx = std::max(-delta, std::min(delta, dx));
             dy = std::max(-delta, std::min(delta, dy));
+            match.x += dx;
             match.y += dy;
         }
 
@@ -234,11 +238,17 @@ void ShapeModelImpl::RefinePosition(
 // =============================================================================
 // ShapeModelImpl::RefineGaussNewton
 //
-// Per-point gradient direction profile + 3x3 linear least squares solve.
-// Matches decompiled Halcon 'least_squares' refinement (sub_180038660):
-//   For each model point, Bresenham-step along gradient normal ±5 pixels,
-//   find best forward/backward scores, fit parabola for sub-pixel displacement,
-//   then solve ICP-style normal equations for (dx, dy, dtheta).
+// Mode 1 (LeastSquares, 1 iter) / Mode 3 (LeastSquaresHigh, 2 iter)
+//
+// Hybrid approach combining Bresenham displacement search with ICP-style solve:
+//   1. Per-point Bresenham-step along image gradient normal ±5 pixels
+//   2. Parabolic fit for sub-pixel displacement along normal
+//   3. Jacobian uses rotated TEMPLATE gradient (decompiled sub_18005BF20)
+//   4. Solve 3×3 normal equations for (dx, dy, dtheta)
+//
+// Note: Decompiled mode 3 (sub_18005BF20) uses analytical residual without
+// Bresenham stepping. Our approach retains Bresenham for robust displacement
+// measurement but aligns Jacobian direction with template gradient.
 // =============================================================================
 
 void ShapeModelImpl::RefineGaussNewton(
@@ -412,9 +422,13 @@ void ShapeModelImpl::RefineGaussNewton(
             double d_raw = -(dfScore * sb * sb - dbScore * sf * sf) / denomFit;
             float d_i = static_cast<float>(std::max(-sb, std::min(sf, d_raw)));
 
-            // 9. Jacobian row: [nx, ny, scale*(-rotY*nx + rotX*ny)]
-            double Jx = static_cast<double>(nx);
-            double Jy = static_cast<double>(ny);
+            // 9. Jacobian row: [mcx, mcy, scale*(-rotY*mcx + rotX*mcy)]
+            //    Decompiled sub_18005BF20: uses rotated template gradient, not image gradient.
+            //    Template gradient is noise-free → more stable Jacobian conditioning.
+            //    Bresenham displacement d_i is still measured along image gradient (nx, ny),
+            //    which is nearly parallel to (mcx, mcy) for good matches.
+            double Jx = static_cast<double>(mcx);
+            double Jy = static_cast<double>(mcy);
             double Jtheta = static_cast<double>(scalef) *
                 (static_cast<double>(-rotY) * Jx + static_cast<double>(rotX) * Jy);
 

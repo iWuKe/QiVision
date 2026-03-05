@@ -1008,7 +1008,7 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearchFloat(
 //   |-----------------|-------------------------|---------------------------|
 //   | Angle iteration | Binary search (3-point) | 5x5 joint grid (24-point) |
 //   | Convergence     | 0.1deg (ANGLE_CONV_RAD) | 0.01deg (ANGLE_CONV_RAD)  |
-//   | Level-0 radius  | No special limit        | Clamped to 4 (9x9 grid)   |
+//   | Level-0 radius  | Clamped to 4 (§3.16)    | Clamped to 4 (9x9 grid)   |
 //   | Polyfit dz      | angleStep               | scaleStep                 |
 //   | Post-iteration  | --                      | Newton angle interpolation|
 //   | Decompiled ref  | sub_18003C7B0           | sub_180040150             |
@@ -1080,6 +1080,12 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevel(
         int32_t tableVal = (level < static_cast<int32_t>(searchRadiusPerLevel_.size()))
             ? searchRadiusPerLevel_[level] : 4;
         searchRadius = std::min(std::max(4, tableVal), MAX_SEARCH_RADIUS);
+    }
+    // Decompiled sub_180047380 (§3.16): Level-0 uses fixed 8×8 response matrix.
+    // Ensure minimum searchRadius=4 (9×9 grid) at refine stop level,
+    // matching RefineAtLevelScaled's behavior and decompiled architecture.
+    if (level == params.startLevel) {
+        searchRadius = std::max(4, searchRadius);
     }
 
     // Get gradient data and model SoA

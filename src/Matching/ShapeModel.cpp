@@ -835,9 +835,8 @@ void FindScaledShapeModel(
     params.scaleMin = scaleMin;
     params.scaleMax = scaleMax;
 
-    // Pipeline-internal NMS eliminates overlapping candidates (overlap-based)
-    // Sub_1800B9C20 (sort+truncate) is the final output step, not a replacement for NMS
-    auto allResults = impl->SearchPyramid(targetPyramid, params);
+    // Decompiled: scaled path has no overlap-NMS; sub_1800B9C20 does sort+truncate only
+    auto allResults = impl->SearchPyramid(targetPyramid, params, /*applyNMS=*/false);
 
     // Decompiled sub_1800B9C20: sort by score descending + truncate to numMatches
     std::sort(allResults.begin(), allResults.end());

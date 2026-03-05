@@ -1062,12 +1062,12 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevel(
     // DIFF #8: level 0 uses subpixel points, others use grid points
     bool useGridPoints = (level > 0);
 
-    // Search radius: use searchRadiusBase halving chain when available (scaled pipeline),
-    // otherwise fall back to model table (non-scaled pipeline)
+    // Search radius: decompiled a10/10 (FindShapeModel) or a12/10 (FindScaledShapeModel)
+    // halving chain when searchRadiusBase > 0, otherwise model table fallback
     static constexpr int32_t MAX_SEARCH_RADIUS = 16;
     int32_t searchRadius;
     if (params.searchRadiusBase > 0) {
-        // Decompiled: searchRadiusBase from top, halve per level
+        // Decompiled halving chain: top=searchRadiusBase, each level halves (min 1)
         int32_t topLevel = startLevel - 1;
         int32_t topBase = std::min(params.searchRadiusBase, 32);
         int32_t scaledRadius = topBase;
@@ -1076,7 +1076,7 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevel(
         }
         searchRadius = std::min(std::max(1, scaledRadius), MAX_SEARCH_RADIUS);
     } else {
-        // Non-scaled default: model table lookup
+        // searchRadiusBase == 0 (string subPixel mode): model table fallback
         int32_t tableVal = (level < static_cast<int32_t>(searchRadiusPerLevel_.size()))
             ? searchRadiusPerLevel_[level] : 4;
         searchRadius = std::min(std::max(4, tableVal), MAX_SEARCH_RADIUS);

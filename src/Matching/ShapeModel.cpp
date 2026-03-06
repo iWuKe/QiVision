@@ -17,7 +17,9 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace Qi::Vision::Matching {
 
@@ -733,6 +735,136 @@ void FindScaledShapeModel(
                          rows, cols, angles, scales, scores);
 }
 
+// =============================================================================
+// SpatialNMSCluster — Decompiled sub_18004B100
+// Spatial NMS + angle/scale distance suppression + clustering
+// Scaled path post-processing (replaces NonMaxSuppressionOverlap)
+// =============================================================================
+namespace {
+
+std::vector<MatchResult> SpatialNMSCluster(
+    const std::vector<MatchResult>& matches,
+    int32_t imageWidth,
+    double maxOverlap,
+    int32_t maxMatchesPerCluster)
+{
+    if (matches.empty()) return {};
+
+    // Decompiled constants (IDA-confirmed values)
+    constexpr double ANGLE_DIST_SCALE = 2.5;   // qword_1800D6B48
+    constexpr double SCALE_DIST_SCALE = 1.1;   // qword_1800D6B10
+    constexpr double RAD2DEG = 180.0 / 3.14159265358979323846;
+
+    const double angleThreshold = maxOverlap * ANGLE_DIST_SCALE;  // degrees
+    const double scaleThreshold = maxOverlap * SCALE_DIST_SCALE;
+
+    // Spatial key: col + row * imageWidth (decompiled uses integer positions)
+    const int64_t W = static_cast<int64_t>(imageWidth);
+    auto toKey = [W](double x, double y) -> int64_t {
+        int32_t col = static_cast<int32_t>(std::round(x));
+        int32_t row = static_cast<int32_t>(std::round(y));
+        return static_cast<int64_t>(col) + static_cast<int64_t>(row) * W;
+    };
+
+    // --- Phase 1: Build spatial hash ---
+    std::unordered_multimap<int64_t, size_t> posMap;
+    std::unordered_map<int64_t, double> bestScoreMap;
+
+    for (size_t i = 0; i < matches.size(); ++i) {
+        int64_t key = toKey(matches[i].x, matches[i].y);
+        posMap.emplace(key, i);
+        auto it = bestScoreMap.find(key);
+        if (it == bestScoreMap.end() || matches[i].score > it->second) {
+            bestScoreMap[key] = matches[i].score;
+        }
+    }
+
+    // 8-neighbor offset table (decompiled v130)
+    const int64_t offsets[9] = { 0, -W, 1-W, 1, W+1, W, W-1, -1, -(W+1) };
+
+    // --- Phase 2: 8-neighbor local maximum suppression ---
+    std::vector<std::pair<int64_t, double>> localMaxima;
+    for (const auto& [key, score] : bestScoreMap) {
+        bool isMax = true;
+        for (int n = 1; n <= 8; ++n) {
+            auto nit = bestScoreMap.find(key + offsets[n]);
+            if (nit != bestScoreMap.end() && nit->second > score) {
+                isMax = false;
+                break;
+            }
+        }
+        if (isMax) {
+            localMaxima.emplace_back(key, score);
+        }
+    }
+
+    // Process highest-scoring local maxima first
+    std::sort(localMaxima.begin(), localMaxima.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+
+    // --- Phase 3 + 4: Per-neighborhood angle/scale suppression + clustering ---
+    std::vector<std::vector<MatchResult>> clusters;
+
+    for (const auto& [maxKey, maxScore] : localMaxima) {
+        // Collect all matches from 9-cell neighborhood
+        std::vector<std::pair<size_t, double>> neighborhood;
+        for (int n = 0; n < 9; ++n) {
+            auto range = posMap.equal_range(maxKey + offsets[n]);
+            for (auto it = range.first; it != range.second; ++it) {
+                neighborhood.emplace_back(it->second, matches[it->second].score);
+            }
+        }
+        if (neighborhood.empty()) continue;
+
+        // Sort by score descending
+        std::sort(neighborhood.begin(), neighborhood.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
+
+        // Sequential angle+scale suppression (greedy NMS within cluster)
+        std::vector<MatchResult> survivors;
+        for (const auto& [idx, score] : neighborhood) {
+            bool suppress = false;
+            for (const auto& kept : survivors) {
+                // Angle difference in degrees, normalized to [-180, 180)
+                double angleDiff = (matches[idx].angle - kept.angle) * RAD2DEG;
+                while (angleDiff < -180.0) angleDiff += 360.0;
+                while (angleDiff >= 180.0) angleDiff -= 360.0;
+                angleDiff = std::abs(angleDiff);
+
+                if (angleThreshold > angleDiff) {
+                    double scaleDiff = std::abs(matches[idx].scaleX - kept.scaleX);
+                    if (scaleThreshold > scaleDiff) {
+                        suppress = true;
+                        break;
+                    }
+                }
+            }
+            if (!suppress) {
+                survivors.push_back(matches[idx]);
+            }
+        }
+
+        if (!survivors.empty()) {
+            clusters.push_back(std::move(survivors));
+        }
+    }
+
+    // --- Phase 5: Output collection (per-cluster truncation) ---
+    std::vector<MatchResult> output;
+    for (auto& cluster : clusters) {
+        int32_t count = static_cast<int32_t>(cluster.size());
+        int32_t take = (maxMatchesPerCluster > 0)
+            ? std::min(maxMatchesPerCluster, count) : count;
+        for (int32_t i = 0; i < take; ++i) {
+            output.push_back(std::move(cluster[i]));
+        }
+    }
+
+    return output;
+}
+
+} // anonymous namespace
+
 // Overload with explicit startLevel (decompiled a13[1])
 void FindScaledShapeModel(
     const QImage& image,
@@ -835,16 +967,16 @@ void FindScaledShapeModel(
     params.scaleMin = scaleMin;
     params.scaleMax = scaleMax;
 
-    // Decompiled: scaled path does GreedyNMS (sub_18004C8C0) then sort+truncate (sub_1800B9C20)
+    // Decompiled: scaled path uses sub_18004B100 (SpatialNMSCluster) then sort+truncate
     // FinalizeResults does NOT do overlap-NMS for scaled path (applyNMS=false)
     auto allResults = impl->SearchPyramid(targetPyramid, params, /*applyNMS=*/false);
 
-    // Decompiled sub_18004C8C0: GreedyNMS with rotated rectangle overlap
-    // Sort by score → distance prefilter → OBB overlap → suppress if > maxOverlap
-    std::sort(allResults.begin(), allResults.end());  // sort before greedy NMS
-    double modelW = impl->templateSize_.width;
-    double modelH = impl->templateSize_.height;
-    allResults = NonMaxSuppressionOverlap(allResults, maxOverlap, modelW, modelH);
+    // Decompiled sub_18004B100: Spatial NMS + angle/scale distance suppression + clustering
+    int32_t imgWidth = image.Width();
+    allResults = SpatialNMSCluster(allResults, imgWidth, maxOverlap, numMatches);
+
+    // Decompiled sub_1800B9C20: global sort + truncate
+    std::sort(allResults.begin(), allResults.end());
     if (numMatches > 0 && static_cast<int32_t>(allResults.size()) > numMatches) {
         allResults.resize(numMatches);
     }

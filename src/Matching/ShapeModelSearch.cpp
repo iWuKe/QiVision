@@ -1034,6 +1034,16 @@ std::vector<MatchResult> ShapeModelImpl::PyramidRefine(
             candidates = RefineAtLevel(targetPyramid, level, startLevel,
                                         std::move(candidates), params);
         }
+
+        // Decompiled sub_18004C8C0: GreedyNMS after each intermediate level (level > refineStopLevel)
+        // Uses OBB overlap to suppress same-position different-angle candidates
+        // Template size must be scaled to current pyramid level
+        if (level > refineStopLevel && params.maxOverlap < 1.0) {
+            double levelScale = targetPyramid.GetScale(level);
+            double levelW = templateSize_.width * levelScale;
+            double levelH = templateSize_.height * levelScale;
+            candidates = NonMaxSuppressionOverlap(candidates, params.maxOverlap, levelW, levelH);
+        }
     }
     return candidates;
 }

@@ -246,9 +246,11 @@ public:
     /// Main entry point: 4-stage pipeline (CoarseSearch → PyramidRefine → SubPixelRefine → FinalizeResults)
     /// @param applyNMS If true (default), FinalizeResults applies NMS.
     ///                 If false, NMS is skipped (caller handles it).
+    /// @param skipSubPixel If true, skip SubPixelRefine (caller handles it separately).
     std::vector<MatchResult> SearchPyramid(const AnglePyramid& targetPyramid,
                                             const SearchParams& params,
-                                            bool applyNMS = true) const;
+                                            bool applyNMS = true,
+                                            bool skipSubPixel = false) const;
 
     /// Stage 1: Coarse search via response map + LUT (primary path)
     std::vector<MatchResult> CoarseSearch(const AnglePyramid& targetPyramid,

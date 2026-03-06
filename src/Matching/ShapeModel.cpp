@@ -745,7 +745,8 @@ namespace {
 std::vector<MatchResult> SpatialNMSCluster(
     const std::vector<MatchResult>& matches,
     int32_t imageWidth,
-    double maxOverlap,
+    double overlapAngle,     // decompiled a5: angle distance threshold factor
+    double overlapScale,     // decompiled a6: scale distance threshold factor
     int32_t maxMatchesPerCluster)
 {
     if (matches.empty()) return {};
@@ -755,8 +756,8 @@ std::vector<MatchResult> SpatialNMSCluster(
     constexpr double SCALE_DIST_SCALE = 1.1;   // qword_1800D6B10
     constexpr double RAD2DEG = 180.0 / 3.14159265358979323846;
 
-    const double angleThreshold = maxOverlap * ANGLE_DIST_SCALE;  // degrees
-    const double scaleThreshold = maxOverlap * SCALE_DIST_SCALE;
+    const double angleThreshold = overlapAngle * ANGLE_DIST_SCALE;  // degrees
+    const double scaleThreshold = overlapScale * SCALE_DIST_SCALE;
 
     // Spatial key: col + row * imageWidth (decompiled uses integer positions)
     const int64_t W = static_cast<int64_t>(imageWidth);
@@ -967,15 +968,26 @@ void FindScaledShapeModel(
     params.scaleMin = scaleMin;
     params.scaleMax = scaleMax;
 
-    // Decompiled: scaled path uses sub_18004B100 (SpatialNMSCluster) then sort+truncate
-    // FinalizeResults does NOT do overlap-NMS for scaled path (applyNMS=false)
-    auto allResults = impl->SearchPyramid(targetPyramid, params, /*applyNMS=*/false);
+    // Decompiled flow order: PyramidRefine → SpatialNMSCluster → SubPixelRefine → sort+truncate
+    // SearchPyramid with skipSubPixel=true: does CoarseSearch + PyramidRefine + FinalizeResults
+    auto allResults = impl->SearchPyramid(targetPyramid, params,
+                                           /*applyNMS=*/false, /*skipSubPixel=*/true);
 
-    // Decompiled sub_18004B100: Spatial NMS + angle/scale distance suppression + clustering
+    // Step 7: Decompiled sub_18004B100 — Spatial NMS + angle/scale distance suppression + clustering
     int32_t imgWidth = image.Width();
-    allResults = SpatialNMSCluster(allResults, imgWidth, maxOverlap, numMatches);
+    // Decompiled sub_18004B100: overlapAngle (a5) and overlapScale (a6) are independent params.
+    // Both derived from user's maxOverlap in the main entry function.
+    allResults = SpatialNMSCluster(allResults, imgWidth,
+                                    maxOverlap, maxOverlap, numMatches);
 
-    // Decompiled sub_1800B9C20: global sort + truncate
+    // Step 8: SubPixelRefine — after NMS to avoid wasting compute on suppressed candidates
+    int32_t spStartLevel = std::min(static_cast<int32_t>(impl->levels_.size()) - 1,
+                                     targetPyramid.NumLevels() - 1);
+    if (params.numLevels > 0) spStartLevel = std::min(spStartLevel, params.numLevels - 1);
+    allResults = impl->SubPixelRefine(targetPyramid, spStartLevel,
+                                       std::move(allResults), params);
+
+    // Step 9: Decompiled sub_1800B9C20 — global sort + truncate
     std::sort(allResults.begin(), allResults.end());
     if (numMatches > 0 && static_cast<int32_t>(allResults.size()) > numMatches) {
         allResults.resize(numMatches);

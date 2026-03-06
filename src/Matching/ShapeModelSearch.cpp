@@ -1328,8 +1328,9 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
     }
     // Decompiled sub_180040150: if (a7 >= 4) v33 = a7; → minimum radius is 4
     int32_t refineStopLevel = params.startLevel;
+    // Clamp to MAX_SEARCH_RADIUS to prevent stack overflow (scoreGrid is stack-allocated)
     int32_t searchRadius = (level == refineStopLevel)
-        ? std::max(4, scaledRadius)
+        ? std::min(std::max(4, scaledRadius), MAX_SEARCH_RADIUS)
         : std::min(std::max(1, scaledRadius), MAX_SEARCH_RADIUS);
 
     // Get gradient data and model SoA
@@ -1781,7 +1782,8 @@ std::vector<MatchResult> ShapeModelImpl::FinalizeResults(
 std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
     const AnglePyramid& targetPyramid,
     const SearchParams& params,
-    bool applyNMS) const
+    bool applyNMS,
+    bool skipSubPixel) const
 {
     if (!valid_ || levels_.empty()) {
         return {};
@@ -1819,7 +1821,11 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
     }
 
     // Stage 3: Subpixel refinement at level 0
-    candidates = SubPixelRefine(targetPyramid, startLevel, std::move(candidates), params);
+    // Scaled path (skipSubPixel=true): decompiled does SpatialNMSCluster before SubPixelRefine,
+    // so the caller handles SubPixelRefine after NMS.
+    if (!skipSubPixel) {
+        candidates = SubPixelRefine(targetPyramid, startLevel, std::move(candidates), params);
+    }
 
     auto t3 = std::chrono::high_resolution_clock::now();
     if (timingParams_.enableTiming) {

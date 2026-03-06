@@ -215,18 +215,22 @@ void ShapeModelImpl::RefinePosition(
         // Re-evaluate final score at refined position (original angle)
         match.score = evalScore(match.x, match.y, match.angle);
     }
-    else if (method == SubpixelMethod::LeastSquares ||
-             method == SubpixelMethod::LeastSquaresHigh ||
+    else if (method == SubpixelMethod::LeastSquares) {
+        // Mode 1 is handled in SubPixelRefine (ShapeModelSearch.cpp) via
+        // BuildScoreGridFindPeak + angle bisection + 27-point polyfit,
+        // matching decompiled sub_18005B7E0 → sub_18003C7B0.
+        // This branch should not be reached; if it is, do nothing.
+    }
+    else if (method == SubpixelMethod::LeastSquaresHigh ||
              method == SubpixelMethod::LeastSquaresVeryHigh) {
         // =================================================================
-        // HALCON 'least_squares' style: Per-point gradient profile +
-        // Gauss-Newton 3x3 linear solve
-        // - LeastSquares: 1 iteration
-        // - LeastSquaresHigh / LeastSquaresVeryHigh: 2 iterations
+        // Mode 3 (decompiled sub_18005BF20): Per-point Bresenham ±5px
+        // displacement + template-gradient Jacobian + 3×3 normal equation
+        // - LeastSquaresHigh: 2 iterations
+        // - LeastSquaresVeryHigh: 2 iterations
         // =================================================================
 
-        int32_t numIter = (method == SubpixelMethod::LeastSquares) ? 1 : 2;
-        RefineGaussNewton(pyramid, match, scale, numIter);
+        RefineGaussNewton(pyramid, match, scale, 2);
 
         // Re-evaluate final score at refined position
         match.score = evalScore(match.x, match.y, match.angle);

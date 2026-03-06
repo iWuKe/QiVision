@@ -1036,8 +1036,11 @@ std::vector<MatchResult> ShapeModelImpl::PyramidRefine(
         }
 
         // Decompiled sub_18004C8C0: GreedyNMS after each intermediate level (level > refineStopLevel)
-        // Uses OBB overlap to suppress same-position different-angle candidates
-        // Template size must be scaled to current pyramid level
+        // [QiVision 偏离] 反编译在 OBB NMS 前有 CheckBounds (sub_1800B5F90):
+        //   4b: OBB 4角点预检 → 4c: 采样特征点逐点检查 → 任一越界则丢弃整个候选者。
+        //   该行为过于粗暴——部分越界的目标被完全丢弃，无法匹配。
+        //   QiVision 选择不实现此检查，依赖 BuildScoreGridFindPeak 的 boundary-safe 路径
+        //   (越界特征点贡献 0 分，score 自然下降，由 minScore 过滤)。
         if (level > refineStopLevel && params.maxOverlap < 1.0) {
             double levelScale = targetPyramid.GetScale(level);
             double levelW = templateSize_.width * levelScale;
@@ -1574,27 +1577,154 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
 
 std::vector<MatchResult> ShapeModelImpl::SubPixelRefine(
     const AnglePyramid& targetPyramid,
+    int32_t startLevel,
     std::vector<MatchResult> candidates,
     const SearchParams& params) const
 {
     const double scale = levels_[0].scale;
     const double invScale = (scale != 1.0) ? (1.0 / scale) : 1.0;
+
     const int32_t numCandidates = static_cast<int32_t>(candidates.size());
 
-    // Decompiled uses PPL parallel_for across candidates.
-    // Each candidate is independent: gradient data is read-only,
-    // RefinePosition uses only stack-local variables.
-    #pragma omp parallel for schedule(dynamic)
-    for (int32_t ci = 0; ci < numCandidates; ++ci) {
-        auto& match = candidates[ci];
-        if (params.subpixelMethod != SubpixelMethod::None) {
-            RefinePosition(targetPyramid, match, params.subpixelMethod, match.scaleX);
-        }
+    if (params.subpixelMethod == SubpixelMethod::LeastSquares) {
+        // =================================================================
+        // Decompiled mode 1 (§8.2): re-run level-0 refinement.
+        // sub_18005B7E0 → sub_18003C7B0 (no-scale), sub_18005B870 → sub_180040150 (scaled).
+        // Core: BuildScoreGridFindPeak (searchRadius=1) + angle bisection + 27-point polyfit.
+        // This provides subpixel precision from the polyfit, not an independent algorithm.
+        // =================================================================
+        constexpr int32_t level = 0;
+        detail::GradientView grad;
+        if (!detail::GetGradientView(targetPyramid, level, grad)) return candidates;
+        // Use subpixel points at level 0
+        auto soa = detail::SelectSoA(levels_[level], false);
+        if (soa.count == 0) return candidates;
 
-        // Scale back from level 0 coordinates to original image coordinates
-        if (scale != 1.0) {
-            match.x *= invScale;
-            match.y *= invScale;
+        const bool ignorePolarity = (params_.metric == MetricMode::IgnoreLocalPolarity ||
+                                     params_.metric == MetricMode::IgnoreColorPolarity);
+        const bool isGlobalPolarity = (params_.metric == MetricMode::IgnoreGlobalPolarity);
+
+        // Compute angle step from level 0 maxRadius
+        double levelRadius = (level < static_cast<int32_t>(levelCreateData_.size()))
+            ? levelCreateData_[level].maxRadius : 0.0;
+        double angleRadius = ComputeHalconAngleStep(levelRadius, 2.0);
+        double angleStep = std::max(0.005, angleRadius / 3.0);
+        constexpr double ANGLE_CONV_RAD = 0.1 * PI / 180.0;
+
+        // searchRadius=1 for subpixel refinement (3×3 grid)
+        constexpr int32_t searchRadius = 1;
+        constexpr int32_t gridSize = 2 * searchRadius + 1;
+        constexpr int32_t gridArea = gridSize * gridSize;
+
+        #pragma omp parallel for schedule(dynamic)
+        for (int32_t ci = 0; ci < numCandidates; ++ci) {
+            auto& match = candidates[ci];
+            int32_t bx = static_cast<int32_t>(std::round(match.x));
+            int32_t by = static_cast<int32_t>(std::round(match.y));
+            const float candidateScale = static_cast<float>(match.scaleX);
+
+            float scoreGrid[gridArea];
+            float scoreGridInv[gridArea];
+
+            // Step 1: Position grid search (3×3)
+            int32_t peakX = bx, peakY = by;
+            BuildScoreGridFindPeak(grad, soa, match.angle, candidateScale,
+                bx, by, searchRadius, ignorePolarity, isGlobalPolarity,
+                scoreGrid, scoreGridInv, peakX, peakY);
+
+            // Step 2: Angle bisection (converge to 0.1°)
+            double curAngle = match.angle;
+            double aStep = angleStep;
+
+            auto scoreAtAngle = [&](double testAngle) -> double {
+                float tCosR = static_cast<float>(std::cos(testAngle));
+                float tSinR = static_cast<float>(std::sin(testAngle));
+                return ComputeScore(targetPyramid, level,
+                    static_cast<double>(peakX), static_cast<double>(peakY),
+                    tCosR, tSinR, static_cast<double>(candidateScale),
+                    0.0, 0.0, nullptr, false);
+            };
+
+            double centerScore = scoreAtAngle(curAngle);
+            while (std::fabs(aStep) >= ANGLE_CONV_RAD) {
+                double sL = scoreAtAngle(curAngle - aStep);
+                double sR = scoreAtAngle(curAngle + aStep);
+                if (sL > centerScore && sL >= sR) {
+                    curAngle -= aStep;
+                    centerScore = sL;
+                } else if (sR > centerScore) {
+                    curAngle += aStep;
+                    centerScore = sR;
+                } else {
+                    aStep *= 0.5;
+                }
+            }
+
+            // Step 3: 27-point polyfit for (dx, dy, dAngle) subpixel
+            double angles[3] = { curAngle - angleStep, curAngle, curAngle + angleStep };
+            double scores27[27];
+            for (int iz = 0; iz < 3; ++iz) {
+                float tCos = static_cast<float>(std::cos(angles[iz]));
+                float tSin = static_cast<float>(std::sin(angles[iz]));
+                for (int iy = 0; iy < 3; ++iy) {
+                    double py = static_cast<double>(peakY + iy - 1);
+                    for (int ix = 0; ix < 3; ++ix) {
+                        double px = static_cast<double>(peakX + ix - 1);
+                        scores27[iz * 9 + iy * 3 + ix] = ComputeScore(
+                            targetPyramid, level, px, py, tCos, tSin,
+                            static_cast<double>(candidateScale), 0.0, 0.0, nullptr, false);
+                    }
+                }
+            }
+
+            double finalX, finalY;
+            auto polyResult = PolyFit27SubPixel(scores27, angleStep);
+            if (polyResult.valid) {
+                finalX = static_cast<double>(peakX) + polyResult.subDx;
+                finalY = static_cast<double>(peakY) + polyResult.subDy;
+                curAngle += polyResult.subDz;
+            } else {
+                double scores9[9];
+                for (int i = 0; i < 9; ++i) scores9[i] = scores27[9 + i];
+                auto eigenResult = EigenPositionRefine(scores9);
+                if (eigenResult.valid) {
+                    finalX = static_cast<double>(peakX) + eigenResult.subDx;
+                    finalY = static_cast<double>(peakY) + eigenResult.subDy;
+                } else {
+                    finalX = static_cast<double>(peakX);
+                    finalY = static_cast<double>(peakY);
+                }
+            }
+
+            // Final score at refined position
+            float cosR_f = static_cast<float>(std::cos(curAngle));
+            float sinR_f = static_cast<float>(std::sin(curAngle));
+            match.score = ComputeScore(targetPyramid, level, finalX, finalY,
+                cosR_f, sinR_f, static_cast<double>(candidateScale),
+                0.0, 0.0, nullptr, false);
+            match.x = finalX;
+            match.y = finalY;
+            match.angle = curAngle;
+            match.refined = true;
+
+            if (scale != 1.0) {
+                match.x *= invScale;
+                match.y *= invScale;
+            }
+        }
+    } else {
+        // Mode 0 (None), Mode 2 (Parabolic), Mode 3 (LeastSquaresHigh/VeryHigh)
+        #pragma omp parallel for schedule(dynamic)
+        for (int32_t ci = 0; ci < numCandidates; ++ci) {
+            auto& match = candidates[ci];
+            if (params.subpixelMethod != SubpixelMethod::None) {
+                RefinePosition(targetPyramid, match, params.subpixelMethod, match.scaleX);
+            }
+
+            if (scale != 1.0) {
+                match.x *= invScale;
+                match.y *= invScale;
+            }
         }
     }
 
@@ -1689,7 +1819,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
     }
 
     // Stage 3: Subpixel refinement at level 0
-    candidates = SubPixelRefine(targetPyramid, std::move(candidates), params);
+    candidates = SubPixelRefine(targetPyramid, startLevel, std::move(candidates), params);
 
     auto t3 = std::chrono::high_resolution_clock::now();
     if (timingParams_.enableTiming) {

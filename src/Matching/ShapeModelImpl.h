@@ -280,6 +280,7 @@ public:
 
     /// Stage 3: Subpixel position/angle refinement at level 0
     std::vector<MatchResult> SubPixelRefine(const AnglePyramid& targetPyramid,
+                                             int32_t startLevel,
                                              std::vector<MatchResult> candidates,
                                              const SearchParams& params) const;
 

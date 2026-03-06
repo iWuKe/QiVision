@@ -981,15 +981,13 @@ void FindScaledShapeModel(
         params.startLevel += 1;
     }
 
-    // Decompiled flow order: PyramidRefine → SpatialNMSCluster → SubPixelRefine → sort+truncate
-    // SearchPyramid with skipSubPixel=true: does CoarseSearch + PyramidRefine + FinalizeResults
+    // Decompiled flow: PyramidRefine → sub_18004B100 (NMS) → SubPixelRefine → sort+truncate
+    // SearchPyramid(skipSubPixel=true) returns raw PyramidRefine output (no FinalizeResults).
     auto allResults = impl->SearchPyramid(targetPyramid, params,
                                            /*applyNMS=*/false, /*skipSubPixel=*/true);
 
-    // Step 7: Decompiled sub_18004B100 — Spatial NMS + angle/scale distance suppression + clustering
+    // Step 7: sub_18004B100 — Spatial NMS + angle/scale distance suppression + clustering
     int32_t imgWidth = image.Width();
-    // Decompiled sub_18004B100: overlapAngle (a5) and overlapScale (a6) are independent params.
-    // Both derived from user's maxOverlap in the main entry function.
     allResults = SpatialNMSCluster(allResults, imgWidth,
                                     maxOverlap, maxOverlap, numMatches);
 
@@ -1000,7 +998,17 @@ void FindScaledShapeModel(
     allResults = impl->SubPixelRefine(targetPyramid, spStartLevel,
                                        std::move(allResults), params);
 
-    // Step 9: Decompiled sub_1800B9C20 — global sort + truncate
+    // Step 9: minScore filter + angle normalization + sort + truncate
+    // (Decompiled: minScore filtering is implicit in PyramidRefine's levelThreshold;
+    //  SubPixelRefine may change scores, so re-filter here)
+    allResults.erase(
+        std::remove_if(allResults.begin(), allResults.end(),
+            [minScore](const MatchResult& m) { return m.score < minScore; }),
+        allResults.end());
+    for (auto& m : allResults) {
+        while (m.angle > PI) m.angle -= 2.0 * PI;
+        while (m.angle < -PI) m.angle += 2.0 * PI;
+    }
     std::sort(allResults.begin(), allResults.end());
     if (numMatches > 0 && static_cast<int32_t>(allResults.size()) > numMatches) {
         allResults.resize(numMatches);

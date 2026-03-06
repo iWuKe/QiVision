@@ -1077,7 +1077,7 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevel(
 
     // Search radius: decompiled a10/10 (FindShapeModel) or a12/10 (FindScaledShapeModel)
     // halving chain when searchRadiusBase > 0, otherwise model table fallback
-    static constexpr int32_t MAX_SEARCH_RADIUS = 16;
+    static constexpr int32_t MAX_SEARCH_RADIUS = 32;  // IDA: a12/10 top clamp = 32
     int32_t searchRadius;
     if (params.searchRadiusBase > 0) {
         // Decompiled halving chain: top=searchRadiusBase, each level halves (min 1)
@@ -1312,7 +1312,7 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
     // Search radius: decompiled a12/10 → searchRadiusBase, halving per level
     // level[top] = searchRadiusBase, level[i] = max(1, level[i+1] / 2)
     // Final level (refineStopLevel) clamped to max 4 (9x9 grid)
-    static constexpr int32_t MAX_SEARCH_RADIUS = 16;
+    static constexpr int32_t MAX_SEARCH_RADIUS = 32;  // IDA: a12/10 top clamp = 32
     int32_t topLevel = startLevel - 1;  // highest level entering refinement
     // Priority: params.searchRadiusBase (decompiled a12/10) > model table fallback
     int32_t topBase;
@@ -1833,6 +1833,24 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
     }
 
     // Stage 4: Final scoring + NMS
+    // Scaled path (skipSubPixel=true): skip FinalizeResults entirely.
+    // Decompiled: PyramidRefine → SpatialNMSCluster → SubPixelRefine → sort+truncate.
+    // FinalizeResults' minScore filter + NMS would be premature before SpatialNMSCluster.
+    // The caller (FindScaledShapeModel) handles minScore filter + sort + truncate after SubPixelRefine.
+    if (skipSubPixel) {
+        auto t4 = std::chrono::high_resolution_clock::now();
+        if (timingParams_.enableTiming) {
+            findTiming_.nmsMs = std::chrono::duration<double, std::milli>(t4 - t3).count();
+        }
+        if (timingParams_.printTiming) {
+            auto ms = [](auto start, auto end) {
+                return std::chrono::duration<double, std::milli>(end - start).count();
+            };
+            fprintf(stderr, "[Timing] Coarse: %.1fms (%zu cands), Refine: %.1fms (%zu→%zu) | Total: %.1fms\n",
+                    ms(t0, t1), coarseCandidates, ms(t1, t2), coarseCandidates, refinedCandidates, ms(t0, t4));
+        }
+        return candidates;
+    }
     auto results = FinalizeResults(targetPyramid, std::move(candidates), params, applyNMS);
 
     auto t4 = std::chrono::high_resolution_clock::now();

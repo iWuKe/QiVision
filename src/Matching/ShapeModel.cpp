@@ -759,11 +759,12 @@ std::vector<MatchResult> SpatialNMSCluster(
     const double angleThreshold = overlapAngle * ANGLE_DIST_SCALE;  // degrees
     const double scaleThreshold = overlapScale * SCALE_DIST_SCALE;
 
-    // Spatial key: col + row * imageWidth (decompiled uses integer positions)
+    // Spatial key: col + row * imageWidth
+    // Decompiled uses integer col/row fields from Match40B struct (truncated, not rounded).
     const int64_t W = static_cast<int64_t>(imageWidth);
     auto toKey = [W](double x, double y) -> int64_t {
-        int32_t col = static_cast<int32_t>(std::round(x));
-        int32_t row = static_cast<int32_t>(std::round(y));
+        int32_t col = static_cast<int32_t>(x);
+        int32_t row = static_cast<int32_t>(y);
         return static_cast<int64_t>(col) + static_cast<int64_t>(row) * W;
     };
 
@@ -807,13 +808,17 @@ std::vector<MatchResult> SpatialNMSCluster(
     std::vector<std::vector<MatchResult>> clusters;
 
     for (const auto& [maxKey, maxScore] : localMaxima) {
-        // Collect all matches from 9-cell neighborhood
+        // Collect all matches from 9-cell neighborhood and consume (erase) entries
+        // Decompiled sub_18004B100: collected matches are removed from the hash to prevent
+        // the same match being processed by a subsequent local maximum's neighborhood.
         std::vector<std::pair<size_t, double>> neighborhood;
         for (int n = 0; n < 9; ++n) {
-            auto range = posMap.equal_range(maxKey + offsets[n]);
+            int64_t nKey = maxKey + offsets[n];
+            auto range = posMap.equal_range(nKey);
             for (auto it = range.first; it != range.second; ++it) {
                 neighborhood.emplace_back(it->second, matches[it->second].score);
             }
+            posMap.erase(nKey);
         }
         if (neighborhood.empty()) continue;
 
@@ -967,6 +972,14 @@ void FindScaledShapeModel(
     params.greediness = greediness;
     params.scaleMin = scaleMin;
     params.scaleMax = scaleMax;
+
+    // Decompiled mode-3 special case: if (v35 == 3 && startLevel <= 0 && numLevels - startLevel > 1)
+    // Bump startLevel by 1 (skip finest level in pyramid refinement, subPixel handles it)
+    if (subpixelMethod == SubpixelMethod::LeastSquaresHigh &&
+        params.startLevel <= 0 &&
+        pyramidParams.numLevels - 1 - params.startLevel > 1) {
+        params.startLevel += 1;
+    }
 
     // Decompiled flow order: PyramidRefine → SpatialNMSCluster → SubPixelRefine → sort+truncate
     // SearchPyramid with skipSubPixel=true: does CoarseSearch + PyramidRefine + FinalizeResults

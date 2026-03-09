@@ -622,11 +622,16 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
     // BUG #1 fix: Halcon angle step formula with safety=1.5
     double coarseAngleStep = ComputeHalconAngleStep(maxRadius, 1.5);
 
-    // Response threshold: score = response / (numPts * 127), so
-    // minResponse = minScore * 0.8 * numPts * 127
+    // Response threshold: score = response / (numPts * 127).
+    // Decompiled sub_1800497F0: uses lenient threshold at coarse level because
+    // the coarse scale grid doesn't include every possible scale (e.g., may skip 1.0).
+    // A candidate at scale=0.9 may score significantly lower than at scale=1.0 due to
+    // low resolution, so the coarse threshold must account for this refinement headroom.
+    // Factor 0.5 ensures candidates survive for scale refinement at level 0.
     const int32_t numGridPts = static_cast<int32_t>(topLevel.gridPoints.size());
     if (numGridPts == 0) return {};
-    const double rawMinResp = params.minScore * 0.8 * numGridPts * 127.0;
+    const double coarseThresholdFactor = (params.scaleMin != params.scaleMax) ? 0.5 : 0.8;
+    const double rawMinResp = params.minScore * coarseThresholdFactor * numGridPts * 127.0;
     const int16_t minResponse = static_cast<int16_t>(std::clamp(rawMinResp, 1.0, 32767.0));
 
     // Search ROI
@@ -791,12 +796,17 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
 
             // 4b. IoU NMS (decompiled sub_1800497F0 calls cv::dnn::NMSBoxes)
             // Box size = template size at current pyramid level x scale
+            // NMS threshold is parameter-driven (decompiled passes maxOverlap from search config).
+            // Note: maxOverlap=0 means "non-overlapping final output" — at coarse level this
+            // would suppress everything, so use a lenient default (0.7) when maxOverlap < 0.5.
             int32_t levelFactor = 1 << startLevel;
             int32_t boxW = std::max(1, static_cast<int32_t>(
                 templateSize_.width * scale / levelFactor));
             int32_t boxH = std::max(1, static_cast<int32_t>(
                 templateSize_.height * scale / levelFactor));
-            resCands = IoUNMSCandidates(resCands, boxW, boxH, 0.5f);
+            float coarseNmsThreshold = static_cast<float>(params.maxOverlap);
+            if (coarseNmsThreshold < 0.5f) coarseNmsThreshold = 0.7f;  // lenient default for coarse
+            resCands = IoUNMSCandidates(resCands, boxW, boxH, coarseNmsThreshold);
 
             // 5. Convert to MatchResult
             for (const auto& rc : resCands) {
@@ -818,9 +828,10 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
         }
     }
 
-    // A-2: Spatial hash NMS + angle distance suppression
-    candidates = CollectCandidatesNMS(std::move(candidates), targetWidth, coarseAngleStep);
-
+    // Decompiled sub_1800497F0: coarse search only does 3x3 NMS + IoU NMS per (scale,angle) pair.
+    // No additional cross-scale/cross-angle suppression between coarse and pyramid refine.
+    // (CollectCandidatesNMS was previously here but is not in the decompiled architecture —
+    //  it aggressively suppresses candidates across scales, causing scaled matches to be lost.)
     return candidates;
 }
 
@@ -844,7 +855,8 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearchFloat(
         ? levelCreateData_[startLevel].maxRadius : 0.0;
 
     double coarseAngleStep = ComputeHalconAngleStep(maxRadius, 1.5);
-    const double candidateThreshold = params.minScore * 0.8;
+    const double ctFactor = (params.scaleMin != params.scaleMax) ? 0.5 : 0.8;
+    const double candidateThreshold = params.minScore * ctFactor;
     constexpr bool useGridPoints = true;
     int32_t stepSize = 1;
 
@@ -1038,10 +1050,8 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearchFloat(
         }
     }
 
-    // Decompiled: no global NMS between coarse search and pyramid refinement.
-    // A-2: Spatial hash NMS + angle distance suppression
-    candidates = CollectCandidatesNMS(std::move(candidates), targetWidth, coarseAngleStep);
-
+    // Decompiled sub_1800497F0: coarse search only does 3x3 NMS + IoU NMS per (scale,angle) pair.
+    // No additional cross-scale/cross-angle suppression between coarse and pyramid refine.
     return candidates;
 }
 
@@ -1088,16 +1098,16 @@ std::vector<MatchResult> ShapeModelImpl::PyramidRefine(
         }
 
         // Decompiled sub_18004C8C0: GreedyNMS after each intermediate level (level > refineStopLevel)
-        // [QiVision 偏离] 反编译在 OBB NMS 前有 CheckBounds (sub_1800B5F90):
-        //   4b: OBB 4角点预检 → 4c: 采样特征点逐点检查 → 任一越界则丢弃整个候选者。
-        //   该行为过于粗暴——部分越界的目标被完全丢弃，无法匹配。
-        //   QiVision 选择不实现此检查，依赖 BuildScoreGridFindPeak 的 boundary-safe 路径
-        //   (越界特征点贡献 0 分，score 自然下降，由 minScore 过滤)。
-        if (level > refineStopLevel && params.maxOverlap < 1.0) {
+        // a11 (maxOverlap) is passed as a5 to sub_18004C8C0 for GreedyNMS threshold.
+        // Note: maxOverlap=0 means "non-overlapping output" — use lenient default at intermediate
+        // levels to avoid suppressing all candidates before they reach final refinement.
+        if (level > refineStopLevel) {
             double levelScale = targetPyramid.GetScale(level);
             double levelW = templateSize_.width * levelScale;
             double levelH = templateSize_.height * levelScale;
-            candidates = NonMaxSuppressionOverlap(candidates, params.maxOverlap, levelW, levelH);
+            double nmsThreshold = params.maxOverlap;
+            if (nmsThreshold < 0.3) nmsThreshold = 0.5;  // lenient default for maxOverlap=0
+            candidates = NonMaxSuppressionOverlap(candidates, nmsThreshold, levelW, levelH);
         }
     }
     return candidates;
@@ -1122,13 +1132,20 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevel(
     double angleRadius = ComputeHalconAngleStep(levelRadius, 2.0);
     double angleStep = std::max(0.005, angleRadius / 3.0);
 
-    double levelThreshold = params.minScore * 0.9;
+    // Decompiled sub_18004C8C0 (intermediate levels): position+angle only, scale passthrough.
+    // When searching with scale range, the candidate carries a coarse scale (possibly 10-20% off).
+    // Scoring at the wrong scale naturally lowers the score, so use lenient threshold at
+    // intermediate levels. The strict minScore check is applied after scale refinement at level 0.
+    const bool hasScale = (params.scaleMin != params.scaleMax);
+    double levelThreshold = hasScale ? (params.minScore * 0.5) : (params.minScore * 0.9);
 
     // DIFF #8: level 0 uses subpixel points, others use grid points
     bool useGridPoints = (level > 0);
 
-    // Search radius: decompiled a10/10 (FindShapeModel) or a12/10 (FindScaledShapeModel)
-    // halving chain when searchRadiusBase > 0, otherwise model table fallback
+    // Search radius: decompiled a12/10 → searchRadiusBase, halving per level
+    // Decompiled: level[top]=searchRadiusBase, level[i]=max(1,level[i+1]/2)
+    // When searchRadiusBase=0 (string subPixel or a12<10): use model table fallback
+    // (model table stores per-level radii computed from feature distribution at creation time)
     static constexpr int32_t MAX_SEARCH_RADIUS = 32;  // IDA: a12/10 top clamp = 32
     int32_t searchRadius;
     if (params.searchRadiusBase > 0) {
@@ -1382,7 +1399,9 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
     double angleRadius = ComputeHalconAngleStep(levelRadius, 2.0);
     double angleStep = std::max(0.005, angleRadius / 3.0);
 
-    double levelThreshold = params.minScore * 0.9;
+    // Scaled path: lenient threshold since candidates carry approximate coarse scale
+    const bool hasScaleRange = (params.scaleMin != params.scaleMax);
+    double levelThreshold = hasScaleRange ? (params.minScore * 0.5) : (params.minScore * 0.9);
 
     // DIFF #8: level 0 uses subpixel points, others use grid points
     bool useGridPoints = (level > 0);
@@ -1494,10 +1513,8 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
                     double testA = curAngle + ai * aStep;
                     for (int si = -2; si <= 2; ++si) {
                         if (ai == 0 && si == 0) continue;  // skip center
-                        double testS = curScale + si * sStep;
-                        if (Qi::Vision::Internal::g_scaleDiag.clampRefineScale) {
-                            testS = std::clamp(testS, params.scaleMin, params.scaleMax);
-                        }
+                        double testS = std::clamp(curScale + si * sStep,
+                                                   params.scaleMin, params.scaleMax);
                         auto [tpx, tpy, traw] = windowSearch(testA, testS, peakX, peakY);
                         if (traw > iterBestRaw) {
                             iterBestRaw = traw;

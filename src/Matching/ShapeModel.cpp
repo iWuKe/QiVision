@@ -92,11 +92,12 @@ SubpixelMethod ParseSubpixel(const std::string& str) {
  *   searchRadiusBase = a12 / 10   (per-level search radius base, clamp to 32)
  *
  * For string-based inputs ("least_squares", "interpolation", etc.),
- * only subpixel mode is extracted; searchRadiusBase defaults to 0.
+ * only subpixel mode is extracted; searchRadiusBase defaults to 0
+ * (matching decompiled a12<10 behavior: halving chain from 0 → intermediate=1, final=4).
  *
  * @param subPixel Input parameter string
  * @param[out] method  Decoded subpixel method
- * @param[out] searchRadiusBase  Decoded search radius base (0 = use model table)
+ * @param[out] searchRadiusBase  Decoded search radius base (0 = halving chain from 0)
  */
 void DecodeA12Param(const std::string& subPixel,
                     SubpixelMethod& method, int32_t& searchRadiusBase) {
@@ -990,6 +991,7 @@ void FindScaledShapeModel(
                                            /*skipSubPixel=*/true);
 
     // Step 7: sub_18004B100 — Spatial NMS + angle/scale distance suppression + clustering
+    // Decompiled: overlapAngle=a11, overlapScale=a11 (Halcon API has single MaxOverlap param)
     int32_t imgWidth = image.Width();
 
     // Switch D: pre-NMS minScore gate

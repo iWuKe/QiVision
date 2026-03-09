@@ -89,7 +89,7 @@ int main()
                      0,                          // angleStep (auto)
                      "auto",                     // optimization
                      "ignore_global_polarity",   // metric
-                     "auto",                     // contrast
+                     "50",                       // contrast
                      10);                        // minContrast
 
     if (!model.IsValid()) {

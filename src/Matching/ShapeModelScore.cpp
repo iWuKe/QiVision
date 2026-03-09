@@ -279,7 +279,7 @@ void ShapeModelImpl::RefinePosition(
         {
             int32_t px = 0, py = 0;
             float err = 0.0f;
-            for (int32_t s = 1; s <= 4; ++s) {
+            for (int32_t s = 1; s <= 5; ++s) {
                 if (mainIsX) px += mainStep; else py += mainStep;
                 err += errorInc;
                 if (err >= 0.5f) {
@@ -301,7 +301,7 @@ void ShapeModelImpl::RefinePosition(
         {
             int32_t px = 0, py = 0;
             float err = 0.0f;
-            for (int32_t s = 1; s <= 4; ++s) {
+            for (int32_t s = 1; s <= 5; ++s) {
                 if (mainIsX) px -= mainStep; else py -= mainStep;
                 err += errorInc;
                 if (err >= 0.5f) {

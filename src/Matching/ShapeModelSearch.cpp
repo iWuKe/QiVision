@@ -680,6 +680,19 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
         }
     }
 
+    // Determine if this is a scaled search path (decompiled sub_18005B460 vs sub_18005B1F0)
+    const bool isScaledPath = (params.scaleMin != params.scaleMax);
+
+    // Get Gx/Gy gradient data for scaled path (float dot-product scoring)
+    const float* gxData = nullptr;
+    const float* gyData = nullptr;
+    int32_t gradWidth = 0, gradHeight = 0, gradStride = 0;
+    bool hasGradData = false;
+    if (isScaledPath) {
+        hasGradData = targetPyramid.GetGradientData(startLevel, gxData, gyData,
+                                                     gradWidth, gradHeight, gradStride);
+    }
+
     std::vector<MatchResult> candidates;
 
     #pragma omp parallel
@@ -696,30 +709,29 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
             float sinR = static_cast<float>(std::sin(angle));
             float sf = static_cast<float>(scale);
 
-            // 1. Rotate+scale model points → ResponsePoint (integer offsets + rotated 16-bin)
-            std::vector<ResponsePoint> rpts(numGridPts);
+            const bool ignorePolarity = (params_.metric == MetricMode::IgnoreLocalPolarity ||
+                                         params_.metric == MetricMode::IgnoreGlobalPolarity ||
+                                         params_.metric == MetricMode::IgnoreColorPolarity);
+
+            // Compute search bounds (shared by both paths)
+            // First, compute rotated+scaled offsets (needed for bounds regardless of path)
+            std::vector<int32_t> offsetsX(numGridPts), offsetsY(numGridPts);
             for (int32_t i = 0; i < numGridPts; ++i) {
                 float sx = topLevel.gridSoaX[i] * sf;
                 float sy = topLevel.gridSoaY[i] * sf;
                 float rx = cosR * sx - sinR * sy;
                 float ry = sinR * sx + cosR * sy;
-                rpts[i].offsetX = static_cast<int32_t>(std::round(rx));
-                rpts[i].offsetY = static_cast<int32_t>(std::round(ry));
-
-                // Rotate model direction and re-quantize to 16 bins
-                float rotCos = topLevel.gridSoaCosAngle[i] * cosR - topLevel.gridSoaSinAngle[i] * sinR;
-                float rotSin = topLevel.gridSoaSinAngle[i] * cosR + topLevel.gridSoaCosAngle[i] * sinR;
-                rpts[i].angleBin16 = Qi::Vision::Internal::GradientToBin16(rotCos, rotSin);
+                offsetsX[i] = static_cast<int32_t>(std::round(rx));
+                offsetsY[i] = static_cast<int32_t>(std::round(ry));
             }
 
-            // 2. Compute search bounds (ensure all model point offsets stay in image)
             int32_t sxMin = 0, sxMax = targetWidth - 1;
             int32_t syMin = 0, syMax = targetHeight - 1;
-            for (const auto& rp : rpts) {
-                sxMin = std::max(sxMin, -rp.offsetX);
-                sxMax = std::min(sxMax, targetWidth - 1 - rp.offsetX);
-                syMin = std::max(syMin, -rp.offsetY);
-                syMax = std::min(syMax, targetHeight - 1 - rp.offsetY);
+            for (int32_t i = 0; i < numGridPts; ++i) {
+                sxMin = std::max(sxMin, -offsetsX[i]);
+                sxMax = std::min(sxMax, targetWidth - 1 - offsetsX[i]);
+                syMin = std::max(syMin, -offsetsY[i]);
+                syMax = std::min(syMax, targetHeight - 1 - offsetsY[i]);
             }
             if (sxMin > sxMax || syMin > syMax) continue;
 
@@ -732,20 +744,53 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
             }
             if (sxMin > sxMax || syMin > syMax) continue;
 
-            // 3. Build response map
-            const bool ignorePolarity = (params_.metric == MetricMode::IgnoreLocalPolarity ||
-                                         params_.metric == MetricMode::IgnoreGlobalPolarity ||
-                                         params_.metric == MetricMode::IgnoreColorPolarity);
-            map.Clear();
-            BuildResponseMap(map, rpts, angleBinData, binW, binH, binStride,
-                             responseMapLUT_, sxMin, sxMax, syMin, syMax, ignorePolarity);
+            if (isScaledPath && hasGradData) {
+                // ============================================================
+                // Scaled path: float dot-product scoring (decompiled sub_18005B460)
+                // Uses cosDir/sinDir float direction + Gx/Gy gradient data
+                // ============================================================
+                std::vector<ResponsePointFloat> rpts(numGridPts);
+                for (int32_t i = 0; i < numGridPts; ++i) {
+                    rpts[i].offsetX = offsetsX[i];
+                    rpts[i].offsetY = offsetsY[i];
+
+                    // Rotate model direction (float, NOT quantized to bins)
+                    float rotCos = topLevel.gridSoaCosAngle[i] * cosR - topLevel.gridSoaSinAngle[i] * sinR;
+                    float rotSin = topLevel.gridSoaSinAngle[i] * cosR + topLevel.gridSoaCosAngle[i] * sinR;
+                    rpts[i].cosDir = rotCos;
+                    rpts[i].sinDir = rotSin;
+                }
+
+                map.Clear();
+                BuildResponseMapFloat(map, rpts, gxData, gyData, gradWidth, gradHeight, gradStride,
+                                       sxMin, sxMax, syMin, syMax, ignorePolarity);
+            } else {
+                // ============================================================
+                // Non-scaled path: LUT quantized scoring (decompiled sub_18005B1F0)
+                // Uses 16-bin angle quantization + cos-based LUT
+                // ============================================================
+                std::vector<ResponsePoint> rpts(numGridPts);
+                for (int32_t i = 0; i < numGridPts; ++i) {
+                    rpts[i].offsetX = offsetsX[i];
+                    rpts[i].offsetY = offsetsY[i];
+
+                    // Rotate model direction and re-quantize to 16 bins
+                    float rotCos = topLevel.gridSoaCosAngle[i] * cosR - topLevel.gridSoaSinAngle[i] * sinR;
+                    float rotSin = topLevel.gridSoaSinAngle[i] * cosR + topLevel.gridSoaCosAngle[i] * sinR;
+                    rpts[i].angleBin16 = Qi::Vision::Internal::GradientToBin16(rotCos, rotSin);
+                }
+
+                map.Clear();
+                BuildResponseMap(map, rpts, angleBinData, binW, binH, binStride,
+                                 responseMapLUT_, sxMin, sxMax, syMin, syMax, ignorePolarity);
+            }
 
             // 4. 3x3 NMS to extract candidates
             auto resCands = ExtractCandidatesNMS3x3(
                 map, sxMin, sxMax, syMin, syMax, minResponse);
 
             // 4b. IoU NMS (decompiled sub_1800497F0 calls cv::dnn::NMSBoxes)
-            // Box size = template size at current pyramid level × scale
+            // Box size = template size at current pyramid level x scale
             int32_t levelFactor = 1 << startLevel;
             int32_t boxW = std::max(1, static_cast<int32_t>(
                 templateSize_.width * scale / levelFactor));

@@ -299,4 +299,122 @@ inline std::vector<ResponseCandidate> IoUNMSCandidates(
     return kept;
 }
 
+// =============================================================================
+// Float-direction model point for scaled response map (decompiled sub_1800B72F0)
+// =============================================================================
+
+struct ResponsePointFloat {
+    int32_t offsetX, offsetY;  ///< Rotated+scaled integer offset from search position
+    float cosDir, sinDir;      ///< Float gradient direction (not quantized to bins)
+};
+
+// =============================================================================
+// Float dot-product response map (decompiled sub_180039480 scaled path)
+// =============================================================================
+
+/**
+ * @brief Accumulate model contributions using float dot-product scoring
+ *
+ * Decompiled scaled worker (sub_18005B460) uses sub_1800B72F0 to generate
+ * float cosDir/sinDir vectors, then scores via:
+ *   dot = cosDir * (Gx/|G|) + sinDir * (Gy/|G|) → cos(angle_diff) in [-1, 1]
+ *   contrib = round(dot * 127) → [-127, 127] (matches LUT output range)
+ *
+ * This provides continuous direction scoring without 16-bin quantization loss,
+ * critical for scaled matching where rotated+scaled model directions don't
+ * align to bin boundaries.
+ *
+ * @param map         Output response map (must be pre-allocated and cleared)
+ * @param modelPoints Rotated+scaled model points with float cosDir/sinDir
+ * @param gxData      Gradient X data (raw Sobel float values)
+ * @param gyData      Gradient Y data (raw Sobel float values)
+ * @param gradWidth   Gradient image width
+ * @param gradHeight  Gradient image height
+ * @param gradStride  Gradient image stride (in float elements)
+ * @param searchXMin/Max/YMin/Max  Search region bounds (inclusive)
+ * @param ignorePolarity  If true, use |dot| (ignore 180-degree ambiguity)
+ */
+inline void BuildResponseMapFloat(
+    ResponseMap& map,
+    const std::vector<ResponsePointFloat>& modelPoints,
+    const float* gxData, const float* gyData,
+    int32_t gradWidth, int32_t gradHeight, int32_t gradStride,
+    int32_t searchXMin, int32_t searchXMax,
+    int32_t searchYMin, int32_t searchYMax,
+    bool ignorePolarity = false)
+{
+    const int32_t searchW = searchXMax - searchXMin + 1;
+    if (searchW <= 0) return;
+
+    // Heap fallback for ultra-wide images
+    std::vector<int8_t> heapBuf;
+    if (searchW > MAX_RESPONSE_MAP_WIDTH) {
+        heapBuf.resize(searchW);
+    }
+
+    for (const auto& pt : modelPoints) {
+        for (int32_t y = searchYMin; y <= searchYMax; ++y) {
+            int32_t imgY = y + pt.offsetY;
+            if (imgY < 0 || imgY >= gradHeight) continue;
+
+            const float* gxRow = gxData + static_cast<size_t>(imgY) * gradStride;
+            const float* gyRow = gyData + static_cast<size_t>(imgY) * gradStride;
+            int16_t* mapRow = map.data.data() + static_cast<size_t>(y) * map.stride;
+
+            // Phase 1: Pre-compute int8 contribution buffer for this row
+            int8_t stackBuf[MAX_RESPONSE_MAP_WIDTH];
+            int8_t* contribBuf = (searchW <= MAX_RESPONSE_MAP_WIDTH) ? stackBuf : heapBuf.data();
+
+            for (int32_t x = searchXMin; x <= searchXMax; ++x) {
+                int32_t imgX = x + pt.offsetX;
+                int32_t xi = x - searchXMin;
+                if (imgX < 0 || imgX >= gradWidth) {
+                    contribBuf[xi] = 0;
+                    continue;
+                }
+
+                float gx = gxRow[imgX];
+                float gy = gyRow[imgX];
+                float mag = std::sqrt(gx * gx + gy * gy);
+                if (mag < 1e-6f) {
+                    contribBuf[xi] = 0;
+                    continue;
+                }
+
+                // Normalize gradient direction: nx, ny are unit vectors
+                float invMag = 1.0f / mag;
+                float nx = gx * invMag;
+                float ny = gy * invMag;
+
+                // dot = cos(angle_diff) in [-1, 1]
+                float dot = pt.cosDir * nx + pt.sinDir * ny;
+                if (ignorePolarity) dot = std::fabs(dot);
+
+                // Scale to [-127, 127] to match LUT output range
+                int32_t contrib = static_cast<int32_t>(std::round(dot * 127.0f));
+                contribBuf[xi] = static_cast<int8_t>(std::clamp(contrib, -127, 127));
+            }
+
+            // Phase 2: SIMD accumulation — vpmovsxbw + vpaddsw (same as LUT path)
+            int16_t* mapPtr = mapRow + searchXMin;
+            int32_t xi = 0;
+
+#if HAVE_AVX2
+            for (; xi + 16 <= searchW; xi += 16) {
+                __m128i vContrib8 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(contribBuf + xi));
+                __m256i vContrib16 = _mm256_cvtepi8_epi16(vContrib8);
+                __m256i vMap = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(mapPtr + xi));
+                vMap = _mm256_adds_epi16(vMap, vContrib16);
+                _mm256_storeu_si256(reinterpret_cast<__m256i*>(mapPtr + xi), vMap);
+            }
+#endif
+            // Scalar tail
+            for (; xi < searchW; ++xi) {
+                int32_t sum = static_cast<int32_t>(mapPtr[xi]) + contribBuf[xi];
+                mapPtr[xi] = static_cast<int16_t>(std::clamp(sum, -32768, 32767));
+            }
+        }
+    }
+}
+
 } // namespace Qi::Vision::Matching::Internal

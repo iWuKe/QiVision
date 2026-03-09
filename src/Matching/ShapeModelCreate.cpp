@@ -931,12 +931,23 @@ void ShapeModelImpl::OptimizeModel(std::vector<LevelModel>& levels) {
         }
     }
 
-    // None = strict alignment path, skip all point reduction
+    const int32_t numLevels = static_cast<int32_t>(levels.size());
+
+    // =========================================================================
+    // Decompiled alignment (sub_1800B72F0):
+    //   step = 1 << (numLevels - level)
+    //   Coarsest level → step=1: ALL points used for coarse search
+    //   Finer levels → step increases: fewer points (applied at SEARCH time)
+    //
+    // QiVision approach: model stores ALL points at all levels.
+    // Stride subsampling is NOT applied during creation (decompiled does it
+    // in GetModelTransformScaled at search time). Instead, we only skip
+    // spatial filtering at the coarsest level to preserve all points there.
+    // =========================================================================
     if (params_.optimization == OptimizationMode::None) {
         return;
     }
 
-    // Point reduction modes (optional, for performance optimization)
     double minSpacing = 1.0;
     switch (params_.optimization) {
         case OptimizationMode::PointReductionLow:
@@ -962,19 +973,25 @@ void ShapeModelImpl::OptimizeModel(std::vector<LevelModel>& levels) {
             }
             break;
         case OptimizationMode::None:
-            return;  // Already handled above, but silence compiler warning
+            return;
     }
 
     if (minSpacing > 0.5) {
-        for (auto& level : levels) {
+        for (int32_t levelIdx = 0; levelIdx < numLevels; ++levelIdx) {
+            auto& level = levels[levelIdx];
             if (level.points.empty()) continue;
 
-            // Check if we have valid contour topology
+            // Skip spatial filtering at coarsest level — keep all points
+            // (decompiled: top level always uses step=1, no additional reduction)
+            if (levelIdx == numLevels - 1) continue;
+
+            // Spatial distance filtering for finer levels
+            double minDistSq = minSpacing * minSpacing;
+
             bool hasValidTopology = !level.contourStarts.empty() &&
                                     level.contourStarts.size() > 1;
 
             if (hasValidTopology) {
-                // Process each contour separately to preserve topology
                 std::vector<ModelPoint> filteredAll;
                 std::vector<int32_t> newContourStarts;
                 std::vector<bool> newContourClosed;
@@ -987,29 +1004,24 @@ void ShapeModelImpl::OptimizeModel(std::vector<LevelModel>& levels) {
                 for (size_t c = 0; c < numContours; ++c) {
                     int32_t startIdx = level.contourStarts[c];
                     int32_t endIdx = level.contourStarts[c + 1];
-
                     if (endIdx <= startIdx) continue;
 
-                    // Filter within this contour, preserving order
-                    // Use distance-based filtering along the contour path
                     std::vector<ModelPoint> filtered;
                     filtered.reserve(endIdx - startIdx);
 
                     double accumulatedDist = 0.0;
-                    filtered.push_back(level.points[startIdx]);  // Always keep first point
+                    filtered.push_back(level.points[startIdx]);
 
                     for (int32_t i = startIdx + 1; i < endIdx; ++i) {
                         double dx = level.points[i].x - level.points[i-1].x;
                         double dy = level.points[i].y - level.points[i-1].y;
                         accumulatedDist += std::sqrt(dx*dx + dy*dy);
-
                         if (accumulatedDist >= minSpacing) {
                             filtered.push_back(level.points[i]);
                             accumulatedDist = 0.0;
                         }
                     }
 
-                    // Always keep last point if contour is open
                     bool isClosed = (c < level.contourClosed.size()) ? level.contourClosed[c] : false;
                     if (filtered.size() >= 2 && !isClosed) {
                         const auto& lastPt = level.points[endIdx - 1];
@@ -1018,26 +1030,20 @@ void ShapeModelImpl::OptimizeModel(std::vector<LevelModel>& levels) {
                         }
                     }
 
-                    // Only keep contour if it has enough points
                     if (filtered.size() >= 2) {
                         newContourStarts.push_back(static_cast<int32_t>(filteredAll.size()));
                         newContourClosed.push_back(isClosed);
-
                         for (auto& pt : filtered) {
                             filteredAll.push_back(std::move(pt));
                         }
                     }
                 }
 
-                // Add sentinel
                 newContourStarts.push_back(static_cast<int32_t>(filteredAll.size()));
-
                 level.points = std::move(filteredAll);
                 level.contourStarts = std::move(newContourStarts);
                 level.contourClosed = std::move(newContourClosed);
             } else {
-                // No topology info - use spatial distance filtering
-                double minDistSq = minSpacing * minSpacing;
                 std::vector<ModelPoint> filtered;
                 filtered.reserve(level.points.size());
 
@@ -1062,13 +1068,11 @@ void ShapeModelImpl::OptimizeModel(std::vector<LevelModel>& levels) {
                 }
 
                 level.points = std::move(filtered);
-                // Clear invalid topology
                 level.contourStarts.clear();
                 level.contourClosed.clear();
             }
         }
     }
-
 }
 
 // =============================================================================

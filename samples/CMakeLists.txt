@@ -18,6 +18,7 @@ add_sample(matching_shape_scaled_match matching/shape_scaled_match.cpp)
 add_sample(matching_ncc_match matching/ncc_match.cpp)
 add_sample(matching_component_model matching/component_model_demo.cpp)
 add_sample(matching_shape_interactive matching/shape_match_interactive.cpp)
+add_sample(matching_shape_scaled_rings matching/shape_scaled_match_rings.cpp)
 add_sample(matching_shape_brightness matching/shape_brightness.cpp)
 
 # Measure - Metrology & Caliper
@@ -54,6 +55,7 @@ set(SAMPLE_TARGETS
     matching_ncc_match
     matching_component_model
     matching_shape_interactive
+    matching_shape_scaled_rings
     matching_shape_brightness
     measure_circle_metrology
     measure_line_metrology

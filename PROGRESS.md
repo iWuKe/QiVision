@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-02-27 (ShapeModel 创建流程重构，对齐反编译)
+> 最后更新: 2026-03-04 (ShapeModel PyramidRefine 调度对齐反编译架构)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -268,6 +268,55 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-03-04 (ShapeModel PyramidRefine 调度对齐反编译架构)
+
+- **src/Matching/ShapeModelSearch.cpp** (策略对齐)
+  - PyramidRefine 调度从 `level==0` 改为 `level==refineStopLevel`（对齐文档 §1 行 118 的 `level==startLevel` 语义）
+  - RefineAtLevel 内 6 处 `params.scaleMin` → `candidate.scaleX/scaleY`（scale passthrough）
+  - RefineAtLevelScaled 搜索半径改为逐层减半策略：`topBase >> (topLevel - level), min=1`，最终层 clamp max=4
+  - 文件头架构图和函数注释更新为 `level > startLevel` / `level == startLevel` 语义
+- **src/Matching/ShapeModel.cpp** (后处理对齐)
+  - FindScaledShapeModel 后处理改为纯 sort+truncate（对齐 sub_1800B9C20 语义），去除 overlap NMS
+  - `params.maxMatches=0` 避免 FinalizeResults 内部提前截断，外层统一 sort+truncate
+  - `params.startLevel=0` / `params.searchRadiusBase=0` 显式赋值（decompiled 默认值）
+  - ParseSubpixel 支持 decompiled 数字模式，委托 `SubpixelModeFromDecompiled()`
+- **include/QiVision/Matching/MatchTypes.h** (结构)
+  - SearchParams 添加 `startLevel`（decompiled a13[1]）和 `searchRadiusBase`（decompiled a12/10）字段
+  - 新增 `SubpixelModeFromDecompiled(int)` / `SubpixelMethodToDecompiled()` 工具函数
+  - SubpixelMethod enum 注释添加 decompiled mode 0/1/2/3 映射表，标注各 mode 验证状态
+- **.claude/docs/FindScaledShapeModel_Decompiled.md** (文档清理)
+  - §7 表修正：路径 B 中间层 `sub_180040150` → `sub_18004C8C0`（对齐 §1 行 123）
+  - §10 对应表：sub_180040150/sub_18004B100/sub_1800B9C20 全部更新为"已对齐"状态
+  - mode 1 worker 标注为"待确认"（消除行 223 与 1711 冲突）
+- **.claude/docs/FindShapeModel_Decompiled.md** (文档清理)
+  - sub_1800B9C20 标题从"NMS 结果注册"改为"结果注册到全局存储"
+
+### 2026-03-04 (ShapeModel 缩放/非缩放分支隔离修正 + 架构清理)
+
+- **src/Matching/ShapeModelSearch.cpp** (核心改动)
+  - 回退 `RefineAtLevel` 中误改：ANGLE_CONV_RAD 0.01°→0.1°，移除 Level-0 searchRadius=4 限制
+  - `RefineAtLevelScaled` 联合迭代改为 5×5 网格（24 eval/轮），对齐反编译 sub_180040150
+  - `RefineAtLevelScaled` 角度插值改为 Newton 差商抛物线形式
+  - 提取 `BuildScoreGridFindPeak` 共享 helper（消除 ~250 行重复 lambda 代码）
+  - 文件头增加架构图（Path A/B 分支 + 共享组件）
+  - PyramidRefine 增加 6 项差异对比表注释
+  - P0 修复：固定缩放(scaleMin==scaleMax!=1.0)分支正确传递 scale 值
+  - P2 修复：8×8 注释更正为 9×9 (searchRadius=4 → gridSize=9)
+- **.claude/docs/FindScaledShapeModel_Decompiled.md** (P1 文档同步)
+  - 分支条件与实现对齐：`scaleMin == scaleMax (含固定缩放)` → Path A
+
+### 2026-03-02 (ShapeModel 缩放匹配路径 B 实现)
+
+- **src/Matching/ShapeModelSearch.cpp** (核心改动)
+  - `PyramidRefine`: 根据 `scaleMin != scaleMax` 分支，有缩放走 `RefineAtLevelScaled`，无缩放走原 `RefineAtLevel`（路径 A 完全不动）
+  - `CoarseSearch`: 支持 scale 网格，响应图方式下 scale 缩放网格点偏移
+  - `CoarseSearchFloat`: 同上，float dot-product 路径也支持 scale 网格
+  - 新增 `RefineAtLevelScaled`: 路径 B 实现，position grid + angle iteration + scale iteration + 3pt 抛物线插值
+  - `SubPixelRefine`: 使用 `match.scaleX` 替代固定 `params.scaleMin`
+- **src/Matching/ShapeModelImpl.h**: 声明 `RefineAtLevelScaled`
+- **src/Matching/ShapeModel.cpp**: `FindScaledShapeModel` 改为单次 `SearchPyramid` 调用，由内部 CoarseSearch + PyramidRefine 处理 scale 网格
+- **tests/test_scale_verify.cpp**: 调整 minScore=0.3, greediness=0.5
 
 ### 2026-02-27 (ShapeModel 创建流程重构，对齐反编译)
 

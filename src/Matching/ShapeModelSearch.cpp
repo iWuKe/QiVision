@@ -39,6 +39,7 @@
 #include "ShapeModelImpl.h"
 #include "ShapeModelScoreCore.h"
 #include "ShapeModelResponseMap.h"
+#include "DiagnosticFlags.h"
 
 #include <QiVision/Internal/Solver.h>
 #include <QiVision/Internal/Eigen.h>
@@ -522,11 +523,13 @@ std::vector<MatchResult> ShapeModelImpl::CollectCandidatesNMS(
     std::vector<std::pair<int64_t, double>> nmsPassedKeys;
     for (const auto& [key, maxScore] : maxScoreMap) {
         bool isLocalMax = true;
-        for (int d = 1; d <= 8; ++d) {
-            auto it = maxScoreMap.find(key + offsets[d]);
-            if (it != maxScoreMap.end() && it->second > maxScore) {
-                isLocalMax = false;
-                break;
+        if (!Qi::Vision::Internal::g_scaleDiag.disableCoarseSpatialNMS) {
+            for (int d = 1; d <= 8; ++d) {
+                auto it = maxScoreMap.find(key + offsets[d]);
+                if (it != maxScoreMap.end() && it->second > maxScore) {
+                    isLocalMax = false;
+                    break;
+                }
             }
         }
         if (isLocalMax) {
@@ -561,25 +564,28 @@ std::vector<MatchResult> ShapeModelImpl::CollectCandidatesNMS(
 
         // Angle distance suppression: remove lower-score candidates
         // whose angle is within angleStep * 2.5 of a higher-score candidate
-        std::vector<MatchResult> filtered;
-        for (size_t j = 0; j < localCands.size(); ++j) {
-            bool suppressed = false;
-            for (size_t k = 0; k < filtered.size(); ++k) {
-                double diff = localCands[j].angle - filtered[k].angle;
-                // Normalize to [-π, π)
-                while (diff > PI) diff -= 2.0 * PI;
-                while (diff < -PI) diff += 2.0 * PI;
-                if (std::fabs(diff) < angleThreshold) {
-                    suppressed = true;
-                    break;
+        if (Qi::Vision::Internal::g_scaleDiag.disableCoarseAngleSuppress) {
+            output.insert(output.end(), localCands.begin(), localCands.end());
+        } else {
+            std::vector<MatchResult> filtered;
+            for (size_t j = 0; j < localCands.size(); ++j) {
+                bool suppressed = false;
+                for (size_t k = 0; k < filtered.size(); ++k) {
+                    double diff = localCands[j].angle - filtered[k].angle;
+                    // Normalize to [-π, π)
+                    while (diff > PI) diff -= 2.0 * PI;
+                    while (diff < -PI) diff += 2.0 * PI;
+                    if (std::fabs(diff) < angleThreshold) {
+                        suppressed = true;
+                        break;
+                    }
+                }
+                if (!suppressed) {
+                    filtered.push_back(localCands[j]);
                 }
             }
-            if (!suppressed) {
-                filtered.push_back(localCands[j]);
-            }
+            output.insert(output.end(), filtered.begin(), filtered.end());
         }
-
-        output.insert(output.end(), filtered.begin(), filtered.end());
     }
 
     // Final sort by score descending
@@ -1413,7 +1419,10 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
                     double testA = curAngle + ai * aStep;
                     for (int si = -2; si <= 2; ++si) {
                         if (ai == 0 && si == 0) continue;  // skip center
-                        double testS = curScale + si * sStep;  // No clamp (decompiled behavior)
+                        double testS = curScale + si * sStep;
+                        if (Qi::Vision::Internal::g_scaleDiag.clampRefineScale) {
+                            testS = std::clamp(testS, params.scaleMin, params.scaleMax);
+                        }
                         auto [tpx, tpy, traw] = windowSearch(testA, testS, peakX, peakY);
                         if (traw > iterBestRaw) {
                             iterBestRaw = traw;
@@ -1590,14 +1599,12 @@ std::vector<MatchResult> ShapeModelImpl::SubPixelRefine(
     if (params.subpixelMethod == SubpixelMethod::LeastSquares) {
         // =================================================================
         // Decompiled mode 1 (§8.2): re-run level-0 refinement.
-        // sub_18005B7E0 → sub_18003C7B0 (no-scale), sub_18005B870 → sub_180040150 (scaled).
-        // Core: BuildScoreGridFindPeak (searchRadius=1) + angle bisection + 27-point polyfit.
-        // This provides subpixel precision from the polyfit, not an independent algorithm.
+        // sub_18005B7E0 → sub_18003C7B0 (no-scale): angle bisection + polyfit(dx,dy,dAngle)
+        // sub_18005B870 → sub_180040150 (scaled): 5×5 joint grid + Newton + polyfit(dx,dy,dScale)
         // =================================================================
         constexpr int32_t level = 0;
         detail::GradientView grad;
         if (!detail::GetGradientView(targetPyramid, level, grad)) return candidates;
-        // Use subpixel points at level 0
         auto soa = detail::SelectSoA(levels_[level], false);
         if (soa.count == 0) return candidates;
 
@@ -1605,112 +1612,290 @@ std::vector<MatchResult> ShapeModelImpl::SubPixelRefine(
                                      params_.metric == MetricMode::IgnoreColorPolarity);
         const bool isGlobalPolarity = (params_.metric == MetricMode::IgnoreGlobalPolarity);
 
-        // Compute angle step from level 0 maxRadius
         double levelRadius = (level < static_cast<int32_t>(levelCreateData_.size()))
             ? levelCreateData_[level].maxRadius : 0.0;
         double angleRadius = ComputeHalconAngleStep(levelRadius, 2.0);
         double angleStep = std::max(0.005, angleRadius / 3.0);
-        constexpr double ANGLE_CONV_RAD = 0.1 * PI / 180.0;
 
-        // searchRadius=1 for subpixel refinement (3×3 grid)
+        const bool hasScale = (params.scaleMin != params.scaleMax) && !::Qi::Vision::Internal::g_scaleDiag.mode1ForceNoScalePath;
+
+        // searchRadius=1 for subpixel refinement (3×3 position grid)
         constexpr int32_t searchRadius = 1;
         constexpr int32_t gridSize = 2 * searchRadius + 1;
         constexpr int32_t gridArea = gridSize * gridSize;
 
-        #pragma omp parallel for schedule(dynamic)
-        for (int32_t ci = 0; ci < numCandidates; ++ci) {
-            auto& match = candidates[ci];
-            int32_t bx = static_cast<int32_t>(std::round(match.x));
-            int32_t by = static_cast<int32_t>(std::round(match.y));
-            const float candidateScale = static_cast<float>(match.scaleX);
+        if (hasScale) {
+            // =============================================================
+            // Scaled path: sub_18005B870 → sub_180040150
+            // 5×5 joint angle+scale grid + Newton angle interpolation
+            // + polyfit(dx, dy, dScale)
+            // =============================================================
+            constexpr double ANGLE_CONV_RAD = 0.01 * PI / 180.0;
+            double initialScaleStep = ComputeScaleStep(levelRadius);
+            initialScaleStep = std::max(initialScaleStep, 0.001);
 
-            float scoreGrid[gridArea];
-            float scoreGridInv[gridArea];
+            #pragma omp parallel for schedule(dynamic)
+            for (int32_t ci = 0; ci < numCandidates; ++ci) {
+                auto& match = candidates[ci];
+                int32_t bx = static_cast<int32_t>(std::round(match.x));
+                int32_t by = static_cast<int32_t>(std::round(match.y));
+                double curScale = match.scaleX;
+                if (curScale <= 0.0) curScale = params.scaleMin;
 
-            // Step 1: Position grid search (3×3)
-            int32_t peakX = bx, peakY = by;
-            BuildScoreGridFindPeak(grad, soa, match.angle, candidateScale,
-                bx, by, searchRadius, ignorePolarity, isGlobalPolarity,
-                scoreGrid, scoreGridInv, peakX, peakY);
+                float scoreGrid[gridArea];
+                float scoreGridInv[gridArea];
 
-            // Step 2: Angle bisection (converge to 0.1°)
-            double curAngle = match.angle;
-            double aStep = angleStep;
+                // Step 1: Position grid search (3×3)
+                int32_t peakX = bx, peakY = by;
+                BuildScoreGridFindPeak(grad, soa, match.angle, static_cast<float>(curScale),
+                    bx, by, searchRadius, ignorePolarity, isGlobalPolarity,
+                    scoreGrid, scoreGridInv, peakX, peakY);
 
-            auto scoreAtAngle = [&](double testAngle) -> double {
-                float tCosR = static_cast<float>(std::cos(testAngle));
-                float tSinR = static_cast<float>(std::sin(testAngle));
-                return ComputeScore(targetPyramid, level,
-                    static_cast<double>(peakX), static_cast<double>(peakY),
-                    tCosR, tSinR, static_cast<double>(candidateScale),
-                    0.0, 0.0, nullptr, false);
-            };
+                // windowSearch helper (same as RefineAtLevelScaled)
+                auto windowSearch = [&](double testAngle, double testScale,
+                                        int32_t cx, int32_t cy) -> std::tuple<int32_t, int32_t, float> {
+                    int32_t px = cx, py = cy;
+                    float rawScore = 0.0f;
+                    BuildScoreGridFindPeak(grad, soa, testAngle, static_cast<float>(testScale),
+                        cx, cy, searchRadius, ignorePolarity, isGlobalPolarity,
+                        scoreGrid, scoreGridInv, px, py, &rawScore);
+                    return {px, py, rawScore};
+                };
 
-            double centerScore = scoreAtAngle(curAngle);
-            while (std::fabs(aStep) >= ANGLE_CONV_RAD) {
-                double sL = scoreAtAngle(curAngle - aStep);
-                double sR = scoreAtAngle(curAngle + aStep);
-                if (sL > centerScore && sL >= sR) {
-                    curAngle -= aStep;
-                    centerScore = sL;
-                } else if (sR > centerScore) {
-                    curAngle += aStep;
-                    centerScore = sR;
-                } else {
-                    aStep *= 0.5;
-                }
-            }
+                // Step 2: 5×5 joint angle+scale grid iteration (sub_180040150 §3.5)
+                double curAngle = match.angle;
+                double aStep = angleStep;
+                double sStep = initialScaleStep;
+                {
+                    auto [wsPx, wsPy, centerRaw] = windowSearch(curAngle, curScale, peakX, peakY);
+                    (void)wsPx; (void)wsPy;
+                    float bestRawScore = centerRaw;
 
-            // Step 3: 27-point polyfit for (dx, dy, dAngle) subpixel
-            double angles[3] = { curAngle - angleStep, curAngle, curAngle + angleStep };
-            double scores27[27];
-            for (int iz = 0; iz < 3; ++iz) {
-                float tCos = static_cast<float>(std::cos(angles[iz]));
-                float tSin = static_cast<float>(std::sin(angles[iz]));
-                for (int iy = 0; iy < 3; ++iy) {
-                    double py = static_cast<double>(peakY + iy - 1);
-                    for (int ix = 0; ix < 3; ++ix) {
-                        double px = static_cast<double>(peakX + ix - 1);
-                        scores27[iz * 9 + iy * 3 + ix] = ComputeScore(
-                            targetPyramid, level, px, py, tCos, tSin,
-                            static_cast<double>(candidateScale), 0.0, 0.0, nullptr, false);
+                    while (std::fabs(aStep) >= ANGLE_CONV_RAD || sStep >= 0.001) {
+                        float iterBestRaw = bestRawScore;
+                        double iterBestAngle = curAngle;
+                        double iterBestScale = curScale;
+                        int32_t iterBestPx = peakX, iterBestPy = peakY;
+                        bool improved = false;
+
+                        for (int ai = -2; ai <= 2; ++ai) {
+                            double testA = curAngle + ai * aStep;
+                            for (int si = -2; si <= 2; ++si) {
+                                if (ai == 0 && si == 0) continue;
+                                double testS = curScale + si * sStep;
+                                auto [tpx, tpy, traw] = windowSearch(testA, testS, peakX, peakY);
+                                if (traw > iterBestRaw) {
+                                    iterBestRaw = traw;
+                                    iterBestAngle = testA;
+                                    iterBestScale = testS;
+                                    iterBestPx = tpx;
+                                    iterBestPy = tpy;
+                                    improved = true;
+                                }
+                            }
+                        }
+
+                        if (improved) {
+                            curAngle = iterBestAngle;
+                            curScale = iterBestScale;
+                            peakX = iterBestPx;
+                            peakY = iterBestPy;
+                            bestRawScore = iterBestRaw;
+                        }
+
+                        aStep *= 0.5;
+                        sStep *= 0.5;
                     }
                 }
-            }
 
-            double finalX, finalY;
-            auto polyResult = PolyFit27SubPixel(scores27, angleStep);
-            if (polyResult.valid) {
-                finalX = static_cast<double>(peakX) + polyResult.subDx;
-                finalY = static_cast<double>(peakY) + polyResult.subDy;
-                curAngle += polyResult.subDz;
-            } else {
-                double scores9[9];
-                for (int i = 0; i < 9; ++i) scores9[i] = scores27[9 + i];
-                auto eigenResult = EigenPositionRefine(scores9);
-                if (eigenResult.valid) {
-                    finalX = static_cast<double>(peakX) + eigenResult.subDx;
-                    finalY = static_cast<double>(peakY) + eigenResult.subDy;
-                } else {
-                    finalX = static_cast<double>(peakX);
-                    finalY = static_cast<double>(peakY);
+                // Step 3: Newton angle interpolation (§3.5 step 4)
+                {
+                    double finalAStep = aStep * 2.0;
+                    auto [lpx, lpy, rawL] = windowSearch(curAngle - finalAStep, curScale, peakX, peakY);
+                    (void)lpx; (void)lpy;
+                    auto [cpx, cpy, rawC] = windowSearch(curAngle, curScale, peakX, peakY);
+                    (void)cpx; (void)cpy;
+                    auto [rpx, rpy, rawR] = windowSearch(curAngle + finalAStep, curScale, peakX, peakY);
+                    (void)rpx; (void)rpy;
+
+                    double sL = static_cast<double>(rawL);
+                    double sC = static_cast<double>(rawC);
+                    double sR = static_cast<double>(rawR);
+                    double x0 = curAngle - finalAStep;
+                    double x1 = curAngle;
+                    double x2 = curAngle + finalAStep;
+                    double d1 = (sR - sC) / (x2 - x1);
+                    double d2 = (sC - sL) / (x1 - x0);
+                    double dd = (d1 - d2) / (x2 - x0);
+                    if (std::fabs(dd) > 1e-10) {
+                        double peak = 0.5 * (x0 + x1) - d2 / dd;
+                        if (std::fabs(peak - curAngle) <= finalAStep) {
+                            curAngle = peak;
+                        }
+                    }
+                }
+
+                // Step 4: 27-point polyfit for (dx, dy, dScale) subpixel
+                double finalX, finalY;
+                {
+                    double scales[3] = {
+                        curScale - initialScaleStep,
+                        curScale,
+                        curScale + initialScaleStep
+                    };
+                    double scores27[27];
+                    float tCos = static_cast<float>(std::cos(curAngle));
+                    float tSin = static_cast<float>(std::sin(curAngle));
+                    for (int iz = 0; iz < 3; ++iz) {
+                        for (int iy = 0; iy < 3; ++iy) {
+                            double py = static_cast<double>(peakY + iy - 1);
+                            for (int ix = 0; ix < 3; ++ix) {
+                                double px = static_cast<double>(peakX + ix - 1);
+                                scores27[iz * 9 + iy * 3 + ix] = ComputeScore(
+                                    targetPyramid, level, px, py, tCos, tSin,
+                                    scales[iz], 0.0, 0.0, nullptr, false);
+                            }
+                        }
+                    }
+
+                    auto polyResult = PolyFit27SubPixel(scores27, initialScaleStep);
+                    if (polyResult.valid) {
+                        finalX = static_cast<double>(peakX) + polyResult.subDx;
+                        finalY = static_cast<double>(peakY) + polyResult.subDy;
+                        curScale += polyResult.subDz;
+                    } else {
+                        double scores9[9];
+                        for (int i = 0; i < 9; ++i) scores9[i] = scores27[9 + i];
+                        auto eigenResult = EigenPositionRefine(scores9);
+                        if (eigenResult.valid) {
+                            finalX = static_cast<double>(peakX) + eigenResult.subDx;
+                            finalY = static_cast<double>(peakY) + eigenResult.subDy;
+                        } else {
+                            finalX = static_cast<double>(peakX);
+                            finalY = static_cast<double>(peakY);
+                        }
+                    }
+                }
+
+                // Final score at refined position
+                float cosR_f = static_cast<float>(std::cos(curAngle));
+                float sinR_f = static_cast<float>(std::sin(curAngle));
+                match.score = ComputeScore(targetPyramid, level, finalX, finalY,
+                    cosR_f, sinR_f, curScale, 0.0, 0.0, nullptr, false);
+                match.x = finalX;
+                match.y = finalY;
+                match.angle = curAngle;
+                match.scaleX = std::clamp(curScale, params.scaleMin, params.scaleMax);
+                match.scaleY = match.scaleX;
+                match.refined = true;
+
+                if (scale != 1.0) {
+                    match.x *= invScale;
+                    match.y *= invScale;
                 }
             }
+        } else {
+            // =============================================================
+            // No-scale path: sub_18005B7E0 → sub_18003C7B0
+            // Angle bisection (0.1° convergence) + polyfit(dx, dy, dAngle)
+            // =============================================================
+            constexpr double ANGLE_CONV_RAD = 0.1 * PI / 180.0;
 
-            // Final score at refined position
-            float cosR_f = static_cast<float>(std::cos(curAngle));
-            float sinR_f = static_cast<float>(std::sin(curAngle));
-            match.score = ComputeScore(targetPyramid, level, finalX, finalY,
-                cosR_f, sinR_f, static_cast<double>(candidateScale),
-                0.0, 0.0, nullptr, false);
-            match.x = finalX;
-            match.y = finalY;
-            match.angle = curAngle;
-            match.refined = true;
+            #pragma omp parallel for schedule(dynamic)
+            for (int32_t ci = 0; ci < numCandidates; ++ci) {
+                auto& match = candidates[ci];
+                int32_t bx = static_cast<int32_t>(std::round(match.x));
+                int32_t by = static_cast<int32_t>(std::round(match.y));
+                const float candidateScale = static_cast<float>(match.scaleX);
 
-            if (scale != 1.0) {
-                match.x *= invScale;
-                match.y *= invScale;
+                float scoreGrid[gridArea];
+                float scoreGridInv[gridArea];
+
+                // Step 1: Position grid search (3×3)
+                int32_t peakX = bx, peakY = by;
+                BuildScoreGridFindPeak(grad, soa, match.angle, candidateScale,
+                    bx, by, searchRadius, ignorePolarity, isGlobalPolarity,
+                    scoreGrid, scoreGridInv, peakX, peakY);
+
+                // Step 2: Angle bisection (converge to 0.1°)
+                double curAngle = match.angle;
+                double aStep = angleStep;
+
+                auto scoreAtAngle = [&](double testAngle) -> double {
+                    float tCosR = static_cast<float>(std::cos(testAngle));
+                    float tSinR = static_cast<float>(std::sin(testAngle));
+                    return ComputeScore(targetPyramid, level,
+                        static_cast<double>(peakX), static_cast<double>(peakY),
+                        tCosR, tSinR, static_cast<double>(candidateScale),
+                        0.0, 0.0, nullptr, false);
+                };
+
+                double centerScore = scoreAtAngle(curAngle);
+                while (std::fabs(aStep) >= ANGLE_CONV_RAD) {
+                    double sL = scoreAtAngle(curAngle - aStep);
+                    double sR = scoreAtAngle(curAngle + aStep);
+                    if (sL > centerScore && sL >= sR) {
+                        curAngle -= aStep;
+                        centerScore = sL;
+                    } else if (sR > centerScore) {
+                        curAngle += aStep;
+                        centerScore = sR;
+                    } else {
+                        aStep *= 0.5;
+                    }
+                }
+
+                // Step 3: 27-point polyfit for (dx, dy, dAngle) subpixel
+                double angles[3] = { curAngle - angleStep, curAngle, curAngle + angleStep };
+                double scores27[27];
+                for (int iz = 0; iz < 3; ++iz) {
+                    float tCos = static_cast<float>(std::cos(angles[iz]));
+                    float tSin = static_cast<float>(std::sin(angles[iz]));
+                    for (int iy = 0; iy < 3; ++iy) {
+                        double py = static_cast<double>(peakY + iy - 1);
+                        for (int ix = 0; ix < 3; ++ix) {
+                            double px = static_cast<double>(peakX + ix - 1);
+                            scores27[iz * 9 + iy * 3 + ix] = ComputeScore(
+                                targetPyramid, level, px, py, tCos, tSin,
+                                static_cast<double>(candidateScale), 0.0, 0.0, nullptr, false);
+                        }
+                    }
+                }
+
+                double finalX, finalY;
+                auto polyResult = PolyFit27SubPixel(scores27, angleStep);
+                if (polyResult.valid) {
+                    finalX = static_cast<double>(peakX) + polyResult.subDx;
+                    finalY = static_cast<double>(peakY) + polyResult.subDy;
+                    curAngle += polyResult.subDz;
+                } else {
+                    double scores9[9];
+                    for (int i = 0; i < 9; ++i) scores9[i] = scores27[9 + i];
+                    auto eigenResult = EigenPositionRefine(scores9);
+                    if (eigenResult.valid) {
+                        finalX = static_cast<double>(peakX) + eigenResult.subDx;
+                        finalY = static_cast<double>(peakY) + eigenResult.subDy;
+                    } else {
+                        finalX = static_cast<double>(peakX);
+                        finalY = static_cast<double>(peakY);
+                    }
+                }
+
+                // Final score at refined position
+                float cosR_f = static_cast<float>(std::cos(curAngle));
+                float sinR_f = static_cast<float>(std::sin(curAngle));
+                match.score = ComputeScore(targetPyramid, level, finalX, finalY,
+                    cosR_f, sinR_f, static_cast<double>(candidateScale),
+                    0.0, 0.0, nullptr, false);
+                match.x = finalX;
+                match.y = finalY;
+                match.angle = curAngle;
+                match.refined = true;
+
+                if (scale != 1.0) {
+                    match.x *= invScale;
+                    match.y *= invScale;
+                }
             }
         }
     } else {
@@ -1739,8 +1924,7 @@ std::vector<MatchResult> ShapeModelImpl::SubPixelRefine(
 std::vector<MatchResult> ShapeModelImpl::FinalizeResults(
     const AnglePyramid& targetPyramid,
     std::vector<MatchResult> candidates,
-    const SearchParams& params,
-    bool applyNMS) const
+    const SearchParams& params) const
 {
     std::vector<MatchResult> results;
     results.reserve(candidates.size());
@@ -1761,11 +1945,9 @@ std::vector<MatchResult> ShapeModelImpl::FinalizeResults(
     // Sort by score (descending)
     std::sort(results.begin(), results.end());
 
-    // Non-maximum suppression (overlap-based, Halcon-compatible)
-    if (applyNMS && params.maxOverlap < 1.0) {
-        results = NonMaxSuppressionOverlap(results, params.maxOverlap,
-                                            templateSize_.width, templateSize_.height);
-    }
+    // Decompiled: final stage is sort+truncate only (sub_1800B9C20).
+    // Overlap NMS was already applied at intermediate pyramid levels (sub_18004C8C0).
+    // No additional overlap NMS here.
 
     // Limit results
     if (params.maxMatches > 0 && static_cast<int32_t>(results.size()) > params.maxMatches) {
@@ -1782,7 +1964,6 @@ std::vector<MatchResult> ShapeModelImpl::FinalizeResults(
 std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
     const AnglePyramid& targetPyramid,
     const SearchParams& params,
-    bool applyNMS,
     bool skipSubPixel) const
 {
     if (!valid_ || levels_.empty()) {
@@ -1851,7 +2032,7 @@ std::vector<MatchResult> ShapeModelImpl::SearchPyramid(
         }
         return candidates;
     }
-    auto results = FinalizeResults(targetPyramid, std::move(candidates), params, applyNMS);
+    auto results = FinalizeResults(targetPyramid, std::move(candidates), params);
 
     auto t4 = std::chrono::high_resolution_clock::now();
     if (timingParams_.enableTiming) {

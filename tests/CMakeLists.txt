@@ -36,6 +36,10 @@ add_executable(test_caliper_param_scan
     test_caliper_param_scan.cpp
 )
 
+add_executable(test_scale_diag
+    test_scale_diag.cpp
+)
+
 target_link_libraries(unit_test PRIVATE QiVision)
 target_link_libraries(test_scale_simple PRIVATE QiVision)
 target_link_libraries(test_ncc_serialization PRIVATE QiVision)
@@ -45,6 +49,7 @@ target_link_libraries(test_component_model PRIVATE QiVision)
 target_link_libraries(test_caliper PRIVATE QiVision)
 target_link_libraries(test_caliper_regression PRIVATE QiVision)
 target_link_libraries(test_caliper_param_scan PRIVATE QiVision)
+target_link_libraries(test_scale_diag PRIVATE QiVision)
 
 target_include_directories(unit_test PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(test_scale_simple PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -55,3 +60,4 @@ target_include_directories(test_component_model PRIVATE ${CMAKE_SOURCE_DIR}/incl
 target_include_directories(test_caliper PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(test_caliper_regression PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(test_caliper_param_scan PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(test_scale_diag PRIVATE ${CMAKE_SOURCE_DIR}/include)

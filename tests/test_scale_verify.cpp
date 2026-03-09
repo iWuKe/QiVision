@@ -46,7 +46,7 @@ int main() {
 
     CreateScaledShapeModel(
         templateSmooth, roiRegion, model,
-        4,                      // numLevels
+        3,                      // numLevels (reduced from 4)
         0, RAD(360), RAD(5),    // angle
         0.5, 1.5, 0.1,          // scale range [0.5, 1.5], step=0.1
         "point_reduction_high",
@@ -61,7 +61,7 @@ int main() {
     std::printf("\nModel created successfully.\n\n");
 
     // Test different scales
-    double testScales[] = {0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3};
+    double testScales[] = {0.8, 1.0};
 
     for (double targetScale : testScales) {
         std::printf("--- Testing target scale = %.2f ---\n", targetScale);
@@ -103,8 +103,8 @@ int main() {
             searchImg, model,
             0, RAD(360),        // angle range
             0.5, 1.5,           // scale range
-            0.5, 1, 0.5,        // minScore, numMatches, maxOverlap
-            "least_squares", 0, 0.8,
+            0.3, 1, 0.5,        // minScore, numMatches, maxOverlap
+            "least_squares", 0, 0.5,
             rows, cols, angles, scales, scores
         );
 

@@ -244,12 +244,9 @@ public:
     // ==========================================================================
 
     /// Main entry point: 4-stage pipeline (CoarseSearch → PyramidRefine → SubPixelRefine → FinalizeResults)
-    /// @param applyNMS If true (default), FinalizeResults applies NMS.
-    ///                 If false, NMS is skipped (caller handles it).
     /// @param skipSubPixel If true, skip SubPixelRefine (caller handles it separately).
     std::vector<MatchResult> SearchPyramid(const AnglePyramid& targetPyramid,
                                             const SearchParams& params,
-                                            bool applyNMS = true,
                                             bool skipSubPixel = false) const;
 
     /// Stage 1: Coarse search via response map + LUT (primary path)
@@ -286,13 +283,10 @@ public:
                                              std::vector<MatchResult> candidates,
                                              const SearchParams& params) const;
 
-    /// Stage 4: Final precise scoring + NMS + maxMatches
-    /// @param applyNMS If true, apply NonMaxSuppressionOverlap (FindShapeModel path).
-    ///                 If false, skip NMS (FindScaledShapeModel path — NMS done at caller).
+    /// Stage 4: Final scoring + sort + truncate (decompiled sub_1800B9C20)
     std::vector<MatchResult> FinalizeResults(const AnglePyramid& targetPyramid,
                                               std::vector<MatchResult> candidates,
-                                              const SearchParams& params,
-                                              bool applyNMS = true) const;
+                                              const SearchParams& params) const;
 
     /// Halcon-style angle step: min(11.25°, acos(1 - safety²/(2*R²)))
     static double ComputeHalconAngleStep(double maxRadius, double safety);

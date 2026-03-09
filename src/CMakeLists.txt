@@ -67,6 +67,7 @@ set(QIVISION_SOURCES
     Internal/PolarTransform.cpp
     Internal/CornerRefine.cpp
     # Matching (Feature Layer)
+    Matching/DiagnosticFlags.cpp
     Matching/ShapeModel.cpp
     Matching/ShapeModelCreate.cpp
     Matching/ShapeModelSearch.cpp

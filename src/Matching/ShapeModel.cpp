@@ -7,6 +7,7 @@
  */
 
 #include "ShapeModelImpl.h"
+#include "DiagnosticFlags.h"
 #include <QiVision/Core/Exception.h>
 #include <QiVision/Core/Validate.h>
 #include <QiVision/Core/QContourArray.h>
@@ -837,11 +838,13 @@ std::vector<MatchResult> SpatialNMSCluster(
                 while (angleDiff >= 180.0) angleDiff -= 360.0;
                 angleDiff = std::abs(angleDiff);
 
-                if (angleThreshold > angleDiff) {
-                    double scaleDiff = std::abs(matches[idx].scaleX - kept.scaleX);
-                    if (scaleThreshold > scaleDiff) {
-                        suppress = true;
-                        break;
+                if (!::Qi::Vision::Internal::g_scaleDiag.disableAngleScaleSuppress) {
+                    if (angleThreshold > angleDiff) {
+                        double scaleDiff = std::abs(matches[idx].scaleX - kept.scaleX);
+                        if (scaleThreshold > scaleDiff) {
+                            suppress = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -984,12 +987,24 @@ void FindScaledShapeModel(
     // Decompiled flow: PyramidRefine → sub_18004B100 (NMS) → SubPixelRefine → sort+truncate
     // SearchPyramid(skipSubPixel=true) returns raw PyramidRefine output (no FinalizeResults).
     auto allResults = impl->SearchPyramid(targetPyramid, params,
-                                           /*applyNMS=*/false, /*skipSubPixel=*/true);
+                                           /*skipSubPixel=*/true);
 
     // Step 7: sub_18004B100 — Spatial NMS + angle/scale distance suppression + clustering
     int32_t imgWidth = image.Width();
-    allResults = SpatialNMSCluster(allResults, imgWidth,
-                                    maxOverlap, maxOverlap, numMatches);
+
+    // Switch D: pre-NMS minScore gate
+    if (Qi::Vision::Internal::g_scaleDiag.preNmsMinScoreGate) {
+        allResults.erase(
+            std::remove_if(allResults.begin(), allResults.end(),
+                            [&](const MatchResult& m) { return m.score < params.minScore; }),
+            allResults.end());
+    }
+
+    // Switch A: bypass SpatialNMSCluster
+    if (!Qi::Vision::Internal::g_scaleDiag.bypassS7Cluster) {
+        allResults = SpatialNMSCluster(allResults, imgWidth,
+                                        maxOverlap, maxOverlap, numMatches);
+    }
 
     // Step 8: SubPixelRefine — after NMS to avoid wasting compute on suppressed candidates
     int32_t spStartLevel = std::min(static_cast<int32_t>(impl->levels_.size()) - 1,

@@ -176,43 +176,169 @@ void ShapeModelImpl::RefinePosition(
 
     if (method == SubpixelMethod::Parabolic) {
         // =================================================================
-        // Mode 2: 2D Parabolic fitting from 3×3 grid (position only)
-        // Decompiled sub_18005B950 uses direction-aware stepping; we use
-        // 2D Hessian peak interpolation which captures the optimal direction
-        // from all 9 grid points (cross-terms handle diagonal displacement).
-        // When Hxy≈0 this reduces to independent-axis fit.
+        // Mode 2 (sub_18005B950): Bresenham ±4 steps along gradient direction
+        //
+        // Decompiled algorithm:
+        //   1. Get gradient direction at match center
+        //   2. Bresenham step forward 4 steps — keep LAST valid step
+        //      (valid = gradient magnitude > minContrast threshold)
+        //   3. Bresenham step backward 4 steps — same logic
+        //   4. Compute dot(match_dir, gradient) score for both directions
+        //   5. Pick higher score direction, update match position
+        //      (no comparison against center — always pick a direction)
+        //   6. Re-evaluate final score with full template match
         // =================================================================
 
-        constexpr double delta = 0.5;
+        detail::GradientView grad;
+        if (!detail::GetGradientView(pyramid, level, grad)) {
+            match.refined = true;
+            return;
+        }
 
-        // 3×3 sampling grid
-        double s[3][3];
-        for (int32_t dy = -1; dy <= 1; ++dy) {
-            for (int32_t dx = -1; dx <= 1; ++dx) {
-                s[dy + 1][dx + 1] = evalScore(
-                    match.x + dx * delta, match.y + dy * delta, match.angle);
+        const int32_t maxIx = grad.width - 2;
+        const int32_t maxIy = grad.height - 2;
+        float minMagSq = detail::ComputeMinMagSq(params_.minContrast, pyramid.GetScale(level));
+
+        // Bilinear interpolation of gradient at match center
+        float imgX = static_cast<float>(match.x);
+        float imgY = static_cast<float>(match.y);
+        int32_t ix = static_cast<int32_t>(imgX);
+        int32_t iy = static_cast<int32_t>(imgY);
+        if (imgX < 0) ix--;
+        if (imgY < 0) iy--;
+
+        if (ix < 0 || ix > maxIx || iy < 0 || iy > maxIy) {
+            match.refined = true;
+            return;
+        }
+
+        float fx = imgX - ix;
+        float fy = imgY - iy;
+        float w00 = (1.0f - fx) * (1.0f - fy);
+        float w10 = fx * (1.0f - fy);
+        float w01 = (1.0f - fx) * fy;
+        float w11 = fx * fy;
+
+        int32_t idx0 = iy * grad.stride + ix;
+        float gx0 = w00 * grad.gxData[idx0] + w10 * grad.gxData[idx0 + 1] +
+                     w01 * grad.gxData[idx0 + grad.stride] + w11 * grad.gxData[idx0 + grad.stride + 1];
+        float gy0 = w00 * grad.gyData[idx0] + w10 * grad.gyData[idx0 + 1] +
+                     w01 * grad.gyData[idx0 + grad.stride] + w11 * grad.gyData[idx0 + grad.stride + 1];
+
+        float magSq = gx0 * gx0 + gy0 * gy0;
+        if (magSq < minMagSq) {
+            match.refined = true;
+            return;
+        }
+
+        // Gradient direction (unit vector) for Bresenham stepping
+        float invMag = 1.0f / std::sqrt(magSq);
+        float nx = gx0 * invMag;
+        float ny = gy0 * invMag;
+
+        // Bresenham setup (same as RefineGaussNewton §7.6.2)
+        bool mainIsX = std::fabs(nx) >= std::fabs(ny);
+        int32_t mainStep, crossStep;
+        float errorInc;
+        if (mainIsX) {
+            mainStep = (nx >= 0.0f) ? 1 : -1;
+            crossStep = (ny >= 0.0f) ? 1 : -1;
+            errorInc = (std::fabs(nx) > 1e-10f) ? std::fabs(ny / nx) : 0.0f;
+        } else {
+            mainStep = (ny >= 0.0f) ? 1 : -1;
+            crossStep = (nx >= 0.0f) ? 1 : -1;
+            errorInc = (std::fabs(ny) > 1e-10f) ? std::fabs(nx / ny) : 0.0f;
+        }
+
+        // Helper: evaluate gradient at stepped position, check magnitude threshold
+        // Returns true if valid (above threshold), writes gradient components
+        auto evalStepGrad = [&](int32_t px, int32_t py,
+                                 float& outGx, float& outGy) -> bool {
+            float spx = imgX + px, spy = imgY + py;
+            int32_t six = static_cast<int32_t>(spx);
+            int32_t siy = static_cast<int32_t>(spy);
+            if (spx < 0) six--;
+            if (spy < 0) siy--;
+            if (six < 0 || six > maxIx || siy < 0 || siy > maxIy) return false;
+            float sfx = spx - six, sfy = spy - siy;
+            int32_t sidx = siy * grad.stride + six;
+            float sw00 = (1.0f-sfx)*(1.0f-sfy), sw10 = sfx*(1.0f-sfy);
+            float sw01 = (1.0f-sfx)*sfy, sw11 = sfx*sfy;
+            outGx = sw00*grad.gxData[sidx] + sw10*grad.gxData[sidx+1] +
+                     sw01*grad.gxData[sidx+grad.stride] + sw11*grad.gxData[sidx+grad.stride+1];
+            outGy = sw00*grad.gyData[sidx] + sw10*grad.gyData[sidx+1] +
+                     sw01*grad.gyData[sidx+grad.stride] + sw11*grad.gyData[sidx+grad.stride+1];
+            // Decompiled sub_180038EA0: threshold check on gradient magnitude
+            return (outGx * outGx + outGy * outGy) >= minMagSq;
+        };
+
+        // Forward scan: take LAST valid step (decompiled overwrites result each iteration)
+        int32_t lastFwdPx = 0, lastFwdPy = 0;
+        float lastFwdGx = 0, lastFwdGy = 0;
+        bool fwdValid = false;
+        {
+            int32_t px = 0, py = 0;
+            float err = 0.0f;
+            for (int32_t s = 1; s <= 4; ++s) {
+                if (mainIsX) px += mainStep; else py += mainStep;
+                err += errorInc;
+                if (err >= 0.5f) {
+                    err -= 1.0f;
+                    if (mainIsX) py += crossStep; else px += crossStep;
+                }
+                float sgx, sgy;
+                if (!evalStepGrad(px, py, sgx, sgy)) break;
+                lastFwdPx = px; lastFwdPy = py;
+                lastFwdGx = sgx; lastFwdGy = sgy;
+                fwdValid = true;
             }
         }
 
-        // 2D finite differences (grid units, spacing = 1)
-        double gx  = (s[1][2] - s[1][0]) * 0.5;
-        double gy  = (s[2][1] - s[0][1]) * 0.5;
-        double Hxx = s[1][0] - 2.0 * s[1][1] + s[1][2];
-        double Hyy = s[0][1] - 2.0 * s[1][1] + s[2][1];
-        double Hxy = (s[2][2] - s[0][2] - s[2][0] + s[0][0]) * 0.25;
-
-        double det = Hxx * Hyy - Hxy * Hxy;
-        if (std::abs(det) > 1e-10) {
-            // Newton step d = -H^{-1} * g, then scale to pixel units
-            double dx = delta * (Hxy * gy - Hyy * gx) / det;
-            double dy = delta * (Hxy * gx - Hxx * gy) / det;
-            dx = std::max(-delta, std::min(delta, dx));
-            dy = std::max(-delta, std::min(delta, dy));
-            match.x += dx;
-            match.y += dy;
+        // Backward scan: reversed direction, same logic
+        int32_t lastBwdPx = 0, lastBwdPy = 0;
+        float lastBwdGx = 0, lastBwdGy = 0;
+        bool bwdValid = false;
+        {
+            int32_t px = 0, py = 0;
+            float err = 0.0f;
+            for (int32_t s = 1; s <= 4; ++s) {
+                if (mainIsX) px -= mainStep; else py -= mainStep;
+                err += errorInc;
+                if (err >= 0.5f) {
+                    err -= 1.0f;
+                    if (mainIsX) py -= crossStep; else px -= crossStep;
+                }
+                float sgx, sgy;
+                if (!evalStepGrad(px, py, sgx, sgy)) break;
+                lastBwdPx = px; lastBwdPy = py;
+                lastBwdGx = sgx; lastBwdGy = sgy;
+                bwdValid = true;
+            }
         }
 
-        // Re-evaluate final score at refined position (original angle)
+        // Compute direction scores: dot(search_direction, step_gradient)
+        float fwdScore = fwdValid ? (nx * lastFwdGx + ny * lastFwdGy) : -1e30f;
+        float bwdScore = bwdValid ? (nx * lastBwdGx + ny * lastBwdGy) : -1e30f;
+
+        // Pick better direction (decompiled: no center comparison, always pick a direction)
+        if (fwdValid && bwdValid) {
+            if (fwdScore >= bwdScore) {
+                match.x += lastFwdPx;
+                match.y += lastFwdPy;
+            } else {
+                match.x += lastBwdPx;
+                match.y += lastBwdPy;
+            }
+        } else if (fwdValid) {
+            match.x += lastFwdPx;
+            match.y += lastFwdPy;
+        } else if (bwdValid) {
+            match.x += lastBwdPx;
+            match.y += lastBwdPy;
+        }
+        // Neither valid → position unchanged
+
+        // Re-evaluate final score at refined position (full template match)
         match.score = evalScore(match.x, match.y, match.angle);
     }
     else if (method == SubpixelMethod::LeastSquares) {

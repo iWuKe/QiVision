@@ -598,17 +598,16 @@ static int32_t ExtractEdgeLevels(const std::vector<float>& floatData,
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Edge thresholds: constant across all levels (decompiled behavior)
-    // Decompiled constants: 0x1800D6AA8=1.0f ("high"), 0x1800D6B38=2.0f ("low")
-    // But EdgesSubPixGrayLegacyCore normalizes: if (low > high) low = high*0.5
-    // The decompiled doc parameter names are reversed vs numeric order.
-    // Pass (high=2.0, low=1.0) so EdgesSubPix uses them as-is without rewriting.
+    // Constant table: dword_1800D6AA8=1.0f (high), dword_1800D6B38=2.0f (low)
+    // When user specifies contrast (origin >= 1.0): high=origin, low=origin
+    // When auto (origin < 1.0): high=1.0, low=2.0 (decompiled §4 line 1549)
     double edgeHigh, edgeLow;
     if (contrastHigh >= 1.0) {
         edgeHigh = contrastHigh;
         edgeLow = (contrastLow > 0) ? contrastLow : contrastHigh;
     } else {
-        edgeHigh = 2.0;
-        edgeLow = 1.0;
+        edgeHigh = 1.0;
+        edgeLow = 2.0;  // dword_1800D6B38 = 2.0f
     }
 
     // Per-level arrays (matching decompiled sub_18004E770):

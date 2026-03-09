@@ -231,9 +231,9 @@ EigenPosResult EigenPositionRefine(const double scores[9]) {
     double subDy = t * v[0];
     double subDx = t * v[1];
 
-    // Decompiled dword_1800D6A8C: displacement threshold = 0.5
+    // Decompiled dword_1800D6A8C = 0x3F19999A = 0.6f
     EigenPosResult result;
-    if (std::fabs(subDx) < 0.5 && std::fabs(subDy) < 0.5) {
+    if (std::fabs(subDx) < 0.6 && std::fabs(subDy) < 0.6) {
         result.subDx = subDx;
         result.subDy = subDy;
         result.valid = true;
@@ -279,7 +279,7 @@ static void BuildScoreGridFindPeak(
         int32_t safeGyMin = 0, safeGyMax = gridSize;
         {
             int32_t minOffY = 0, maxOffY = 0;
-            for (int32_t i = 0; i < soa.count; ++i) {
+            for (int32_t i = 0; i < soa.count; i += soa.stride) {
                 float sx = soa.x[i] * scale;
                 float sy = soa.y[i] * scale;
                 int32_t oY = static_cast<int32_t>(std::round(tSinR * sx + tCosR * sy));
@@ -294,7 +294,7 @@ static void BuildScoreGridFindPeak(
         const bool fullySafe = (safeGyMin == 0 && safeGyMax == gridSize);
 
         // Accumulate gradient dot products
-        for (int32_t i = 0; i < soa.count; ++i) {
+        for (int32_t i = 0; i < soa.count; i += soa.stride) {
             float sx = soa.x[i] * scale;
             float sy = soa.y[i] * scale;
             int32_t offX = static_cast<int32_t>(std::round(tCosR * sx - tSinR * sy));
@@ -818,7 +818,7 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearch(
         }
     }
 
-    // A-2: Spatial hash NMS + angle distance suppression (replaces naive sort+truncate)
+    // A-2: Spatial hash NMS + angle distance suppression
     candidates = CollectCandidatesNMS(std::move(candidates), targetWidth, coarseAngleStep);
 
     return candidates;
@@ -1038,7 +1038,8 @@ std::vector<MatchResult> ShapeModelImpl::CoarseSearchFloat(
         }
     }
 
-    // A-2: Spatial hash NMS + angle distance suppression (replaces naive sort+truncate)
+    // Decompiled: no global NMS between coarse search and pyramid refinement.
+    // A-2: Spatial hash NMS + angle distance suppression
     candidates = CollectCandidatesNMS(std::move(candidates), targetWidth, coarseAngleStep);
 
     return candidates;
@@ -1157,7 +1158,17 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevel(
     if (!detail::GetGradientView(pyramid, level, grad)) {
         return {};
     }
-    auto soa = detail::SelectSoA(levels_[level], useGridPoints);
+
+    // Stride subsampling (decompiled sub_1800B72F0: step = 1 << (numLevels - (level+1)))
+    // Note: decompiled uses coarser-level model data (level+1) with stride applied.
+    // QiVision uses current-level data. Only apply stride at intermediate levels
+    // where refinement is approximate; final level needs full points for accuracy.
+    const int32_t numLevels = static_cast<int32_t>(levels_.size());
+    int32_t modelStride = 1;
+    if (level > params.startLevel) {
+        modelStride = std::max(1, 1 << (numLevels - 1 - level));
+    }
+    auto soa = detail::SelectSoA(levels_[level], useGridPoints, modelStride);
     if (soa.count == 0) return {};
 
     const bool ignorePolarity = (params_.metric == MetricMode::IgnoreLocalPolarity ||
@@ -1405,6 +1416,9 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
     if (!detail::GetGradientView(pyramid, level, grad)) {
         return {};
     }
+    // RefineAtLevelScaled runs at final level only — no stride subsampling.
+    // (Decompiled uses coarser-level data with stride, but QiVision uses current-level data.
+    // At the final level, full point coverage is needed for joint angle+scale accuracy.)
     auto soa = detail::SelectSoA(levels_[level], useGridPoints);
     if (soa.count == 0) return {};
 
@@ -1530,7 +1544,7 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
             double d2 = (sC - sL) / (x1 - x0);
             double dd = (d1 - d2) / (x2 - x0);
             if (std::fabs(dd) > 1e-10) {
-                double peak = 0.5 * (x0 + x1) - d2 / dd;  // parabola vertex
+                double peak = 0.5 * (x0 + x1) - d2 / (2.0 * dd);  // parabola vertex (Newton divided-difference, decompiled §3.5 line 627)
                 if (std::fabs(peak - curAngle) <= finalAStep) {
                     curAngle = peak;
                 }
@@ -1600,8 +1614,9 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
             bestMatch.y = finalY;
             bestMatch.angle = curAngle;
             bestMatch.score = score;
-            bestMatch.scaleX = std::clamp(curScale, params.scaleMin, params.scaleMax);
-            bestMatch.scaleY = std::clamp(curScale, params.scaleMin, params.scaleMax);
+            // Decompiled: no scale clamping in sub_180040150 output
+            bestMatch.scaleX = curScale;
+            bestMatch.scaleY = curScale;
         }
 
         allResults[ci] = bestMatch;

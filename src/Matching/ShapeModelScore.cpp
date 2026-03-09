@@ -82,6 +82,20 @@ SoAView SelectSoA(const LevelModel& model, bool useGridPoints) {
     return v;
 }
 
+SoAView SelectSoA(const LevelModel& model, bool useGridPoints, int32_t stride) {
+    SoAView v = SelectSoA(model, useGridPoints);
+    stride = std::max(1, stride);
+    v.stride = stride;
+    if (stride > 1) {
+        // Recompute totalWeight with stride subsampling
+        v.totalWeight = 0.0f;
+        for (int32_t i = 0; i < v.count; i += stride) {
+            v.totalWeight += v.weight[i];
+        }
+    }
+    return v;
+}
+
 } // namespace detail
 
 // =============================================================================
@@ -130,7 +144,7 @@ double ShapeModelImpl::ComputeScore(
     {
         const bool isIgnoreLocal = (params_.metric == MetricMode::IgnoreLocalPolarity ||
                                      params_.metric == MetricMode::IgnoreColorPolarity);
-        if (isTopLevel && isIgnoreLocal && soa.count >= 32) {
+        if (isTopLevel && isIgnoreLocal && soa.count >= 32 && soa.stride == 1) {
             result = detail::ComputeScoreUnified<detail::InterpMode::NearestNeighbor,
                                                   detail::SimdMode::AVX2>(
                 soa, grad, posX, posY, cosR, sinR, scalef,

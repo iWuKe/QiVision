@@ -54,10 +54,12 @@ struct SoAView {
     const int16_t* angleBin;
     int32_t count;
     float totalWeight;  // Fixed normalizer = numPoints (all weights=1.0, do NOT use dynamic denominator)
+    int32_t stride = 1; // Stride subsampling (decompiled sub_1800B72F0: 1 << (numLevels - level))
 };
 
 // Implemented in ShapeModelScore.cpp (needs LevelModel full definition)
 SoAView SelectSoA(const LevelModel& model, bool useGridPoints);
+SoAView SelectSoA(const LevelModel& model, bool useGridPoints, int32_t stride);
 
 // =============================================================================
 // (B) Gradient Map View
@@ -186,8 +188,10 @@ inline ScoreResult ComputeScoreUnifiedScalar(
     const int32_t maxX = (INTERP == InterpMode::Bilinear) ? grad.width - 2 : grad.width - 1;
     const int32_t maxY = (INTERP == InterpMode::Bilinear) ? grad.height - 2 : grad.height - 1;
 
-    // Fixed normalizer: total weight of all model points (Halcon-compatible)
+    // Fixed normalizer: total weight of strided model points (Halcon-compatible)
     const float fixedWeight = soa.totalWeight;
+    const int32_t pointStride = soa.stride;
+    const int32_t effectivePoints = (numPoints + pointStride - 1) / pointStride;
 
     float totalScore = 0.0f;
     int32_t matchedCount = 0;
@@ -197,7 +201,8 @@ inline ScoreResult ComputeScoreUnifiedScalar(
     int32_t matchedCountInv = 0;
     const bool isGlobalPolarity = (metric == MetricMode::IgnoreGlobalPolarity);
 
-    for (int32_t i = 0; i < numPoints; ++i) {
+    int32_t checkedIdx = 0;
+    for (int32_t i = 0; i < numPoints; i += pointStride) {
         // 1. Rotate model point
         float rotX = cosR * soa.x[i] - sinR * soa.y[i];
         float rotY = sinR * soa.x[i] + cosR * soa.y[i];
@@ -265,20 +270,21 @@ inline ScoreResult ComputeScoreUnifiedScalar(
             }
         }
 
-        // 7. Early termination check every 8 points (BUG #3 fix)
-        if (((i + 1) & 7) == 0) {
+        // 7. Early termination check every 8 strided points (BUG #3 fix)
+        checkedIdx++;
+        if ((checkedIdx & 7) == 0) {
             if (isGlobalPolarity) {
                 bool termNormal = ShouldTerminateEarly(totalScore, fixedWeight,
-                    i + 1, numPoints, minScore, greediness);
+                    checkedIdx, effectivePoints, minScore, greediness);
                 bool termInv = ShouldTerminateEarly(totalScoreInv, fixedWeight,
-                    i + 1, numPoints, minScore, greediness);
+                    checkedIdx, effectivePoints, minScore, greediness);
                 if (termNormal && termInv) {
-                    return {0.0, static_cast<double>(matchedCount) / numPoints};
+                    return {0.0, static_cast<double>(matchedCount) / effectivePoints};
                 }
             } else {
                 if (ShouldTerminateEarly(totalScore, fixedWeight,
-                        i + 1, numPoints, minScore, greediness)) {
-                    return {0.0, static_cast<double>(matchedCount) / numPoints};
+                        checkedIdx, effectivePoints, minScore, greediness)) {
+                    return {0.0, static_cast<double>(matchedCount) / effectivePoints};
                 }
             }
         }
@@ -287,11 +293,11 @@ inline ScoreResult ComputeScoreUnifiedScalar(
     // Pick best polarity for IgnoreGlobalPolarity
     if (isGlobalPolarity) {
         if (totalScoreInv > totalScore) {
-            return FinalizeScore(totalScoreInv, fixedWeight, matchedCount, numPoints);
+            return FinalizeScore(totalScoreInv, fixedWeight, matchedCount, effectivePoints);
         }
     }
 
-    return FinalizeScore(totalScore, fixedWeight, matchedCount, numPoints);
+    return FinalizeScore(totalScore, fixedWeight, matchedCount, effectivePoints);
 }
 
 // ---------------------------------------------------------------------------

@@ -1196,44 +1196,60 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevel(
         BuildScoreGridFindPeak(grad, soa, curAngle, candidateScale, bx, by, searchRadius,
             ignorePolarity, isGlobalPolarity, scoreGrid, scoreGridInv, peakX, peakY);
 
-        // Step 2: Angle iteration using ComputeScore at peak position (O(N) per eval, NOT O(N×G²))
-        // Decompiled sub_18003C7B0: evaluate angle candidates at the found position
-        struct AngleEval { double angle = 0.0; double score = 0.0; };
-        AngleEval evalCenter, evalLeft, evalRight;
-
-        auto scoreAtAngle = [&](double testAngle) -> double {
-            float tCosR = static_cast<float>(std::cos(testAngle));
-            float tSinR = static_cast<float>(std::sin(testAngle));
-            return ComputeScore(pyramid, level,
-                static_cast<double>(peakX), static_cast<double>(peakY),
-                tCosR, tSinR, static_cast<double>(candidateScale),
-                0.0, 0.0, nullptr, useGridPoints);
+        // Step 2: Angle iteration with joint position refinement
+        // Decompiled sub_18003C7B0: BuildScoreGrid for each angle candidate,
+        // minMaxLoc to update position, 5-candidate directional expansion
+        auto evalAngleGrid = [&](double testAngle, int32_t cx, int32_t cy)
+            -> std::tuple<int32_t, int32_t, float> {
+            int32_t px = cx, py = cy;
+            float rawScore = 0.0f;
+            BuildScoreGridFindPeak(grad, soa, testAngle, candidateScale,
+                cx, cy, searchRadius, ignorePolarity, isGlobalPolarity,
+                scoreGrid, scoreGridInv, px, py, &rawScore);
+            return {px, py, rawScore};
         };
 
-        double centerScore = scoreAtAngle(curAngle);
-        evalCenter = {curAngle, centerScore};
-        evalLeft = evalCenter;
-        evalRight = evalCenter;
+        // Evaluate center angle
+        float bestRawScore;
+        {
+            auto [px, py, raw] = evalAngleGrid(curAngle, peakX, peakY);
+            peakX = px; peakY = py;
+            bestRawScore = raw;
+        }
 
+        // 5-candidate angle search with step halving (sub_18003C7B0)
         while (std::fabs(aStep) >= ANGLE_CONV_RAD) {
-            double sL = scoreAtAngle(curAngle - aStep);
-            double sR = scoreAtAngle(curAngle + aStep);
+            // Evaluate +/-step neighbors
+            auto [lpx, lpy, lRaw] = evalAngleGrid(curAngle - aStep, peakX, peakY);
+            auto [rpx, rpy, rRaw] = evalAngleGrid(curAngle + aStep, peakX, peakY);
 
-            evalLeft = {curAngle - aStep, sL};
-            evalRight = {curAngle + aStep, sR};
-
-            if (sL > centerScore && sL >= sR) {
-                evalCenter = {curAngle, centerScore};
-                curAngle -= aStep;
-                centerScore = sL;
-            } else if (sR > centerScore) {
-                evalCenter = {curAngle, centerScore};
-                curAngle += aStep;
-                centerScore = sR;
-            } else {
-                evalCenter = {curAngle, centerScore};
-                aStep *= 0.5;
+            if (lRaw > bestRawScore && lRaw >= rRaw) {
+                // Left is better -- also try 2*step in left direction
+                auto [llpx, llpy, llRaw] = evalAngleGrid(curAngle - 2.0 * aStep, peakX, peakY);
+                if (llRaw > lRaw) {
+                    curAngle -= 2.0 * aStep;
+                    peakX = llpx; peakY = llpy;
+                    bestRawScore = llRaw;
+                } else {
+                    curAngle -= aStep;
+                    peakX = lpx; peakY = lpy;
+                    bestRawScore = lRaw;
+                }
+            } else if (rRaw > bestRawScore) {
+                // Right is better -- also try 2*step in right direction
+                auto [rrpx, rrpy, rrRaw] = evalAngleGrid(curAngle + 2.0 * aStep, peakX, peakY);
+                if (rrRaw > rRaw) {
+                    curAngle += 2.0 * aStep;
+                    peakX = rrpx; peakY = rrpy;
+                    bestRawScore = rrRaw;
+                } else {
+                    curAngle += aStep;
+                    peakX = rpx; peakY = rpy;
+                    bestRawScore = rRaw;
+                }
             }
+
+            aStep *= 0.5;
         }
 
         // Step 3: 27-point polynomial fit for joint (dx, dy, dAngle) subpixel
@@ -1664,8 +1680,10 @@ std::vector<MatchResult> ShapeModelImpl::SubPixelRefine(
 
         const bool hasScale = (params.scaleMin != params.scaleMax) && !::Qi::Vision::Internal::g_scaleDiag.mode1ForceNoScalePath;
 
-        // searchRadius=1 for subpixel refinement (3×3 position grid)
-        constexpr int32_t searchRadius = 1;
+        // Decompiled: SubPixel mode 1 calls sub_18003C7B0/sub_180040150 with
+        // fixed 8×8 response matrix (cv::Mat(8,8,CV_32F)). Use searchRadius=4
+        // giving 9×9 grid (closest symmetric match to decompiled's asymmetric 8×8).
+        constexpr int32_t searchRadius = 4;
         constexpr int32_t gridSize = 2 * searchRadius + 1;
         constexpr int32_t gridArea = gridSize * gridSize;
 
@@ -1769,11 +1787,12 @@ std::vector<MatchResult> ShapeModelImpl::SubPixelRefine(
                     double x0 = curAngle - finalAStep;
                     double x1 = curAngle;
                     double x2 = curAngle + finalAStep;
+                    // Newton divided-difference (反编译 §3.7 LABEL_75 exact form)
                     double d1 = (sR - sC) / (x2 - x1);
                     double d2 = (sC - sL) / (x1 - x0);
                     double dd = (d1 - d2) / (x2 - x0);
                     if (std::fabs(dd) > 1e-10) {
-                        double peak = 0.5 * (x0 + x1) - d2 / dd;
+                        double peak = -0.5 * (d1 - (x1 + x2) * dd) / dd;
                         if (std::fabs(peak - curAngle) <= finalAStep) {
                             curAngle = peak;
                         }
@@ -1862,32 +1881,58 @@ std::vector<MatchResult> ShapeModelImpl::SubPixelRefine(
                     bx, by, searchRadius, ignorePolarity, isGlobalPolarity,
                     scoreGrid, scoreGridInv, peakX, peakY);
 
-                // Step 2: Angle bisection (converge to 0.1°)
+                // Step 2: Angle iteration with joint position refinement (sub_18003C7B0)
                 double curAngle = match.angle;
                 double aStep = angleStep;
 
-                auto scoreAtAngle = [&](double testAngle) -> double {
-                    float tCosR = static_cast<float>(std::cos(testAngle));
-                    float tSinR = static_cast<float>(std::sin(testAngle));
-                    return ComputeScore(targetPyramid, level,
-                        static_cast<double>(peakX), static_cast<double>(peakY),
-                        tCosR, tSinR, static_cast<double>(candidateScale),
-                        0.0, 0.0, nullptr, false);
+                auto evalAngleGrid = [&](double testAngle, int32_t cx, int32_t cy)
+                    -> std::tuple<int32_t, int32_t, float> {
+                    int32_t px = cx, py = cy;
+                    float rawScore = 0.0f;
+                    BuildScoreGridFindPeak(grad, soa, testAngle, candidateScale,
+                        cx, cy, searchRadius, ignorePolarity, isGlobalPolarity,
+                        scoreGrid, scoreGridInv, px, py, &rawScore);
+                    return {px, py, rawScore};
                 };
 
-                double centerScore = scoreAtAngle(curAngle);
+                // Evaluate center
+                float bestRawScore;
+                {
+                    auto [px, py, raw] = evalAngleGrid(curAngle, peakX, peakY);
+                    peakX = px; peakY = py;
+                    bestRawScore = raw;
+                }
+
+                // 5-candidate angle search (sub_18003C7B0)
                 while (std::fabs(aStep) >= ANGLE_CONV_RAD) {
-                    double sL = scoreAtAngle(curAngle - aStep);
-                    double sR = scoreAtAngle(curAngle + aStep);
-                    if (sL > centerScore && sL >= sR) {
-                        curAngle -= aStep;
-                        centerScore = sL;
-                    } else if (sR > centerScore) {
-                        curAngle += aStep;
-                        centerScore = sR;
-                    } else {
-                        aStep *= 0.5;
+                    auto [lpx, lpy, lRaw] = evalAngleGrid(curAngle - aStep, peakX, peakY);
+                    auto [rpx, rpy, rRaw] = evalAngleGrid(curAngle + aStep, peakX, peakY);
+
+                    if (lRaw > bestRawScore && lRaw >= rRaw) {
+                        auto [llpx, llpy, llRaw] = evalAngleGrid(curAngle - 2.0 * aStep, peakX, peakY);
+                        if (llRaw > lRaw) {
+                            curAngle -= 2.0 * aStep;
+                            peakX = llpx; peakY = llpy;
+                            bestRawScore = llRaw;
+                        } else {
+                            curAngle -= aStep;
+                            peakX = lpx; peakY = lpy;
+                            bestRawScore = lRaw;
+                        }
+                    } else if (rRaw > bestRawScore) {
+                        auto [rrpx, rrpy, rrRaw] = evalAngleGrid(curAngle + 2.0 * aStep, peakX, peakY);
+                        if (rrRaw > rRaw) {
+                            curAngle += 2.0 * aStep;
+                            peakX = rrpx; peakY = rrpy;
+                            bestRawScore = rrRaw;
+                        } else {
+                            curAngle += aStep;
+                            peakX = rpx; peakY = rpy;
+                            bestRawScore = rRaw;
+                        }
                     }
+
+                    aStep *= 0.5;
                 }
 
                 // Step 3: 27-point polyfit for (dx, dy, dAngle) subpixel

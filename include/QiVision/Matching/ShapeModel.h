@@ -244,7 +244,8 @@ QIVISION_API void CreateScaledShapeModel(
 /**
  * @brief Find instances of a shape model in an image
  *
- * Equivalent to Halcon's find_shape_model operator.
+ * Equivalent to Halcon's find_shape_model / find_shape_model_2.
+ * When searchMask is provided, masked regions (pixel==0) are excluded from refinement scoring.
  *
  * @param image         Search image (grayscale)
  * @param model         Shape model handle
@@ -261,30 +262,8 @@ QIVISION_API void CreateScaledShapeModel(
  * @param cols          [out] Column coordinates of found instances
  * @param angles        [out] Rotation angles of found instances [rad]
  * @param scores        [out] Match scores of found instances [0..1]
- */
-QIVISION_API void FindShapeModel(
-    const QImage& image,
-    const ShapeModel& model,
-    double angleStart,
-    double angleExtent,
-    double minScore,
-    int32_t numMatches,
-    double maxOverlap,
-    const std::string& subPixel,
-    int32_t numLevels,
-    double greediness,
-    std::vector<double>& rows,
-    std::vector<double>& cols,
-    std::vector<double>& angles,
-    std::vector<double>& scores
-);
-
-/**
- * @brief Find instances of a shape model (with explicit startLevel)
- *
- * Overload aligned with decompiled a13 encoding: a13[0]=numLevels, a13[1]=startLevel.
- * Refinement stops at startLevel instead of level 0.
- *
+ * @param searchMask    Optional search mask (uint8, same size as image). 0 = excluded, non-zero = included.
+ *                      Empty QImage = no mask (default).
  * @param startLevel    Refinement stop level (decompiled a13[1], default 0)
  */
 QIVISION_API void FindShapeModel(
@@ -297,12 +276,13 @@ QIVISION_API void FindShapeModel(
     double maxOverlap,
     const std::string& subPixel,
     int32_t numLevels,
-    int32_t startLevel,
     double greediness,
     std::vector<double>& rows,
     std::vector<double>& cols,
     std::vector<double>& angles,
-    std::vector<double>& scores
+    std::vector<double>& scores,
+    const QImage& searchMask = QImage(),
+    int32_t startLevel = 0
 );
 
 /**

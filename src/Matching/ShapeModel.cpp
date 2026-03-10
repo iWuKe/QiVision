@@ -560,10 +560,97 @@ void CreateScaledShapeModel(
 }
 
 // =============================================================================
+// Search Mask Helpers (decompiled find_shape_model_2: sub_180038450)
+// =============================================================================
+
+namespace {
+
+// Simple 2x downsample for uint8 mask:
+// 2x2 block sum, threshold at 256 (need ≥2 of 4 pixels non-zero to keep).
+// Approximation of decompiled cv::pyrDown (5x5 Gaussian); differs by ~1px at mask boundary.
+static QImage DownsampleMask(const QImage& mask, int32_t dstW, int32_t dstH) {
+    QImage dst(dstW, dstH, PixelType::UInt8);
+    const uint8_t* src = static_cast<const uint8_t*>(mask.Data());
+    uint8_t* dstData = static_cast<uint8_t*>(dst.Data());
+    const int32_t srcW = mask.Width();
+    const int32_t srcH = mask.Height();
+    const int32_t srcStride = mask.Stride();
+    const int32_t dstStride = dst.Stride();
+
+    for (int32_t dy = 0; dy < dstH; ++dy) {
+        const int32_t sy = dy * 2;
+        for (int32_t dx = 0; dx < dstW; ++dx) {
+            const int32_t sx = dx * 2;
+            // 2x2 block: conservative — if ANY source pixel is 0, output is 0
+            int32_t sum = 0;
+            sum += src[sy * srcStride + sx];
+            if (sx + 1 < srcW) sum += src[sy * srcStride + sx + 1];
+            if (sy + 1 < srcH) sum += src[(sy + 1) * srcStride + sx];
+            if (sx + 1 < srcW && sy + 1 < srcH) sum += src[(sy + 1) * srcStride + sx + 1];
+            dstData[dy * dstStride + dx] = (sum >= 128 * 2) ? 255 : 0;
+        }
+    }
+    return dst;
+}
+
+// Zero out gradient (cosGrad/sinGrad) where mask pixel == 0.
+static void MaskGradientLevel(Internal::AnglePyramid& pyramid,
+                               int32_t level, const QImage& mask) {
+    const float* gxConst; const float* gyConst;
+    int32_t w, h, stride;
+    if (!pyramid.GetGradientData(level, gxConst, gyConst, w, h, stride)) return;
+    if (mask.Width() != w || mask.Height() != h) return;
+
+    // GetGradientData returns const pointers, but we need to modify in-place.
+    // The pyramid is a local variable in FindShapeModel, safe to const_cast.
+    float* gx = const_cast<float*>(gxConst);
+    float* gy = const_cast<float*>(gyConst);
+    const int32_t maskStride = mask.Stride();
+    const uint8_t* maskData = static_cast<const uint8_t*>(mask.Data());
+
+    for (int32_t row = 0; row < h; ++row) {
+        const uint8_t* maskRow = maskData + row * maskStride;
+        float* gxRow = gx + row * stride;
+        float* gyRow = gy + row * stride;
+        for (int32_t col = 0; col < w; ++col) {
+            if (maskRow[col] == 0) {
+                gxRow[col] = 0.0f;
+                gyRow[col] = 0.0f;
+            }
+        }
+    }
+}
+
+// Decompiled find_shape_model_2: sub_180038450 -> sub_1800385C0
+// Zero out gradient where mask pixel == 0.
+// Mask pyramid: max 2 levels (decompiled: min(numLevels, 2)).
+static void ApplySearchMask(Internal::AnglePyramid& pyramid,
+                             const QImage& mask, int32_t numLevels) {
+    const int32_t maskLevels = std::min(numLevels, 2);
+
+    // Level 0: apply original mask directly
+    if (maskLevels >= 1) {
+        MaskGradientLevel(pyramid, 0, mask);
+    }
+
+    // Level 1: downsample mask by 2x, then apply
+    if (maskLevels >= 2) {
+        const float* gx1; const float* gy1;
+        int32_t w1, h1, s1;
+        if (pyramid.GetGradientData(1, gx1, gy1, w1, h1, s1)) {
+            QImage maskDown = DownsampleMask(mask, w1, h1);
+            MaskGradientLevel(pyramid, 1, maskDown);
+        }
+    }
+}
+
+} // anonymous namespace
+
+// =============================================================================
 // Model Search Functions
 // =============================================================================
 
-// Original API: delegates to overload with startLevel=0 (decompiled a13[1] default)
+// Unified FindShapeModel: supports optional searchMask and startLevel
 void FindShapeModel(
     const QImage& image,
     const ShapeModel& model,
@@ -578,31 +665,9 @@ void FindShapeModel(
     std::vector<double>& rows,
     std::vector<double>& cols,
     std::vector<double>& angles,
-    std::vector<double>& scores)
-{
-    FindShapeModel(image, model, angleStart, angleExtent,
-                   minScore, numMatches, maxOverlap,
-                   subPixel, numLevels, /*startLevel=*/0, greediness,
-                   rows, cols, angles, scores);
-}
-
-// Overload with explicit startLevel (decompiled a13[1])
-void FindShapeModel(
-    const QImage& image,
-    const ShapeModel& model,
-    double angleStart,
-    double angleExtent,
-    double minScore,
-    int32_t numMatches,
-    double maxOverlap,
-    const std::string& subPixel,
-    int32_t numLevels,
-    int32_t startLevel,
-    double greediness,
-    std::vector<double>& rows,
-    std::vector<double>& cols,
-    std::vector<double>& angles,
-    std::vector<double>& scores)
+    std::vector<double>& scores,
+    const QImage& searchMask,
+    int32_t startLevel)
 {
     // Clear outputs
     rows.clear();
@@ -633,6 +698,18 @@ void FindShapeModel(
         throw InvalidArgumentException("FindShapeModel: startLevel must be >= 0");
     }
 
+    // Validate search mask if provided
+    if (!searchMask.Empty()) {
+        if (searchMask.Width() != image.Width() || searchMask.Height() != image.Height()) {
+            throw InvalidArgumentException(
+                "FindShapeModel: searchMask must have same size as image");
+        }
+        if (searchMask.Type() != PixelType::UInt8) {
+            throw InvalidArgumentException(
+                "FindShapeModel: searchMask must be UInt8");
+        }
+    }
+
     ValidateLevels(numLevels, "FindShapeModel");
 
     auto* impl = const_cast<Internal::ShapeModelImpl*>(model.Impl());
@@ -655,9 +732,7 @@ void FindShapeModel(
     params.startLevel = startLevel;                 // decompiled a13[1]
     params.searchRadiusBase = decodedSearchRadius;  // decompiled a12/10
 
-    // Build target pyramid (with timing)
-    auto tPyramidStart = std::chrono::high_resolution_clock::now();
-
+    // Build target pyramid
     Internal::AnglePyramidParams pyramidParams;
     int32_t modelLevels = static_cast<int32_t>(impl->levels_.size());
     pyramidParams.numLevels = (numLevels > 0) ? std::min(numLevels, modelLevels) : modelLevels;
@@ -672,15 +747,22 @@ void FindShapeModel(
         params.startLevel += 1;
     }
 
-    // Keep pyramid minContrast low; scoring applies search-time thresholds
     pyramidParams.minContrast = 1.0;
     pyramidParams.smoothSigma = 0.5;
     pyramidParams.extractEdgePoints = false;
-    pyramidParams.storeDirection = false;  // Search mode: skip storing gradDir
+    pyramidParams.storeDirection = false;
 
     Internal::AnglePyramid targetPyramid;
     if (!targetPyramid.Build(image, pyramidParams)) {
         return;
+    }
+
+    // Apply search mask to gradient data (decompiled find_shape_model_2: sub_180038450)
+    // Mask pyramid: max 2 levels. Zero out gradX/gradY where mask==0.
+    // This ensures masked regions don't contribute to refinement scoring.
+    // Coarse search uses angleBinImage (computed during Build, before masking), so unaffected.
+    if (!searchMask.Empty()) {
+        ApplySearchMask(targetPyramid, searchMask, pyramidParams.numLevels);
     }
 
     const double savedMinContrast = impl->params_.minContrast;
@@ -690,8 +772,6 @@ void FindShapeModel(
             std::printf("[Find] auto minContrast=%.2f\n", impl->params_.minContrast);
         }
     }
-
-    auto tPyramidEnd = std::chrono::high_resolution_clock::now();
 
     std::vector<MatchResult> results = impl->SearchPyramid(targetPyramid, params);
 

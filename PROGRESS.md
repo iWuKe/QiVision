@@ -269,6 +269,21 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-03-10 (FindShapeModel 搜索掩膜支持 — 对齐 find_shape_model_2)
+
+- **include/QiVision/Matching/ShapeModel.h** (API 合并)
+  - 4 个 FindShapeModel 重载合并为 1 个，`searchMask` 和 `startLevel` 放在输出参数之后，带默认值
+- **src/Matching/ShapeModel.cpp** (掩膜实现)
+  - 新增 `DownsampleMask`: 2×2 块降采样 mask（近似 cv::pyrDown）
+  - 新增 `MaskGradientLevel`: 逐像素梯度清零（对齐 sub_1800385C0）
+  - 新增 `ApplySearchMask`: mask 金字塔分发（max 2 层，对齐反编译 min(numLevels, 2)）
+  - 4 个实现函数合并为 1 个统一实现
+- **samples/matching/shape_mask_search.cpp** (新增测试样例)
+  - 4 项测试: 无 mask 基线、全 mask、屏蔽目标、仅允许目标区域，全部通过
+- **samples/CMakeLists.txt**: 注册 matching_shape_mask_search
+- **docs/API_Reference.md**: FindShapeModel 签名更新 + mask 行为说明
+- **.claude/docs/FindShapeModel2_Decompiled.md**: §6/§8 实现状态更新
+
 ### 2026-03-10 (ShapeModel 搜索速度对齐反编译 — 6 项优化)
 
 - **src/Matching/ShapeModelSearch.cpp** (速度优化)

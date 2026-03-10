@@ -181,7 +181,7 @@ void CreateScaledShapeModel(
 
 ### FindShapeModel
 
-Finds template matches in an image (rotation only).
+Finds template matches in an image (rotation only). Supports optional search mask (find_shape_model_2).
 
 ```cpp
 void FindShapeModel(
@@ -198,7 +198,9 @@ void FindShapeModel(
     std::vector<double>& rows,
     std::vector<double>& cols,
     std::vector<double>& angles,
-    std::vector<double>& scores
+    std::vector<double>& scores,
+    const QImage& searchMask = QImage(),
+    int32_t startLevel = 0
 );
 ```
 
@@ -219,6 +221,13 @@ void FindShapeModel(
 | cols | std::vector<double>& | [out] Match X coordinates |
 | angles | std::vector<double>& | [out] Match angles [rad] |
 | scores | std::vector<double>& | [out] Match scores |
+| searchMask | const QImage& | Optional search mask (UInt8, same size as image). 0=excluded, non-zero=included. Default: empty (no mask) |
+| startLevel | int32_t | Refinement stop level (default 0) |
+
+**Mask Behavior**
+- Mask only affects refinement scoring, not coarse search
+- Mask pyramid: max 2 levels (level 0 = original, level 1 = 2x downsampled)
+- Masked pixels (value 0) have their gradients zeroed, excluding them from score computation
 
 ---
 

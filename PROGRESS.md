@@ -269,6 +269,16 @@ Tests    █████████████████░░░ 87%
 
 ## 变更日志
 
+### 2026-03-10 (FindScaledShapeModel 搜索掩膜支持 — 对齐 find_scaled_shape_model_2)
+
+- **include/QiVision/Matching/ShapeModel.h** (API 合并)
+  - 2 个 FindScaledShapeModel 重载合并为 1 个，`searchMask` 和 `startLevel` 带默认值
+- **src/Matching/ShapeModel.cpp** (掩膜复用)
+  - FindScaledShapeModel 添加 mask 验证 + ApplySearchMask 调用，复用已有基础设施
+  - 清理残留委托注释
+- **docs/API_Reference.md**: FindScaledShapeModel 签名更新 + mask 参数说明
+- **.claude/docs/FindScaledShapeModel2_Decompiled.md**: 新增反编译分析文档
+
 ### 2026-03-10 (FindShapeModel 搜索掩膜支持 — 对齐 find_shape_model_2)
 
 - **include/QiVision/Matching/ShapeModel.h** (API 合并)

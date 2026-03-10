@@ -791,8 +791,6 @@ void FindShapeModel(
     impl->params_.minContrast = savedMinContrast;
 }
 
-// FindScaledShapeModel is defined after SpatialNMSCluster (below)
-
 // =============================================================================
 // SpatialNMSCluster — Decompiled sub_18004B100
 // Spatial NMS + angle/scale distance suppression + clustering

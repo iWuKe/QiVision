@@ -233,7 +233,7 @@ void FindShapeModel(
 
 ### FindScaledShapeModel
 
-Finds template matches with scale variation.
+Finds template matches with scale variation. Supports optional search mask (find_scaled_shape_model_2).
 
 ```cpp
 void FindScaledShapeModel(
@@ -253,7 +253,9 @@ void FindScaledShapeModel(
     std::vector<double>& cols,
     std::vector<double>& angles,
     std::vector<double>& scales,
-    std::vector<double>& scores
+    std::vector<double>& scores,
+    const QImage& searchMask = QImage(),
+    int32_t startLevel = 0
 );
 ```
 
@@ -263,6 +265,12 @@ void FindScaledShapeModel(
 | scaleMin | double | Search minimum scale |
 | scaleMax | double | Search maximum scale |
 | scales | std::vector<double>& | [out] Match scale values |
+| searchMask | const QImage& | Optional search mask (UInt8, same size as image). 0=excluded, non-zero=included. Default: empty (no mask) |
+| startLevel | int32_t | Refinement stop level (default 0) |
+
+**Mask Behavior**
+- Same as FindShapeModel: mask only affects refinement scoring, not coarse search
+- Mask pyramid: max 2 levels, masked pixels have gradients zeroed
 
 **Behavior Notes**
 1. If `scaleMin` and `scaleMax` are both approximately `1.0`, it falls back to `FindShapeModel`.

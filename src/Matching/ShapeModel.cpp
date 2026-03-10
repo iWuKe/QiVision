@@ -791,31 +791,7 @@ void FindShapeModel(
     impl->params_.minContrast = savedMinContrast;
 }
 
-// Original API: delegates to overload with startLevel=0 (decompiled a13[1] default)
-void FindScaledShapeModel(
-    const QImage& image,
-    const ShapeModel& model,
-    double angleStart,
-    double angleExtent,
-    double scaleMin,
-    double scaleMax,
-    double minScore,
-    int32_t numMatches,
-    double maxOverlap,
-    const std::string& subPixel,
-    int32_t numLevels,
-    double greediness,
-    std::vector<double>& rows,
-    std::vector<double>& cols,
-    std::vector<double>& angles,
-    std::vector<double>& scales,
-    std::vector<double>& scores)
-{
-    FindScaledShapeModel(image, model, angleStart, angleExtent,
-                         scaleMin, scaleMax, minScore, numMatches, maxOverlap,
-                         subPixel, numLevels, /*startLevel=*/0, greediness,
-                         rows, cols, angles, scales, scores);
-}
+// FindScaledShapeModel is defined after SpatialNMSCluster (below)
 
 // =============================================================================
 // SpatialNMSCluster — Decompiled sub_18004B100
@@ -956,6 +932,7 @@ std::vector<MatchResult> SpatialNMSCluster(
 } // anonymous namespace
 
 // Overload with explicit startLevel (decompiled a13[1])
+// Unified FindScaledShapeModel: supports optional searchMask and startLevel
 void FindScaledShapeModel(
     const QImage& image,
     const ShapeModel& model,
@@ -968,13 +945,14 @@ void FindScaledShapeModel(
     double maxOverlap,
     const std::string& subPixel,
     int32_t numLevels,
-    int32_t startLevel,
     double greediness,
     std::vector<double>& rows,
     std::vector<double>& cols,
     std::vector<double>& angles,
     std::vector<double>& scales,
-    std::vector<double>& scores)
+    std::vector<double>& scores,
+    const QImage& searchMask,
+    int32_t startLevel)
 {
     // Clear outputs
     rows.clear();
@@ -1010,6 +988,18 @@ void FindScaledShapeModel(
         throw InvalidArgumentException("FindScaledShapeModel: startLevel must be >= 0");
     }
 
+    // Validate search mask if provided
+    if (!searchMask.Empty()) {
+        if (searchMask.Width() != image.Width() || searchMask.Height() != image.Height()) {
+            throw InvalidArgumentException(
+                "FindScaledShapeModel: searchMask must have same size as image");
+        }
+        if (searchMask.Type() != PixelType::UInt8) {
+            throw InvalidArgumentException(
+                "FindScaledShapeModel: searchMask must be UInt8");
+        }
+    }
+
     ValidateLevels(numLevels, "FindScaledShapeModel");
 
     // Get model implementation
@@ -1028,6 +1018,12 @@ void FindScaledShapeModel(
     AnglePyramid targetPyramid;
     if (!targetPyramid.Build(image, pyramidParams)) {
         return;
+    }
+
+    // Apply search mask to gradient data (decompiled find_scaled_shape_model_2: sub_180038450)
+    // Mask pyramid: max 2 levels. Zero out gradX/gradY where mask==0.
+    if (!searchMask.Empty()) {
+        ApplySearchMask(targetPyramid, searchMask, pyramidParams.numLevels);
     }
 
     const double savedMinContrast = impl->params_.minContrast;

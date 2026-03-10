@@ -286,9 +286,10 @@ QIVISION_API void FindShapeModel(
 );
 
 /**
- * @brief Find instances of a scaled shape model
+ * @brief Find instances of a scaled shape model in an image
  *
- * Equivalent to Halcon's find_scaled_shape_model operator.
+ * Equivalent to Halcon's find_scaled_shape_model / find_scaled_shape_model_2.
+ * When searchMask is provided, masked regions (pixel==0) are excluded from refinement scoring.
  *
  * @param image         Search image
  * @param model         Shape model handle (created with CreateScaledShapeModel)
@@ -308,33 +309,8 @@ QIVISION_API void FindShapeModel(
  * @param angles        [out] Rotation angles [rad]
  * @param scales        [out] Scale factors
  * @param scores        [out] Match scores [0..1]
- */
-QIVISION_API void FindScaledShapeModel(
-    const QImage& image,
-    const ShapeModel& model,
-    double angleStart,
-    double angleExtent,
-    double scaleMin,
-    double scaleMax,
-    double minScore,
-    int32_t numMatches,
-    double maxOverlap,
-    const std::string& subPixel,
-    int32_t numLevels,
-    double greediness,
-    std::vector<double>& rows,
-    std::vector<double>& cols,
-    std::vector<double>& angles,
-    std::vector<double>& scales,
-    std::vector<double>& scores
-);
-
-/**
- * @brief Find instances of a scaled shape model (with explicit startLevel)
- *
- * Overload aligned with decompiled a13 encoding: a13[0]=numLevels, a13[1]=startLevel.
- * Refinement stops at startLevel instead of level 0.
- *
+ * @param searchMask    Optional search mask (uint8, same size as image). 0 = excluded, non-zero = included.
+ *                      Empty QImage = no mask (default).
  * @param startLevel    Refinement stop level (decompiled a13[1], default 0)
  */
 QIVISION_API void FindScaledShapeModel(
@@ -349,13 +325,14 @@ QIVISION_API void FindScaledShapeModel(
     double maxOverlap,
     const std::string& subPixel,
     int32_t numLevels,
-    int32_t startLevel,
     double greediness,
     std::vector<double>& rows,
     std::vector<double>& cols,
     std::vector<double>& angles,
     std::vector<double>& scales,
-    std::vector<double>& scores
+    std::vector<double>& scores,
+    const QImage& searchMask = QImage(),
+    int32_t startLevel = 0
 );
 
 // =============================================================================

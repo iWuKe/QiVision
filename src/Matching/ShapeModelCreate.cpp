@@ -597,7 +597,7 @@ static int32_t ExtractEdgeLevels(const std::vector<float>& floatData,
     // Timeout tracking (decompiled: a8 > 0 && elapsed > timeLimit → return -2)
     auto startTime = std::chrono::high_resolution_clock::now();
 
-    // Edge thresholds: constant across all levels (decompiled behavior)
+    // Edge thresholds: base values from user contrast
     // Constant table: dword_1800D6AA8=1.0f (high), dword_1800D6B38=2.0f (low)
     // When user specifies contrast (origin >= 1.0): high=origin, low=origin
     // When auto (origin < 1.0): high=1.0, low=2.0 (decompiled §4 line 1549)
@@ -610,13 +610,24 @@ static int32_t ExtractEdgeLevels(const std::vector<float>& floatData,
         edgeLow = 2.0;  // dword_1800D6B38 = 2.0f
     }
 
-    // Per-level arrays (matching decompiled sub_18004E770):
+    // Per-level arrays (matching decompiled sub_18004E770 §1):
     // angleBinsPerLevel: [0]=numAngleBins, [i]=max(prev/2, 2)
-    // contrastLevelPerLevel: [0]=1, [i]=max(prev/2, 1) (integer division → always 1)
+    // contrastPerLevel:  [0]=contrast,     [i]=max(prev/2, 1)  — halved each level
     std::vector<int32_t> angleBinsPerLevel(maxLevels);
     angleBinsPerLevel[0] = numAngleBins;
     for (int32_t i = 1; i < maxLevels; ++i) {
         angleBinsPerLevel[i] = std::max(2, angleBinsPerLevel[i - 1] / 2);
+    }
+
+    // contrastPerLevel: decompiled §1 — contrastPerLevel[0] = contrast;
+    //   for (i=1; i<numLevels; i++) contrastPerLevel[i] = max(contrastPerLevel[i-1]/2, 1);
+    std::vector<double> highPerLevel(maxLevels);
+    std::vector<double> lowPerLevel(maxLevels);
+    highPerLevel[0] = edgeHigh;
+    lowPerLevel[0] = edgeLow;
+    for (int32_t i = 1; i < maxLevels; ++i) {
+        highPerLevel[i] = std::max(highPerLevel[i - 1] / 2.0, 1.0);
+        lowPerLevel[i]  = std::max(lowPerLevel[i - 1] / 2.0, 1.0);
     }
 
     // Current image buffer (will be downsampled each level)
@@ -676,13 +687,16 @@ static int32_t ExtractEdgeLevels(const std::vector<float>& floatData,
         // Angle bins for this level
         int32_t levelAngleBins = angleBinsPerLevel[level];
 
-        // Run EdgesSubPixGray with constant thresholds and optional mask
+        // Run EdgesSubPixGray with per-level thresholds and optional mask
+        // Decompiled §1: contrastPerLevel[i] = max(prev/2, 1) — halved each level
         // Decompiled: a4=0 (no Gaussian pre-smoothing) — pyrDown already smooths
         // Decompiled: a7=levelAngleBins, a8=1.0 (contrastScale, no-op)
+        double levelHigh = highPerLevel[level];
+        double levelLow  = lowPerLevel[level];
         const uint8_t* maskPtr = currentMask.empty() ? nullptr : currentMask.data();
         int32_t edgeStatus = 0;
         auto edges = EdgesSubPixGray(currentImage.data(), currentW, currentH,
-                                     edgeHigh, edgeLow, 0.0,
+                                     levelHigh, levelLow, 0.0,
                                      maskPtr, currentW,
                                      levelAngleBins, 1.0, &edgeStatus);
 
@@ -690,7 +704,7 @@ static int32_t ExtractEdgeLevels(const std::vector<float>& floatData,
             std::printf("[ExtractEdgeLevels] Level %d (%dx%d, scale=%.3f): %zu edges, "
                         "threshold=[%.1f, %.1f], angleBins=%d%s%s\n",
                         level, currentW, currentH, levelScale,
-                        edges.size(), edgeLow, edgeHigh,
+                        edges.size(), levelLow, levelHigh,
                         levelAngleBins, maskPtr ? " (masked)" : "",
                         edgeStatus != 0 ? " [EDGE ERROR]" : "");
             std::fflush(stdout);

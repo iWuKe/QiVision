@@ -1079,6 +1079,9 @@ std::vector<ModelPoint> GetModelTransform(
     out.reserve(src.size());
 
     for (const auto& pt : src) {
+        // Position: standard CCW rotation [cosA, -sinA; sinA, cosA]
+        // Note: decompiled uses CW convention with degrees, but QiVision search kernel
+        // returns CCW angles in radians, so GetModelTransform must match that convention.
         double rx = (cosA * pt.x - sinA * pt.y) * scale;
         double ry = (sinA * pt.x + cosA * pt.y) * scale;
         double ra = pt.angle + angle;

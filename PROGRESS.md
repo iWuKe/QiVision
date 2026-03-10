@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-03-04 (ShapeModel PyramidRefine 调度对齐反编译架构)
+> 最后更新: 2026-03-10 (ShapeModel 搜索速度对齐反编译 — 6 项优化)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -268,6 +268,21 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-03-10 (ShapeModel 搜索速度对齐反编译 — 6 项优化)
+
+- **src/Matching/ShapeModelSearch.cpp** (速度优化)
+  - searchRadius 固定为 4 (9×9 网格)，对齐反编译 sub_18003C7B0 固定 8×8 行为（移除动态计算 ~20 行）
+  - 角度迭代改为 lazy 5-angle evaluation (evalFlags[5]={0,0,1,0,0})，从 ~10 次 while-loop 降到 3-5 次
+  - Polyfit 27-point 改为 3 个 scoreGrid 缓存提取，替代 27 次独立 ComputeScore 调用
+  - SubPixelRefine mode 1 无缩放路径: 跳过重复计算（与 RefineAtLevel level 0 完全等价）
+  - CoarseSearch 候选者上限 500 (sort+truncate)，防止全 360° 搜索产生 4000+ 候选导致 PyramidRefine 爆炸
+  - 以上改动同步应用到 SubPixelRefine mode 1 缩放路径
+- **tests/CMakeLists.txt**: 移除已删除的 test_scaled_rings_diag 注册
+- **性能提升**:
+  - 非缩放匹配: 2-10× 加速 (典型 50ms → 9ms)
+  - 缩放匹配: 3.4× 加速 (111ms → 33ms)
+  - 精度无回归
 
 ### 2026-03-04 (ShapeModel PyramidRefine 调度对齐反编译架构)
 

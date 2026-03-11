@@ -373,7 +373,7 @@ __m256 result = _mm256_mul_ps(a, rcp);
 
 2. **搜索阶段分支**
    - 当 `scaleMin` 和 `scaleMax` 都约等于 `1.0` 时，`FindScaledShapeModel` 会直接回退到 `FindShapeModel`。
-   - 否则按 scale 循环执行同一套 `SearchPyramid` 四阶段流程（CoarseSearch -> PyramidRefine -> SubPixelRefine -> FinalizeResults）。
+   - 否则 CoarseSearch 遍历 scale 生成候选 → PyramidRefine 中间层 RefineAtLevel (角度 only, scale 透传), 最终层 (level==0) RefineAtLevelScaled (5×5 联合角度×缩放迭代) → SubPixelRefine → FinalizeResults, 跨 scale 统一 NMS。
 
 3. **跨尺度结果融合**
    - 每个 scale 内部搜索时禁用 NMS/截断（`applyNMS=false`，`maxMatches=0`）。

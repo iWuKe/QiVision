@@ -1504,113 +1504,76 @@ std::vector<MatchResult> ShapeModelImpl::RefineAtLevelScaled(
             searchRadius, ignorePolarity, isGlobalPolarity,
             scoreGrid, scoreGridInv, peakX, peakY);
 
-        // Step 2: Lazy 5-angle search (decompiled sub_180040150 §3.5)
-        // Build 5 angle candidates: center ±step, ±2*step
-        // Scale is FIXED during iteration — only refined via polyfit at the end.
+        // Step 2: 5×5 joint angle×scale grid iteration (decompiled sub_180040150 §3.5)
+        // Joint iteration over angle AND scale — halving steps until convergence.
         {
-            double angles[5] = {
-                curAngle - 2.0 * aStep,
-                curAngle - aStep,
-                curAngle,
-                curAngle + aStep,
-                curAngle + 2.0 * aStep
-            };
+            constexpr double ANGLE_CONV_RAD = 0.01 * PI / 180.0;
+            double sStep = initialScaleStep;
 
-            // Per-angle results
-            float  aScores[5] = {0, 0, 0, 0, 0};
-            int32_t aPeakX[5] = {0, 0, 0, 0, 0};
-            int32_t aPeakY[5] = {0, 0, 0, 0, 0};
-            // Evaluation flags: >0 = needs eval, 0 = not yet, <0 = consumed
-            int8_t evalFlags[5] = {0, 0, 1, 1, 0};  // initially: center(2) and center+1(3)
+            auto [wsPx, wsPy, centerRaw] = windowSearch(curAngle, curScale, peakX, peakY);
+            (void)wsPx; (void)wsPy;
+            float bestRawScore = centerRaw;
 
-            int32_t leftBound = 2;   // v553
-            int32_t rightBound = 3;  // v554
+            while (std::fabs(aStep) >= ANGLE_CONV_RAD || sStep >= 0.001) {
+                float iterBestRaw = bestRawScore;
+                double iterBestAngle = curAngle;
+                double iterBestScale = curScale;
+                int32_t iterBestPx = peakX, iterBestPy = peakY;
+                bool improved = false;
 
-            while (true) {
-                // Evaluate all flagged angles
-                for (int i = 0; i < 5; ++i) {
-                    if (evalFlags[i] <= 0) continue;
-                    auto [px, py, raw] = windowSearch(angles[i], curScale, peakX, peakY);
-                    aScores[i] = raw;
-                    aPeakX[i] = px;
-                    aPeakY[i] = py;
-                }
-
-                // Find best among all evaluated angles, then mark as consumed
-                int bestIdx = -1;
-                float bestScore = -1e30f;
-                for (int i = 0; i < 5; ++i) {
-                    if (evalFlags[i] <= 0) continue;
-                    if (aScores[i] > bestScore) {
-                        bestScore = aScores[i];
-                        bestIdx = i;
-                    }
-                    evalFlags[i] = -1;  // consumed
-                }
-
-                if (bestIdx < 0) break;
-
-                // Count remaining active flags (decompiled: sumFlags + 3 <= 1)
-                int sumFlags = 0;
-                for (int i = 0; i < 5; ++i) sumFlags += evalFlags[i];
-
-                // Expansion logic (decompiled lines 5434-5449):
-                // If all flags consumed AND best is at current boundary → expand
-                if (sumFlags + 3 <= 1) {
-                    if (bestIdx == leftBound && leftBound > 0) {
-                        --leftBound;
-                        evalFlags[leftBound] = 1;  // flag next angle to the left
-                        continue;
-                    }
-                    if (bestIdx == rightBound && rightBound < 4) {
-                        ++rightBound;
-                        evalFlags[rightBound] = 1;  // flag next angle to the right
-                        continue;
+                for (int ai = -2; ai <= 2; ++ai) {
+                    double testA = curAngle + ai * aStep;
+                    for (int si = -2; si <= 2; ++si) {
+                        if (ai == 0 && si == 0) continue;
+                        double testS = curScale + si * sStep;
+                        auto [tpx, tpy, traw] = windowSearch(testA, testS, peakX, peakY);
+                        if (traw > iterBestRaw) {
+                            iterBestRaw = traw;
+                            iterBestAngle = testA;
+                            iterBestScale = testS;
+                            iterBestPx = tpx;
+                            iterBestPy = tpy;
+                            improved = true;
+                        }
                     }
                 }
-                break;  // best is interior or at hard boundary → converged
-            }
 
-            // Find overall best among all evaluated angles
-            int bestIdx = -1;
-            float bestScore = -1e30f;
-            for (int i = 0; i < 5; ++i) {
-                if (evalFlags[i] >= 0) continue;  // only consider consumed (evaluated)
-                if (aScores[i] > bestScore) {
-                    bestScore = aScores[i];
-                    bestIdx = i;
+                if (improved) {
+                    curAngle = iterBestAngle;
+                    curScale = iterBestScale;
+                    peakX = iterBestPx;
+                    peakY = iterBestPy;
+                    bestRawScore = iterBestRaw;
                 }
-            }
-            if (bestIdx >= 0) {
-                curAngle = angles[bestIdx];
-                peakX = aPeakX[bestIdx];
-                peakY = aPeakY[bestIdx];
+
+                aStep *= 0.5;
+                sStep *= 0.5;
             }
         }
 
         // Step 3: Newton angle interpolation (decompiled §3.5 LABEL_75)
-        // Use the converged angleStep for 3-point interpolation
         {
-            auto [lpx, lpy, rawL] = windowSearch(curAngle - aStep, curScale, peakX, peakY);
+            double finalAStep = aStep * 2.0;  // last meaningful step before convergence
+            auto [lpx, lpy, rawL] = windowSearch(curAngle - finalAStep, curScale, peakX, peakY);
             (void)lpx; (void)lpy;
             auto [cpx, cpy, rawC] = windowSearch(curAngle, curScale, peakX, peakY);
             (void)cpx; (void)cpy;
-            auto [rpx, rpy, rawR] = windowSearch(curAngle + aStep, curScale, peakX, peakY);
+            auto [rpx, rpy, rawR] = windowSearch(curAngle + finalAStep, curScale, peakX, peakY);
             (void)rpx; (void)rpy;
 
             double sL = static_cast<double>(rawL);
             double sC = static_cast<double>(rawC);
             double sR = static_cast<double>(rawR);
 
-            double x0 = curAngle - aStep;
+            double x0 = curAngle - finalAStep;
             double x1 = curAngle;
-            double x2 = curAngle + aStep;
+            double x2 = curAngle + finalAStep;
             double d1 = (sR - sC) / (x2 - x1);
             double d2 = (sC - sL) / (x1 - x0);
             double dd = (d1 - d2) / (x2 - x0);
             if (std::fabs(dd) > 1e-10) {
-                double peak = 0.5 * (x0 + x1) - d2 / (2.0 * dd);
-                if (std::fabs(peak - curAngle) <= aStep) {
+                double peak = -0.5 * (d1 - (x1 + x2) * dd) / dd;
+                if (std::fabs(peak - curAngle) <= finalAStep) {
                     curAngle = peak;
                 }
             }

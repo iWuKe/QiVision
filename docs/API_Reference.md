@@ -274,8 +274,8 @@ void FindScaledShapeModel(
 
 **Behavior Notes**
 1. If `scaleMin` and `scaleMax` are both approximately `1.0`, it falls back to `FindShapeModel`.
-2. Otherwise, it runs search per-scale and performs one unified cross-scale NMS at the end.
-3. Per-scale search reuses the same 4-stage pipeline as non-scaled search (`CoarseSearch -> PyramidRefine -> SubPixelRefine -> FinalizeResults`).
+2. Otherwise, CoarseSearch iterates over scales, PyramidRefine dispatches per-level (angle-only for intermediate levels, joint angle×scale for level 0), then one unified cross-scale NMS at the end.
+3. Per-scale search pipeline: `CoarseSearch -> PyramidRefine -> SubPixelRefine -> FinalizeResults`.
 
 ---
 

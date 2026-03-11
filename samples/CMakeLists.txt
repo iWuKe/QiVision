@@ -21,6 +21,7 @@ add_sample(matching_shape_interactive matching/shape_match_interactive.cpp)
 add_sample(matching_shape_scaled_rings matching/shape_scaled_match_rings.cpp)
 add_sample(matching_shape_brightness matching/shape_brightness.cpp)
 add_sample(matching_shape_mask_search matching/shape_mask_search.cpp)
+add_sample(matching_shape_multi matching/shape_multi_match.cpp)
 
 # Measure - Metrology & Caliper
 add_sample(measure_circle_metrology measure/circle_metrology.cpp)
@@ -59,6 +60,7 @@ set(SAMPLE_TARGETS
     matching_shape_scaled_rings
     matching_shape_brightness
     matching_shape_mask_search
+    matching_shape_multi
     measure_circle_metrology
     measure_line_metrology
     measure_caliper_pairs

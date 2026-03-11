@@ -279,6 +279,58 @@ void FindScaledShapeModel(
 
 ---
 
+### FindShapeModels
+
+Find instances of multiple shape models simultaneously. Equivalent to Halcon's `find_shape_models`. Builds a shared image pyramid once for all models, searches each model independently, then merges and NMS-filters results globally.
+
+```cpp
+void FindShapeModels(
+    const QImage& image,
+    const std::vector<ShapeModel>& models,
+    double angleStart,
+    double angleExtent,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    const std::vector<int32_t>& numLevels,
+    double greediness,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scores,
+    std::vector<int32_t>& modelIndices
+);
+```
+
+**Parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| image | const QImage& | Search image (grayscale) |
+| models | const std::vector\<ShapeModel\>& | Array of shape model handles |
+| angleStart | double | Smallest rotation angle [rad] (shared) |
+| angleExtent | double | Extent of rotation angles [rad] (shared) |
+| minScore | double | Minimum score threshold [0..1] (shared) |
+| numMatches | int32_t | Maximum total matches across all models (0 = all) |
+| maxOverlap | double | Maximum overlap between matches [0..1] (shared) |
+| subPixel | const std::string& | Subpixel accuracy mode (shared) |
+| numLevels | const std::vector\<int32_t\>& | Per-model pyramid levels; 0 = use model default |
+| greediness | double | Search greediness [0..1] (shared) |
+| rows | std::vector\<double\>& | [out] Row coordinates |
+| cols | std::vector\<double\>& | [out] Column coordinates |
+| angles | std::vector\<double\>& | [out] Rotation angles [rad] |
+| scores | std::vector\<double\>& | [out] Match scores [0..1] |
+| modelIndices | std::vector\<int32_t\>& | [out] Index into models array (0-based) |
+
+**Behavior Notes**
+1. A single shared image pyramid is built once using the maximum effective level count across all models, avoiding redundant pyramid computation.
+2. Each model runs the full `SearchPyramid` pipeline independently on the shared pyramid.
+3. Results from all models are merged, sorted by score (descending), and cross-model NMS is applied using OBB overlap (Sutherland-Hodgman polygon clipping).
+4. The `modelIndices` output identifies which model each match belongs to (0-based index into the `models` array).
+5. `MatchResult::modelIndex` field is set for each result (-1 for single-model search functions).
+
+---
+
 ### GetShapeModelXLD
 
 Gets model contours for visualization.

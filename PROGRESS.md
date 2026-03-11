@@ -1,6 +1,6 @@
 # QiVision 开发进度追踪
 
-> 最后更新: 2026-03-10 (ShapeModel 搜索速度对齐反编译 — 6 项优化)
+> 最后更新: 2026-03-11 (FindShapeModels 多模型同时搜索)
 >
 > 状态图例:
 > - ⬜ 未开始
@@ -268,6 +268,19 @@ Tests    █████████████████░░░ 87%
 ---
 
 ## 变更日志
+
+### 2026-03-11 (FindShapeModels 多模型同时搜索)
+
+- **include/QiVision/Matching/MatchTypes.h** (MatchResult 扩展)
+  - 新增 `modelIndex` 字段 (int32_t, 默认 -1)，标识多模型搜索中匹配所属模型索引
+- **include/QiVision/Matching/ShapeModel.h** (新 API 声明)
+  - 新增 `FindShapeModels` 函数声明，Halcon find_shape_models 对等
+  - 参数: 多模型数组 + 共享角度/分数/重叠参数 + 逐模型金字塔层数
+- **src/Matching/ShapeModel.cpp** (实现)
+  - FindShapeModels: 共享金字塔构建 + 逐模型独立 SearchPyramid + 全局排序 + 跨模型 OBB NMS + 截断
+  - 复用已有 helper: DecodeA12Param, RequireValidImage, EstimateAutoMinContrastFromPyramid
+  - NMS 使用 nms_detail::GetOBBCorners + OBBIntersectionArea (Sutherland-Hodgman)
+- **docs/API_Reference.md**: 新增 FindShapeModels 文档
 
 ### 2026-03-10 (FindScaledShapeModel 搜索掩膜支持 — 对齐 find_scaled_shape_model_2)
 

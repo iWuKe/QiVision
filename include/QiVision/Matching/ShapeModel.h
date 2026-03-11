@@ -335,6 +335,49 @@ QIVISION_API void FindScaledShapeModel(
     int32_t startLevel = 0
 );
 
+/**
+ * @brief Find instances of multiple shape models simultaneously
+ *
+ * Equivalent to Halcon's find_shape_models operator.
+ * Builds a shared image pyramid once for all models, then searches
+ * each model independently, merges candidates, and returns results
+ * sorted by score (descending). Each result includes modelIndex to
+ * identify which model the match belongs to.
+ *
+ * @param image         Search image (grayscale)
+ * @param models        Array of shape model handles
+ * @param angleStart    Smallest rotation angle [rad] (shared for all models)
+ * @param angleExtent   Extent of rotation angles [rad] (shared for all models)
+ * @param minScore      Minimum score threshold [0..1] (shared)
+ * @param numMatches    Maximum total matches across all models (0 = all)
+ * @param maxOverlap    Maximum overlap between matches [0..1] (shared)
+ * @param subPixel      Subpixel accuracy mode (shared)
+ * @param numLevels     Per-model pyramid levels; size == models.size(), 0 = use model default
+ * @param greediness    Search greediness [0..1] (shared)
+ * @param rows          [out] Row coordinates
+ * @param cols          [out] Column coordinates
+ * @param angles        [out] Rotation angles [rad]
+ * @param scores        [out] Match scores [0..1]
+ * @param modelIndices  [out] Index into models array for each match (0-based)
+ */
+QIVISION_API void FindShapeModels(
+    const QImage& image,
+    const std::vector<ShapeModel>& models,
+    double angleStart,
+    double angleExtent,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    const std::vector<int32_t>& numLevels,
+    double greediness,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scores,
+    std::vector<int32_t>& modelIndices
+);
+
 // =============================================================================
 // Model Property Functions
 // =============================================================================

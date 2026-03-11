@@ -1118,6 +1118,245 @@ void FindScaledShapeModel(
 }
 
 // =============================================================================
+// FindShapeModels — Multi-model simultaneous search
+// Halcon equivalent: find_shape_models
+// =============================================================================
+
+void FindShapeModels(
+    const QImage& image,
+    const std::vector<ShapeModel>& models,
+    double angleStart,
+    double angleExtent,
+    double minScore,
+    int32_t numMatches,
+    double maxOverlap,
+    const std::string& subPixel,
+    const std::vector<int32_t>& numLevels,
+    double greediness,
+    std::vector<double>& rows,
+    std::vector<double>& cols,
+    std::vector<double>& angles,
+    std::vector<double>& scores,
+    std::vector<int32_t>& modelIndices)
+{
+    // Clear outputs
+    rows.clear();
+    cols.clear();
+    angles.clear();
+    scores.clear();
+    modelIndices.clear();
+
+    // Phase 0: Input validation
+    if (!RequireValidImage(image, "FindShapeModels")) return;
+    if (models.empty()) return;
+
+    const int32_t modelCount = static_cast<int32_t>(models.size());
+
+    // Validate all models
+    std::vector<Internal::ShapeModelImpl*> impls(modelCount);
+    for (int32_t i = 0; i < modelCount; ++i) {
+        if (!models[i].IsValid()) {
+            throw InvalidArgumentException(
+                "FindShapeModels: model[" + std::to_string(i) + "] is invalid");
+        }
+        impls[i] = const_cast<Internal::ShapeModelImpl*>(models[i].Impl());
+    }
+
+    if (!std::isfinite(angleStart) || !std::isfinite(angleExtent))
+        throw InvalidArgumentException("FindShapeModels: invalid angle range");
+    if (!std::isfinite(minScore) || minScore < 0.0)
+        throw InvalidArgumentException("FindShapeModels: minScore must be >= 0");
+    if (!std::isfinite(maxOverlap) || maxOverlap < 0.0 || maxOverlap > 1.0)
+        throw InvalidArgumentException("FindShapeModels: maxOverlap must be in [0,1]");
+    if (!std::isfinite(greediness) || greediness <= 0.0 || greediness > 1.0)
+        throw InvalidArgumentException("FindShapeModels: greediness must be in (0,1]");
+
+    // Decode subpixel parameter (shared for all models)
+    SubpixelMethod subpixelMethod;
+    int32_t decodedSearchRadius;
+    DecodeA12Param(subPixel, subpixelMethod, decodedSearchRadius);
+
+    // Phase 0c: Compute per-model effective numLevels + global maxPyrLevels
+    std::vector<int32_t> effectiveLevels(modelCount);
+    int32_t maxPyrLevels = 0;
+    for (int32_t i = 0; i < modelCount; ++i) {
+        int32_t modelLvls = static_cast<int32_t>(impls[i]->levels_.size());
+        int32_t userLvls = (i < static_cast<int32_t>(numLevels.size())) ? numLevels[i] : 0;
+        if (userLvls > 0 && userLvls <= modelLvls)
+            effectiveLevels[i] = userLvls;
+        else
+            effectiveLevels[i] = modelLvls;
+        maxPyrLevels = std::max(maxPyrLevels, effectiveLevels[i]);
+    }
+
+    // Phase 1: Build shared pyramid (one build for all models)
+    AnglePyramidParams pyramidParams;
+    pyramidParams.numLevels = maxPyrLevels;
+    pyramidParams.minContrast = 1.0;
+    pyramidParams.smoothSigma = 0.5;
+    pyramidParams.extractEdgePoints = false;
+    pyramidParams.storeDirection = false;
+
+    AnglePyramid sharedPyramid;
+    if (!sharedPyramid.Build(image, pyramidParams)) {
+        return;
+    }
+
+    // Phase 2-4: Per-model search using shared pyramid
+    std::vector<MatchResult> allResults;
+
+    for (int32_t mi = 0; mi < modelCount; ++mi) {
+        SearchParams params;
+        params.angleStart = angleStart;
+        params.angleExtent = angleExtent;
+        params.minScore = minScore;
+        params.maxMatches = 0;         // Don't limit per-model (limit globally later)
+        params.maxOverlap = 1.0;       // Don't NMS per-model (NMS globally later)
+        params.subpixelMethod = subpixelMethod;
+        params.greediness = greediness;
+        params.numLevels = effectiveLevels[mi];
+        params.startLevel = 0;
+        params.searchRadiusBase = decodedSearchRadius;
+
+        // Decompiled mode-3 special case: bump startLevel by 1
+        if (subpixelMethod == SubpixelMethod::LeastSquaresHigh &&
+            params.startLevel <= 0 &&
+            effectiveLevels[mi] - 1 - params.startLevel > 1) {
+            params.startLevel += 1;
+        }
+
+        // Save/restore minContrast for auto mode
+        const double savedMinContrast = impls[mi]->params_.minContrast;
+        if (savedMinContrast <= 0.0) {
+            impls[mi]->params_.minContrast =
+                EstimateAutoMinContrastFromPyramid(sharedPyramid);
+        }
+
+        auto results = impls[mi]->SearchPyramid(sharedPyramid, params);
+
+        impls[mi]->params_.minContrast = savedMinContrast;
+
+        // Tag modelIndex
+        for (auto& r : results) {
+            r.modelIndex = mi;
+        }
+
+        allResults.insert(allResults.end(),
+                          std::make_move_iterator(results.begin()),
+                          std::make_move_iterator(results.end()));
+    }
+
+    if (allResults.empty()) return;
+
+    // Phase 5: Sort by score (descending) - global across all models
+    std::sort(allResults.begin(), allResults.end());
+
+    // Phase 6: Cross-model NMS using OBB overlap
+    if (maxOverlap < 1.0 && allResults.size() > 1) {
+        std::vector<MatchResult> nmsResults;
+        nmsResults.reserve(allResults.size());
+
+        struct CachedOBB {
+            nms_detail::Vec2 corners[4];
+            double area;
+            double cx, cy;
+        };
+        std::vector<CachedOBB> keptOBBs;
+
+        for (const auto& match : allResults) {
+            auto* impl = impls[match.modelIndex];
+
+            // Model bounding box from impl's cached bounds
+            double modelW = impl->modelMaxX_ - impl->modelMinX_;
+            double modelH = impl->modelMaxY_ - impl->modelMinY_;
+            double w = modelW * match.scaleX;
+            double h = modelH * match.scaleY;
+            double hw = w * 0.5, hh = h * 0.5;
+            double area = w * h;
+
+            if (area <= 0.0) {
+                nmsResults.push_back(match);
+                continue;
+            }
+
+            nms_detail::Vec2 corners[4];
+            bool cornersComputed = false;
+            bool suppress = false;
+
+            // Distance prefilter threshold (from NonMaxSuppressionOverlap)
+            double distThreshBase = (hw * hw + hh * hh) * 4.0;
+
+            for (size_t k = 0; k < keptOBBs.size(); ++k) {
+                // Distance prefilter
+                double dx = match.x - keptOBBs[k].cx;
+                double dy = match.y - keptOBBs[k].cy;
+                double distSq = dx * dx + dy * dy;
+                double maxDist = distThreshBase + keptOBBs[k].area;
+                if (distSq >= maxDist) continue;
+
+                // Lazy compute OBB corners
+                if (!cornersComputed) {
+                    nms_detail::GetOBBCorners(match.x, match.y, hw, hh,
+                                              match.angle, corners);
+                    cornersComputed = true;
+                }
+
+                double minArea = std::min(area, keptOBBs[k].area);
+                if (minArea <= 0.0) continue;
+
+                double interArea = nms_detail::OBBIntersectionArea(
+                    corners, keptOBBs[k].corners);
+                double overlapRatio = interArea / minArea;
+
+                if (overlapRatio > maxOverlap) {
+                    suppress = true;
+                    break;
+                }
+            }
+
+            if (!suppress) {
+                nmsResults.push_back(match);
+                CachedOBB obb;
+                if (!cornersComputed) {
+                    nms_detail::GetOBBCorners(match.x, match.y, hw, hh,
+                                              match.angle, corners);
+                }
+                for (int i = 0; i < 4; ++i) obb.corners[i] = corners[i];
+                obb.area = area;
+                obb.cx = match.x;
+                obb.cy = match.y;
+                keptOBBs.push_back(obb);
+            }
+        }
+
+        allResults = std::move(nmsResults);
+    }
+
+    // Phase 7: Truncate to numMatches
+    if (numMatches > 0 &&
+        static_cast<int32_t>(allResults.size()) > numMatches) {
+        allResults.resize(numMatches);
+    }
+
+    // Phase 8: Angle normalization + output
+    rows.reserve(allResults.size());
+    cols.reserve(allResults.size());
+    angles.reserve(allResults.size());
+    scores.reserve(allResults.size());
+    modelIndices.reserve(allResults.size());
+
+    for (auto& r : allResults) {
+        while (r.angle > PI) r.angle -= 2.0 * PI;
+        while (r.angle < -PI) r.angle += 2.0 * PI;
+        rows.push_back(r.y);
+        cols.push_back(r.x);
+        angles.push_back(r.angle);
+        scores.push_back(r.score);
+        modelIndices.push_back(r.modelIndex);
+    }
+}
+
+// =============================================================================
 // GetModelTransform (aligned with decompiled get_model_transform)
 // =============================================================================
 

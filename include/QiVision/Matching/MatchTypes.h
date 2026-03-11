@@ -171,6 +171,9 @@ struct QIVISION_API MatchResult {
     int32_t pyramidLevel = 0;   ///< Pyramid level where match was found
     bool refined = false;       ///< Whether subpixel refinement was applied
 
+    // Multi-model identification
+    int32_t modelIndex = -1;    ///< Index into models array (-1 = single model search)
+
     /**
      * @brief Get transformation matrix (2x3 affine)
      * @return Affine transformation from model to image coordinates

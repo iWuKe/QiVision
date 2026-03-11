@@ -218,6 +218,11 @@ public:
     // Search-side fields (used by SearchPyramid / ComputeScore)
     // ==========================================================================
 
+    /// Runtime minContrast override for search (mutable: set by const FindShapeModel/FindShapeModels).
+    /// When > 0, ComputeScore uses this instead of params_.minContrast.
+    /// Reset to -1.0 after each search call. Thread-safe: each search sets before and clears after.
+    mutable double searchMinContrast_ = -1.0;
+
     std::vector<float> cosLUT_;                      ///< Direction quantization lookup table
     ResponseMapLUT responseMapLUT_;                   ///< 16x16 cos-based LUT for response map
 

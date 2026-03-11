@@ -712,7 +712,7 @@ void FindShapeModel(
 
     ValidateLevels(numLevels, "FindShapeModel");
 
-    auto* impl = const_cast<Internal::ShapeModelImpl*>(model.Impl());
+    const auto* impl = model.Impl();
 
     // Decode decompiled a12 parameter: subpixel mode + searchRadiusBase
     SubpixelMethod subpixelMethod;
@@ -765,15 +765,18 @@ void FindShapeModel(
         ApplySearchMask(targetPyramid, searchMask, pyramidParams.numLevels);
     }
 
-    const double savedMinContrast = impl->params_.minContrast;
-    if (savedMinContrast <= 0.0) {
-        impl->params_.minContrast = EstimateAutoMinContrastFromPyramid(targetPyramid);
+    if (impl->params_.minContrast <= 0.0) {
+        impl->searchMinContrast_ = EstimateAutoMinContrastFromPyramid(targetPyramid);
         if (impl->timingParams_.debugCreateModel) {
-            std::printf("[Find] auto minContrast=%.2f\n", impl->params_.minContrast);
+            std::printf("[Find] auto minContrast=%.2f\n", impl->searchMinContrast_);
         }
+    } else {
+        impl->searchMinContrast_ = impl->params_.minContrast;
     }
 
     std::vector<MatchResult> results = impl->SearchPyramid(targetPyramid, params);
+
+    impl->searchMinContrast_ = -1.0;  // Reset override
 
     // Convert results to output vectors
     rows.reserve(results.size());
@@ -787,8 +790,6 @@ void FindShapeModel(
         angles.push_back(r.angle);
         scores.push_back(r.score);
     }
-
-    impl->params_.minContrast = savedMinContrast;
 }
 
 // =============================================================================
@@ -1001,7 +1002,7 @@ void FindScaledShapeModel(
     ValidateLevels(numLevels, "FindScaledShapeModel");
 
     // Get model implementation
-    auto* impl = const_cast<Internal::ShapeModelImpl*>(model.Impl());
+    const auto* impl = model.Impl();
 
     // Build pyramid for search image
     AnglePyramidParams pyramidParams;
@@ -1024,12 +1025,13 @@ void FindScaledShapeModel(
         ApplySearchMask(targetPyramid, searchMask, pyramidParams.numLevels);
     }
 
-    const double savedMinContrast = impl->params_.minContrast;
-    if (savedMinContrast <= 0.0) {
-        impl->params_.minContrast = EstimateAutoMinContrastFromPyramid(targetPyramid);
+    if (impl->params_.minContrast <= 0.0) {
+        impl->searchMinContrast_ = EstimateAutoMinContrastFromPyramid(targetPyramid);
         if (impl->timingParams_.debugCreateModel) {
-            std::printf("[FindScaled] auto minContrast=%.2f\n", impl->params_.minContrast);
+            std::printf("[FindScaled] auto minContrast=%.2f\n", impl->searchMinContrast_);
         }
+    } else {
+        impl->searchMinContrast_ = impl->params_.minContrast;
     }
 
     // Decode decompiled a12 parameter: subpixel mode + searchRadiusBase
@@ -1114,7 +1116,7 @@ void FindScaledShapeModel(
         scores.push_back(r.score);
     }
 
-    impl->params_.minContrast = savedMinContrast;
+    impl->searchMinContrast_ = -1.0;  // Reset override
 }
 
 // =============================================================================
@@ -1153,13 +1155,13 @@ void FindShapeModels(
     const int32_t modelCount = static_cast<int32_t>(models.size());
 
     // Validate all models
-    std::vector<Internal::ShapeModelImpl*> impls(modelCount);
+    std::vector<const Internal::ShapeModelImpl*> impls(modelCount);
     for (int32_t i = 0; i < modelCount; ++i) {
         if (!models[i].IsValid()) {
             throw InvalidArgumentException(
                 "FindShapeModels: model[" + std::to_string(i) + "] is invalid");
         }
-        impls[i] = const_cast<Internal::ShapeModelImpl*>(models[i].Impl());
+        impls[i] = models[i].Impl();
     }
 
     if (!std::isfinite(angleStart) || !std::isfinite(angleExtent))
@@ -1225,16 +1227,17 @@ void FindShapeModels(
             params.startLevel += 1;
         }
 
-        // Save/restore minContrast for auto mode
-        const double savedMinContrast = impls[mi]->params_.minContrast;
-        if (savedMinContrast <= 0.0) {
-            impls[mi]->params_.minContrast =
+        // Set search-time minContrast override (mutable, thread-safe per-call)
+        if (impls[mi]->params_.minContrast <= 0.0) {
+            impls[mi]->searchMinContrast_ =
                 EstimateAutoMinContrastFromPyramid(sharedPyramid);
+        } else {
+            impls[mi]->searchMinContrast_ = impls[mi]->params_.minContrast;
         }
 
         auto results = impls[mi]->SearchPyramid(sharedPyramid, params);
 
-        impls[mi]->params_.minContrast = savedMinContrast;
+        impls[mi]->searchMinContrast_ = -1.0;  // Reset override
 
         // Tag modelIndex
         for (auto& r : results) {
@@ -1259,6 +1262,7 @@ void FindShapeModels(
         struct CachedOBB {
             nms_detail::Vec2 corners[4];
             double area;
+            double diagSq;   // half-diagonal squared for distance prefilter
             double cx, cy;
         };
         std::vector<CachedOBB> keptOBBs;
@@ -1283,15 +1287,15 @@ void FindShapeModels(
             bool cornersComputed = false;
             bool suppress = false;
 
-            // Distance prefilter threshold (from NonMaxSuppressionOverlap)
-            double distThreshBase = (hw * hw + hh * hh) * 4.0;
+            // Distance prefilter: sum of both boxes' diagonal half-lengths squared
+            double diagSq = hw * hw + hh * hh;
 
             for (size_t k = 0; k < keptOBBs.size(); ++k) {
-                // Distance prefilter
+                // Distance prefilter: if centers are farther than sum of diagonals, no overlap possible
                 double dx = match.x - keptOBBs[k].cx;
                 double dy = match.y - keptOBBs[k].cy;
                 double distSq = dx * dx + dy * dy;
-                double maxDist = distThreshBase + keptOBBs[k].area;
+                double maxDist = diagSq + keptOBBs[k].diagSq + 2.0 * std::sqrt(diagSq * keptOBBs[k].diagSq);
                 if (distSq >= maxDist) continue;
 
                 // Lazy compute OBB corners
@@ -1323,6 +1327,7 @@ void FindShapeModels(
                 }
                 for (int i = 0; i < 4; ++i) obb.corners[i] = corners[i];
                 obb.area = area;
+                obb.diagSq = diagSq;
                 obb.cx = match.x;
                 obb.cy = match.y;
                 keptOBBs.push_back(obb);
@@ -1346,8 +1351,7 @@ void FindShapeModels(
     modelIndices.reserve(allResults.size());
 
     for (auto& r : allResults) {
-        while (r.angle > PI) r.angle -= 2.0 * PI;
-        while (r.angle < -PI) r.angle += 2.0 * PI;
+        r.angle = std::remainder(r.angle, 2.0 * PI);
         rows.push_back(r.y);
         cols.push_back(r.x);
         angles.push_back(r.angle);

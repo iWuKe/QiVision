@@ -352,7 +352,7 @@ QIVISION_API void FindScaledShapeModel(
  * @param numMatches    Maximum total matches across all models (0 = all)
  * @param maxOverlap    Maximum overlap between matches [0..1] (shared)
  * @param subPixel      Subpixel accuracy mode (shared)
- * @param numLevels     Per-model pyramid levels; size == models.size(), 0 = use model default
+ * @param numLevels     Per-model pyramid levels; size <= models.size() (missing entries default to 0), 0 = use model default
  * @param greediness    Search greediness [0..1] (shared)
  * @param rows          [out] Row coordinates
  * @param cols          [out] Column coordinates

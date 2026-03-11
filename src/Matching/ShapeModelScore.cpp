@@ -125,7 +125,8 @@ double ShapeModelImpl::ComputeScore(
         return 0.0;
     }
 
-    float minMagSq = detail::ComputeMinMagSq(params_.minContrast, pyramid.GetScale(level));
+    const double effectiveMinContrast = (searchMinContrast_ > 0.0) ? searchMinContrast_ : params_.minContrast;
+    float minMagSq = detail::ComputeMinMagSq(effectiveMinContrast, pyramid.GetScale(level));
     float posX = static_cast<float>(x);
     float posY = static_cast<float>(y);
     float scalef = static_cast<float>(scale);
@@ -211,7 +212,8 @@ void ShapeModelImpl::RefinePosition(
 
         const int32_t maxIx = grad.width - 2;
         const int32_t maxIy = grad.height - 2;
-        float minMagSq = detail::ComputeMinMagSq(params_.minContrast, pyramid.GetScale(level));
+        const double effectiveMinContrast2 = (searchMinContrast_ > 0.0) ? searchMinContrast_ : params_.minContrast;
+        float minMagSq = detail::ComputeMinMagSq(effectiveMinContrast2, pyramid.GetScale(level));
 
         // Bilinear interpolation of gradient at match center
         float imgX = static_cast<float>(match.x);
@@ -411,7 +413,8 @@ void ShapeModelImpl::RefineGaussNewton(
     auto soa = detail::SelectSoA(levels_[level], false);
     if (soa.count == 0) return;
 
-    float minMagSq = detail::ComputeMinMagSq(params_.minContrast, pyramid.GetScale(level));
+    const double effectiveMinContrast3 = (searchMinContrast_ > 0.0) ? searchMinContrast_ : params_.minContrast;
+    float minMagSq = detail::ComputeMinMagSq(effectiveMinContrast3, pyramid.GetScale(level));
 
     const int32_t maxIx = grad.width - 2;   // bilinear needs +1 neighbor
     const int32_t maxIy = grad.height - 2;

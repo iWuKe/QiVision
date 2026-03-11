@@ -338,11 +338,15 @@ QIVISION_API void FindScaledShapeModel(
 /**
  * @brief Find instances of multiple shape models simultaneously
  *
- * Equivalent to Halcon's find_shape_models operator.
+ * Equivalent to Halcon's find_shape_models / find_shape_models_2 operator.
  * Builds a shared image pyramid once for all models, then searches
  * each model independently, merges candidates, and returns results
  * sorted by score (descending). Each result includes modelIndex to
  * identify which model the match belongs to.
+ *
+ * When searchMask is provided, masked regions (pixel==0) are excluded from
+ * refinement scoring. The mask is applied to the shared gradient pyramid
+ * (max 2 levels). Coarse search is unaffected by the mask.
  *
  * @param image         Search image (grayscale)
  * @param models        Array of shape model handles
@@ -359,6 +363,8 @@ QIVISION_API void FindScaledShapeModel(
  * @param angles        [out] Rotation angles [rad]
  * @param scores        [out] Match scores [0..1]
  * @param modelIndices  [out] Index into models array for each match (0-based)
+ * @param searchMask    Optional search mask (uint8, same size as image). 0 = excluded, non-zero = included.
+ *                      Empty QImage = no mask (default).
  */
 QIVISION_API void FindShapeModels(
     const QImage& image,
@@ -375,7 +381,8 @@ QIVISION_API void FindShapeModels(
     std::vector<double>& cols,
     std::vector<double>& angles,
     std::vector<double>& scores,
-    std::vector<int32_t>& modelIndices
+    std::vector<int32_t>& modelIndices,
+    const QImage& searchMask = QImage()
 );
 
 // =============================================================================

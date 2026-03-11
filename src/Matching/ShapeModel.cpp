@@ -1139,7 +1139,8 @@ void FindShapeModels(
     std::vector<double>& cols,
     std::vector<double>& angles,
     std::vector<double>& scores,
-    std::vector<int32_t>& modelIndices)
+    std::vector<int32_t>& modelIndices,
+    const QImage& searchMask)
 {
     // Clear outputs
     rows.clear();
@@ -1202,6 +1203,12 @@ void FindShapeModels(
     AnglePyramid sharedPyramid;
     if (!sharedPyramid.Build(image, pyramidParams)) {
         return;
+    }
+
+    // Apply search mask to gradient data (decompiled find_shape_models_2)
+    // Mask pyramid: max 2 levels. Zero out gradX/gradY where mask==0.
+    if (!searchMask.Empty()) {
+        ApplySearchMask(sharedPyramid, searchMask, pyramidParams.numLevels);
     }
 
     // Phase 2-4: Per-model search using shared pyramid
